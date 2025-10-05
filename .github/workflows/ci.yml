@@ -11,6 +11,7 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # Stage 1: Lint and Format Check on Linux amd64, which is the cheapest and quickest build for us
   lint:
     name: Lint and Format Check
     runs-on: ubuntu-latest
@@ -31,17 +32,7 @@ jobs:
       - name: Install taplo
         run: cargo install taplo-cli --locked
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Run vibecheck
         run: just vibecheck
@@ -52,44 +43,27 @@ jobs:
       - name: Check TOML formatting
         run: taplo fmt --check
 
-  build-test:
-    name: Build and Test
+  # Stage 2: Linux amd64 Build and Test.  This will catch most build issues and broken tests,
+  # before we we move on to the more expensive and slower platform-specific builds and tests.
+  test-linux-amd64:
+    name: Test (Linux amd64)
     needs: lint
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       # dtolnay in his infinite wisdom did not think that CI builds should honor
       # rust-toolchain files, so we must specify the toolchain version here AND
       # in rust-toolchain.toml. Keep these in sync or face the consequences.
-      - uses: dtolnay/rust-toolchain@master
+      - &install-rust
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.1
 
       - name: Install just
         uses: extractions/setup-just@v3
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build
         run: cargo build --workspace
@@ -97,5 +71,107 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
-      - name: Build release
-        run: cargo build --release --workspace
+  # Stage 3: Tier 1 Platforms (Windows amd64, Mac amd64, Linux amd64 musl)
+  # These are also supported platforms, but windows and mac are more expensive to build,
+  # and linux musl is a less popular target, so we only invest in running these when we know
+  # that the basic linux amd64 build and tests have passed.
+  test-tier1-platforms:
+    name: Test (Tier 1 ${{ matrix.name }})
+    needs: test-linux-amd64
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows amd64
+          - os: macos-13
+            name: Mac amd64
+          - os: ubuntu-latest
+            name: Linux musl
+            target: x86_64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - *install-rust
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Add target
+        if: matrix.target
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      - name: Build
+        env:
+          TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        run: cargo build --workspace ${{ env.TARGET_FLAG }}
+
+      - name: Run tests
+        env:
+          TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        run: cargo test --workspace ${{ env.TARGET_FLAG }}
+
+  # Stage 4: ARM Platforms (Windows ARM64, Mac ARM64, Linux ARM64)
+  # These are very expensive because we have to use what Github considers "large" runners for
+  # windows and linux, and mac is just expensive no matter what, so we only run these when we're
+  # sure that build and test have passed on the amd64 versions of all of these platforms
+  test-arm-platforms:
+    name: Test (ARM ${{ matrix.name }})
+    needs: test-linux-amd64
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-11-arm64
+            name: Windows ARM64
+          - os: macos-14
+            name: Mac ARM64
+          - os: ubuntu-24.04-arm64
+            name: Linux ARM64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - *install-rust
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Run tests
+        run: cargo test --workspace
+
+  # Aggregate job that depends on all previous builds.  This is the check that
+  # must pass for the PR to be considered successful
+  build-test:
+    name: Build and Test
+    needs: [test-linux-amd64, test-tier1-platforms, test-arm-platforms]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all tests passed
+        run: |
+          if [ "${{ needs.test-linux-amd64.result }}" != "success" ] || \
+             [ "${{ needs.test-tier1-platforms.result }}" != "success" ] || \
+             [ "${{ needs.test-arm-platforms.result }}" != "success" ]; then
+            echo "One or more test jobs failed"
+            exit 1
+          fi
+          echo "All builds and tests passed"
