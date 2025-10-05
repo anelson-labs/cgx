@@ -1,0 +1,5 @@
+# Most of the good stuff in rustfmt is nightly-only
+# See `rustfmt-nightly.toml` for those
+
+# Make sure these values are also in `rustfmt-nightly.toml`
+max_width = 110
