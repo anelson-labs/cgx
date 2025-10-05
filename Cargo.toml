@@ -1,14 +1,14 @@
 [package]
-name = "cgx"
-description = "Rust version of uvx or npx, for use with Rust crates"
-version = "0.0.1"
-edition = "2024"
-authors = ["Adam Nelson <anelson@apocryph.org>"]
+authors      = ["Adam Nelson <anelson@apocryph.org>"]
+categories   = ["command-line-utilities", "development-tools"]
+description  = "Rust version of uvx or npx, for use with Rust crates"
+edition      = "2024"
+license      = "MIT OR Apache-2.0"
+name         = "cgx"
+readme       = "README.md"
+repository   = "https://github.com/anelson/cgx"
 rust-version = "1.85"
-readme = "README.md"
-repository = "https://github.com/anelson/cgx"
-license = "MIT OR Apache-2.0"
-categories = ["command-line-utilities", "development-tools"]
+version      = "0.0.1"
 
 [lints.rust]
 unsafe_code = "forbid"
