@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
     if: ${{ github.repository_owner == 'anelson-labs' }}
     steps:
       - &checkout
