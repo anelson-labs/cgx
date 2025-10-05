@@ -21,6 +21,8 @@ enum_glob_use = "deny"
 maintenance = { status = "experimental" }
 
 [dependencies]
+clap  = { version = "4.5.48", features = ["derive", "env", "string", "unicode"] }
+snafu = "0.8.9"
 
 # The profile that 'dist' will build with
 [profile.dist]
