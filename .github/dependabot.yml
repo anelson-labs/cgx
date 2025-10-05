@@ -14,3 +14,7 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
+    exclude-paths:
+      # This is managed by `cargo-dist`; if it gets modified by dependabot then
+      #cargo-dist detects that and fails
+      - ".github/workflows/release.yml"
