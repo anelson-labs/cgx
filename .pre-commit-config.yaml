@@ -1,0 +1,37 @@
+# To install hooks in your local clone of the repo:
+#
+# - Make sure pre-commit is installed. You can install it with pip:
+#   `pip install pre-commit`
+#   If you're the kind of power user who understands the risks of installing stuff into the system python
+#   environment, you can use `pip install --user pre-commit` to install it for your local user only.
+#   However you get it done, `pre-commit --version` should work afterwards.
+#
+# - Run `pre-commit install` in the root of your repo.
+#
+# - If you're one of the cool kids using `uv`, then you can skip that crap and just run `uvx pre-commit install`
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+
+repos:
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: ceb71ee
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          [
+            --verbose,
+            feat,
+            fix,
+            chore,
+            test,
+            ci,
+            docs,
+            style,
+            refactor,
+            perf,
+            build,
+            revert,
+            wip,
+          ]
