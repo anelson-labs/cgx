@@ -1,2 +1,4 @@
 [toolchain]
-channel = "1.85.0"
+# NB: If you ever change this, update Cargo.toml and all of the lines in the GHA workflows where we invoke
+# `dtolnay/rust-toolchain`
+channel = "1.85.1"

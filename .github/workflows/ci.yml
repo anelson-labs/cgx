@@ -22,7 +22,7 @@ jobs:
       # in rust-toolchain.toml. Keep these in sync or face the consequences.
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.85.1
           components: rustfmt, clippy
 
       - name: Install just
@@ -68,7 +68,7 @@ jobs:
       # in rust-toolchain.toml. Keep these in sync or face the consequences.
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.85.1
 
       - name: Install just
         uses: extractions/setup-just@v2
