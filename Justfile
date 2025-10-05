@@ -15,6 +15,7 @@ test:
 fmt:
 	cargo +nightly fmt -- --config-path rustfmt-nightly.toml
 	cargo fmt
+	taplo fmt
 
 # Wrapper around `cargo add` that adds a dependency to the workspace according to our standards
 wadd +args:

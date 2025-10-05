@@ -1,15 +1,15 @@
 [package]
-authors = ["Adam Nelson <anelson@apocryph.org>"]
-categories = ["command-line-utilities", "development-tools"]
-description = "Rust version of uvx or npx, for use with Rust crates"
-edition = "2024"
-license = "MIT OR Apache-2.0"
-name = "cgx"
-readme = "README.md"
-repository = "https://github.com/anelson/cgx"
-homepage = "https://github.com/anelson/cgx"
+authors      = ["Adam Nelson <anelson@apocryph.org>"]
+categories   = ["command-line-utilities", "development-tools"]
+description  = "Rust version of uvx or npx, for use with Rust crates"
+edition      = "2024"
+homepage     = "https://github.com/anelson/cgx"
+license      = "MIT OR Apache-2.0"
+name         = "cgx"
+readme       = "README.md"
+repository   = "https://github.com/anelson/cgx"
 rust-version = "1.85.1"
-version = "0.0.1"
+version      = "0.0.1"
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -25,4 +25,4 @@ maintenance = { status = "experimental" }
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
-lto = "thin"
+lto      = "thin"
