@@ -13,6 +13,8 @@ installers = ["shell", "powershell"]
 targets = [
   "aarch64-apple-darwin",
   "aarch64-unknown-linux-gnu",
+  "aarch64-unknown-linux-musl",
+  "aarch64-pc-windows-msvc",
   "x86_64-apple-darwin",
   "x86_64-unknown-linux-gnu",
   "x86_64-unknown-linux-musl",
@@ -22,3 +24,15 @@ targets = [
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = true
+
+[dist.github-custom-runners]
+# Shitty Github Actions support for ARM runners on personal plans has forced me to host
+# this repo in an org on a paid Teams plan.  In this org I have created the following "custom" runners, which are still
+# Github-hosted and managed, but appear as custom runners:
+# - `ubuntu-24.04-arm64` - 2-core · 8 GB RAM · 75 GB SSD
+# - `windows-11-arm64` - 4-core · 16 GB RAM · 150 GB SSD
+#
+# Dist needs to be told to use these
+aarch64-pc-windows-msvc    = "windows-11-arm64"
+aarch64-unknown-linux-gnu  = "ubuntu-24.04-arm64"
+aarch64-unknown-linux-musl = "ubuntu-24.04-arm64"
