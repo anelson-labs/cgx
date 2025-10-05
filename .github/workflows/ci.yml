@@ -27,7 +27,9 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install just
-        uses: extractions/setup-just@v3
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - name: Install taplo
         run: cargo install taplo-cli --locked
@@ -61,7 +63,9 @@ jobs:
           toolchain: 1.85.1
 
       - name: Install just
-        uses: extractions/setup-just@v3
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - uses: Swatinem/rust-cache@v2
 
@@ -96,7 +100,9 @@ jobs:
       - *install-rust
 
       - name: Install just
-        uses: extractions/setup-just@v3
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - name: Install musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
@@ -146,7 +152,9 @@ jobs:
       - *install-rust
 
       - name: Install just
-        uses: extractions/setup-just@v3
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - uses: Swatinem/rust-cache@v2
         with:
