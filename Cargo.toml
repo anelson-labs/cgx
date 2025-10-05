@@ -9,7 +9,7 @@ name         = "cgx"
 readme       = "README.md"
 repository   = "https://github.com/anelson-labs/cgx"
 rust-version = "1.85.1"
-version      = "0.0.2"
+version      = "0.0.3"
 
 [lints.rust]
 unsafe_code = "forbid"
