@@ -1,7 +1,8 @@
-use cgx::CliArgs;
+use cgx::{CliArgs, CrateResolver, CrateSpec};
 use clap::Parser;
 
-fn main() {
+#[snafu::report]
+fn main() -> cgx::Result<()> {
     let cli = CliArgs::parse();
 
     if let Some(version_arg) = &cli.version {
@@ -11,16 +12,91 @@ fn main() {
         }
     }
 
-    let crate_spec = cli.crate_spec.expect("CRATE is required");
+    let crate_spec = cli.parse_crate_spec()?;
 
-    let (_tool_name, _tool_args) = if crate_spec == "cargo" && !cli.args.is_empty() {
-        let subcommand = &cli.args[0];
-        let cargo_tool = format!("cargo-{}", subcommand);
-        let remaining_args = cli.args[1..].to_vec();
-        (cargo_tool, remaining_args)
-    } else {
-        (crate_spec, cli.args)
-    };
+    println!("Got crate spec:");
+    match &crate_spec {
+        CrateSpec::CratesIo { name, version } => {
+            println!(
+                "Crates.io crate: {} {}",
+                name,
+                version
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "latest".to_string()),
+            );
+        }
+        CrateSpec::Registry {
+            source,
+            name,
+            version,
+        } => {
+            println!(
+                "Registry crate: {} {} from {:?}",
+                name,
+                version
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "latest".to_string()),
+                source
+            );
+        }
+        CrateSpec::Git {
+            repo,
+            selector,
+            name,
+            version,
+        } => {
+            println!(
+                "Git crate: {} {} from {} ({:?})",
+                name.as_deref().unwrap_or("<unspecified>"),
+                version
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "latest".to_string()),
+                repo,
+                selector
+            );
+        }
+        CrateSpec::Forge {
+            forge,
+            selector,
+            name,
+            version,
+        } => {
+            println!(
+                "Forge crate: {} {} from {:?} ({:?})",
+                name.as_deref().unwrap_or("<unspecified>"),
+                version
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "latest".to_string()),
+                forge,
+                selector
+            );
+        }
+        CrateSpec::LocalDir { path, name, version } => {
+            println!(
+                "Local directory crate: {} {} from {}",
+                name.as_deref().unwrap_or("<unspecified>"),
+                version
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "latest".to_string()),
+                path.display()
+            );
+        }
+    }
+
+    println!("Resolving crate...");
+    let resolver = cgx::DefaultCrateResolver::new();
+
+    let resolved_crate = resolver.resolve(&crate_spec)?;
+
+    println!(
+        "Resolved crate {}@{}",
+        resolved_crate.name, resolved_crate.version
+    );
 
     todo!()
 }

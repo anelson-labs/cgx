@@ -12,4 +12,4 @@ pub use cli::CliArgs;
 pub use config::Config;
 pub use cratespec::{CrateSpec, Forge, RegistrySource};
 pub use error::{Error, Result};
-pub use resolver::{ResolvedCrate, ResolvedSource};
+pub use resolver::{CrateResolver, DefaultCrateResolver, ResolvedCrate, ResolvedSource};
