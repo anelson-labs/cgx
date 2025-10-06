@@ -21,12 +21,19 @@ fmt:
 wadd +args:
     #!/usr/bin/env bash
     set -e
-    if ! command -v cargo-autoinherit &> /dev/null; then
-        echo "Installing cargo-autoinherit..."
-        cargo install cargo-autoinherit --locked
+    # Check if we have a workspace by looking for [workspace] in Cargo.toml
+    if grep -q "^\[workspace\]" Cargo.toml 2>/dev/null; then
+        # We have a workspace, use the full workflow
+        if ! command -v cargo-autoinherit &> /dev/null; then
+            echo "Installing cargo-autoinherit..."
+            cargo install cargo-autoinherit --locked
+        fi
+        cargo add {{args}}
+        cargo autoinherit
+    else
+        # No workspace yet, just use cargo add directly
+        cargo add {{args}}
     fi
-    cargo add {{args}}
-    cargo autoinherit
 
 precommit: vibecheck test fmt
 
