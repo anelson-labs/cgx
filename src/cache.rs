@@ -1,5 +1,5 @@
-use crate::resolver::ResolvedCrate;
-use std::path::PathBuf;
+use crate::{config::Config, resolver::ResolvedCrate};
+use std::{path::PathBuf, sync::Arc};
 
 /// A cached crate represents source code that has been downloaded to the local cache directory.
 ///
@@ -17,4 +17,25 @@ pub struct CachedCrate {
 
     /// The path to the cached source code on disk
     pub cache_path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct Cache {
+    #[allow(dead_code)]
+    inner: Arc<CacheInner>,
+}
+
+impl Cache {
+    /// Create a new Cache with the given configuration
+    pub fn new(config: Config) -> Self {
+        Self {
+            inner: Arc::new(CacheInner { config }),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CacheInner {
+    #[allow(dead_code)]
+    config: Config,
 }

@@ -1,4 +1,4 @@
-use cgx::{CliArgs, CrateResolver, CrateSpec};
+use cgx::{Cache, CliArgs, Config, CrateResolver, CrateSpec};
 use clap::Parser;
 
 #[snafu::report]
@@ -11,6 +11,12 @@ fn main() -> cgx::Result<()> {
             std::process::exit(0);
         }
     }
+
+    let config = Config::load(&cli)?;
+
+    println!("Using config: {:#?}", config);
+
+    let _cache = Cache::new(config.clone());
 
     let crate_spec = cli.parse_crate_spec()?;
 
