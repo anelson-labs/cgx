@@ -12,11 +12,11 @@ use std::path::PathBuf;
 #[command(about = "Rust equivalent of uvx or npx, for use with Rust crates")]
 #[command(disable_version_flag = true)]
 pub struct CliArgs {
-    /// Git repository URL to install from
+    /// Find crate in git repository at the given URL
     #[arg(long, conflicts_with_all = ["registry", "path", "github", "gitlab", "index"])]
     pub git: Option<String>,
 
-    /// Registry to use (configured in .cargo/config.toml)
+    /// Name of registry (configured in .cargo/config.toml) in which to find crate
     #[arg(long, conflicts_with_all = ["git", "path", "github", "gitlab", "index"])]
     pub registry: Option<String>,
 
@@ -24,11 +24,11 @@ pub struct CliArgs {
     #[arg(long, conflicts_with_all = ["git", "registry", "github", "gitlab", "index"])]
     pub path: Option<PathBuf>,
 
-    /// GitHub repository (format: owner/repo)
+    /// Find crate in GitHub repository (format: owner/repo)
     #[arg(long, conflicts_with_all = ["git", "registry", "path", "gitlab", "index"])]
     pub github: Option<String>,
 
-    /// GitLab repository (format: owner/repo)
+    /// Find crate in GitLab repository (format: owner/repo)
     #[arg(long, conflicts_with_all = ["git", "registry", "path", "github", "index"])]
     pub gitlab: Option<String>,
 
@@ -44,15 +44,15 @@ pub struct CliArgs {
     #[arg(long, requires = "gitlab")]
     pub gitlab_url: Option<String>,
 
-    /// Branch to use when installing from git
+    /// Branch to use when installing from a git repo
     #[arg(long, conflicts_with_all = ["tag", "rev"])]
     pub branch: Option<String>,
 
-    /// Tag to use when installing from git
+    /// Tag to use when installing from a git repo
     #[arg(long, conflicts_with_all = ["branch", "rev"])]
     pub tag: Option<String>,
 
-    /// Specific commit to use when installing from git
+    /// Specific commit to use when installing from a git repo
     #[arg(long, conflicts_with_all = ["branch", "tag"])]
     pub rev: Option<String>,
 
@@ -72,7 +72,7 @@ pub struct CliArgs {
     #[arg(long)]
     pub all_features: bool,
 
-    /// Do not activate the `default` feature
+    /// Do not activate the default features
     #[arg(long)]
     pub no_default_features: bool,
 
@@ -217,12 +217,21 @@ impl CliArgs {
         }
 
         if let Some(git_url) = &self.git {
-            Ok(CrateSpec::Git {
-                repo: git_url.clone(),
-                selector: git_selector,
-                name,
-                version,
-            })
+            if let Some(forge) = Forge::try_parse_from_url(git_url) {
+                Ok(CrateSpec::Forge {
+                    forge,
+                    selector: git_selector,
+                    name,
+                    version,
+                })
+            } else {
+                Ok(CrateSpec::Git {
+                    repo: git_url.clone(),
+                    selector: git_selector,
+                    name,
+                    version,
+                })
+            }
         } else if let Some(registry) = &self.registry {
             let name = name.context(error::MissingCrateParameterSnafu)?;
             Ok(CrateSpec::Registry {
@@ -438,8 +447,12 @@ mod tests {
             let cr = parse_cratespec_from_args(&["--git", "https://github.com/foo/bar", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
-                if repo == "https://github.com/foo/bar" && name.as_deref() == Some("mycrate")
+                CrateSpec::Forge {
+                    forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
+                    selector: None,
+                    ref name,
+                    version: None
+                } if owner == "foo" && repo == "bar" && name.as_deref() == Some("mycrate")
             );
         }
 
@@ -455,12 +468,12 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git {
-                    ref repo,
+                CrateSpec::Forge {
+                    forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
                     selector: Some(GitSelector::Branch(ref b)),
                     ref name,
                     version: None
-                } if repo == "https://github.com/foo/bar" && b == "main" && name.as_deref() == Some("mycrate")
+                } if owner == "foo" && repo == "bar" && b == "main" && name.as_deref() == Some("mycrate")
             );
         }
 
@@ -476,12 +489,12 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git {
-                    ref repo,
+                CrateSpec::Forge {
+                    forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
                     selector: Some(GitSelector::Tag(ref t)),
                     ref name,
                     version: None
-                } if repo == "https://github.com/foo/bar" && t == "v1.0" && name.as_deref() == Some("mycrate")
+                } if owner == "foo" && repo == "bar" && t == "v1.0" && name.as_deref() == Some("mycrate")
             );
         }
 
@@ -497,14 +510,121 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git {
-                    ref repo,
+                CrateSpec::Forge {
+                    forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
                     selector: Some(GitSelector::Commit(ref c)),
                     ref name,
                     version: None
-                } if repo == "https://github.com/foo/bar" &&
+                } if owner == "foo" && repo == "bar" &&
                      c == "abc123" &&
                      name.as_deref() == Some("mycrate")
+            );
+        }
+
+        #[test]
+        fn test_git_github_https_url() {
+            let cr =
+                parse_cratespec_from_args(&["--git", "https://github.com/owner/repo", "mycrate"]).unwrap();
+            assert_matches!(
+                cr,
+                CrateSpec::Forge {
+                    forge: Forge::GitHub {
+                        custom_url: None,
+                        ref owner,
+                        ref repo
+                    },
+                    selector: None,
+                    ref name,
+                    version: None
+                } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
+            );
+        }
+
+        #[test]
+        fn test_git_github_https_url_with_git_suffix() {
+            let cr = parse_cratespec_from_args(&["--git", "https://github.com/owner/repo.git", "mycrate"])
+                .unwrap();
+            assert_matches!(
+                cr,
+                CrateSpec::Forge {
+                    forge: Forge::GitHub {
+                        custom_url: None,
+                        ref owner,
+                        ref repo
+                    },
+                    selector: None,
+                    ref name,
+                    version: None
+                } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
+            );
+        }
+
+        #[test]
+        fn test_git_gitlab_https_url() {
+            let cr =
+                parse_cratespec_from_args(&["--git", "https://gitlab.com/owner/repo", "mycrate"]).unwrap();
+            assert_matches!(
+                cr,
+                CrateSpec::Forge {
+                    forge: Forge::GitLab {
+                        custom_url: None,
+                        ref owner,
+                        ref repo
+                    },
+                    selector: None,
+                    ref name,
+                    version: None
+                } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
+            );
+        }
+
+        #[test]
+        fn test_git_scheme_not_transformed() {
+            let cr = parse_cratespec_from_args(&["--git", "git://github.com/owner/repo", "mycrate"]).unwrap();
+            assert_matches!(
+                cr,
+                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                if repo == "git://github.com/owner/repo" && name.as_deref() == Some("mycrate")
+            );
+        }
+
+        #[test]
+        fn test_git_custom_domain_not_transformed() {
+            let cr =
+                parse_cratespec_from_args(&["--git", "https://github.enterprise.com/owner/repo", "mycrate"])
+                    .unwrap();
+            assert_matches!(
+                cr,
+                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                if repo == "https://github.enterprise.com/owner/repo" && name.as_deref() == Some("mycrate")
+            );
+        }
+
+        #[test]
+        fn test_git_github_url_with_extra_path_not_transformed() {
+            let cr =
+                parse_cratespec_from_args(&["--git", "https://github.com/owner/repo/pull/15", "mycrate"])
+                    .unwrap();
+            assert_matches!(
+                cr,
+                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                if repo == "https://github.com/owner/repo/pull/15" && name.as_deref() == Some("mycrate")
+            );
+        }
+
+        #[test]
+        fn test_git_github_url_with_tree_path_not_transformed() {
+            let cr = parse_cratespec_from_args(&[
+                "--git",
+                "https://github.com/owner/repo/tree/master/some/path",
+                "mycrate",
+            ])
+            .unwrap();
+            assert_matches!(
+                cr,
+                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                if repo == "https://github.com/owner/repo/tree/master/some/path" &&
+                   name.as_deref() == Some("mycrate")
             );
         }
 
@@ -704,8 +824,12 @@ mod tests {
             let cr = parse_cratespec_from_args(&["--git", "https://github.com/foo/bar"]).unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git { ref repo, selector: None, name: None, version: None }
-                if repo == "https://github.com/foo/bar"
+                CrateSpec::Forge {
+                    forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
+                    selector: None,
+                    name: None,
+                    version: None
+                } if owner == "foo" && repo == "bar"
             );
         }
 

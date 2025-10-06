@@ -113,6 +113,54 @@ pub enum Forge {
     },
 }
 
+impl Forge {
+    /// Attempt to parse a URL into a reference to a repo in a forge
+    ///
+    /// When a known forge like Github or Gitlab is used, treating it as a forge as opposed to a
+    /// generic Git URL is important because we can use that forge's API to look for binary
+    /// releases for the crate, which if found will dramatically speed up installation.
+    ///
+    /// Only HTTPS urls are recognized, and only URLs that point to the root of a repository, on
+    /// the forges that we have API support for.
+    pub(crate) fn try_parse_from_url(git_url: &str) -> Option<Self> {
+        let url = url::Url::parse(git_url).ok()?;
+
+        if url.scheme() != "https" {
+            return None;
+        }
+
+        let host = url.host_str()?;
+
+        let path = url.path();
+        let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+        if segments.len() != 2 {
+            return None;
+        }
+
+        let owner = segments[0].to_string();
+        let mut repo = segments[1].to_string();
+
+        if repo.ends_with(".git") {
+            repo = repo[..repo.len() - 4].to_string();
+        }
+
+        match host {
+            "github.com" => Some(Forge::GitHub {
+                custom_url: None,
+                owner,
+                repo,
+            }),
+            "gitlab.com" => Some(Forge::GitLab {
+                custom_url: None,
+                owner,
+                repo,
+            }),
+            _other => None,
+        }
+    }
+}
+
 /// Cargo and thus cgx support adding an explicit branch, tag, or commit hash when specifying a git
 /// repo as a crate source.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
