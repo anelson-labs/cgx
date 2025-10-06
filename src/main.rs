@@ -1,26 +1,26 @@
+use cgx::CliArgs;
 use clap::Parser;
 
-#[derive(Parser)]
-#[command(name = "cgx")]
-#[command(about = "Rust version of uvx or npx, for use with Rust crates")]
-#[command(version)]
-struct Cli {
-    /// The tool to run
-    tool: String,
-
-    /// Arguments to pass to the tool
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    args: Vec<String>,
-}
-
 fn main() {
-    let cli = Cli::parse();
+    let cli = CliArgs::parse();
 
-    match cgx::run_tool(&cli.tool, &cli.args) {
-        Ok(code) => std::process::exit(code),
-        Err(e) => {
-            eprintln!("cgx error: {}", e);
-            std::process::exit(1);
+    if let Some(version_arg) = &cli.version {
+        if version_arg.is_empty() {
+            println!("cgx {}", env!("CARGO_PKG_VERSION"));
+            std::process::exit(0);
         }
     }
+
+    let crate_spec = cli.crate_spec.expect("CRATE is required");
+
+    let (_tool_name, _tool_args) = if crate_spec == "cargo" && !cli.args.is_empty() {
+        let subcommand = &cli.args[0];
+        let cargo_tool = format!("cargo-{}", subcommand);
+        let remaining_args = cli.args[1..].to_vec();
+        (cargo_tool, remaining_args)
+    } else {
+        (crate_spec, cli.args)
+    };
+
+    todo!()
 }

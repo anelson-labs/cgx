@@ -1,3 +1,4 @@
+exclude = ["scrap/**"]
 include = ["**/*.toml"]
 
 [formatting]
