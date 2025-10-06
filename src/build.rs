@@ -1,7 +1,7 @@
 /// Options that control how a crate is built.
 ///
 /// These options map to flags passed to `cargo build` (or `cargo install`).
-/// They are orthogonal to the crate identity and location (see [`crate::CrateRef`]),
+/// They are orthogonal to the crate identity and location (see [`crate::CrateSpec`]),
 /// focusing instead on build configuration, feature selection, and compilation settings.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct BuildOptions {

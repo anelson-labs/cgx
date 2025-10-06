@@ -2,7 +2,7 @@ use semver::VersionReq;
 use std::path::PathBuf;
 use url::Url;
 
-/// A reference to a crate that the user wants to execute.
+/// A specification of a crate that the user wants to execute.
 ///
 /// Note that "crate" here doesn't necessarily mean "crate on Crates.io".  We support various ways
 /// of referring to a crate to run, which is why this enum type is needed.  It abstracts away the
@@ -11,17 +11,17 @@ use url::Url;
 ///
 /// ## Versioning
 ///
-/// For crate references that point to registries (which store multiple versions of a crate), the
+/// For crate specs that point to registries (which store multiple versions of a crate), the
 /// default is to choose the latest version.  If a version is specified, then the most recent
 /// version that matches the specification is chosen.  If no such version exists then an error
 /// ocurrs.
 ///
-/// For crate references that point to local paths, forges, or git repos, there is no choice of
+/// For crate specs that point to local paths, forges, or git repos, there is no choice of
 /// version; the version of the crate is whatever it is at the specified location.  In those cases,
 /// if the `version` field is present, it is validated against the version found at the location,
 /// and if it's not compatible then an error ocurrs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum CrateRef {
+pub enum CrateSpec {
     /// A crate on Crates.io, specified by its name and optional version.
     CratesIo {
         name: String,

@@ -1,6 +1,6 @@
 use crate::{
     Result,
-    crateref::{CrateRef, Forge, GitSelector},
+    cratespec::{CrateSpec, Forge, GitSelector},
     error,
 };
 use clap::Parser;
@@ -149,14 +149,14 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
-    /// Attempt to parse a crate reference from the parameters provided by the user.
+    /// Attempt to parse a crate spec from the parameters provided by the user.
     ///
     /// This function uses the provided args to help interpret the string.
     /// Absent any other clues, the string is assumed to be a crate name on Crates.io.
     ///
-    /// Upon successful return, there's no guarantee that the crate reference is valid or exists,
-    /// just that it was unambiguously parsed into a reference.
-    pub fn parse_crate_ref(&self) -> Result<CrateRef> {
+    /// Upon successful return, there's no guarantee that the crate spec is valid or exists,
+    /// just that it was unambiguously parsed into a spec.
+    pub fn parse_crate_spec(&self) -> Result<CrateSpec> {
         let (name, at_version) = if let Some(crate_spec) = &self.crate_spec {
             if crate_spec == "cargo" && !self.args.is_empty() {
                 let subcommand = &self.args[0];
@@ -217,7 +217,7 @@ impl CliArgs {
         }
 
         if let Some(git_url) = &self.git {
-            Ok(CrateRef::Git {
+            Ok(CrateSpec::Git {
                 repo: git_url.clone(),
                 selector: git_selector,
                 name,
@@ -225,7 +225,7 @@ impl CliArgs {
             })
         } else if let Some(registry) = &self.registry {
             let name = name.context(error::MissingCrateParameterSnafu)?;
-            Ok(CrateRef::Registry {
+            Ok(CrateSpec::Registry {
                 source: crate::RegistrySource::Named(registry.clone()),
                 name,
                 version,
@@ -233,13 +233,13 @@ impl CliArgs {
         } else if let Some(index_str) = &self.index {
             let name = name.context(error::MissingCrateParameterSnafu)?;
             let index_url = url::Url::parse(index_str).context(error::InvalidUrlSnafu { url: index_str })?;
-            Ok(CrateRef::Registry {
+            Ok(CrateSpec::Registry {
                 source: crate::RegistrySource::IndexUrl(index_url),
                 name,
                 version,
             })
         } else if let Some(path) = &self.path {
-            Ok(CrateRef::LocalDir {
+            Ok(CrateSpec::LocalDir {
                 path: path.clone(),
                 name,
                 version,
@@ -251,7 +251,7 @@ impl CliArgs {
             } else {
                 None
             };
-            Ok(CrateRef::Forge {
+            Ok(CrateSpec::Forge {
                 forge: Forge::GitHub {
                     custom_url,
                     owner,
@@ -268,7 +268,7 @@ impl CliArgs {
             } else {
                 None
             };
-            Ok(CrateRef::Forge {
+            Ok(CrateSpec::Forge {
                 forge: Forge::GitLab {
                     custom_url,
                     owner,
@@ -280,7 +280,7 @@ impl CliArgs {
             })
         } else {
             let name = name.context(error::MissingCrateParameterSnafu)?;
-            Ok(CrateRef::CratesIo { name, version })
+            Ok(CrateSpec::CratesIo { name, version })
         }
     }
 
@@ -360,88 +360,88 @@ mod tests {
         CliArgs::command().debug_assert();
     }
 
-    mod crateref {
+    mod cratespec {
         use super::*;
-        fn parse_crateref_from_args(args: &[&str]) -> Result<CrateRef> {
+        fn parse_cratespec_from_args(args: &[&str]) -> Result<CrateSpec> {
             let mut full_args = vec!["cgx"];
             full_args.extend_from_slice(args);
             let cli = CliArgs::parse_from(full_args);
-            cli.parse_crate_ref()
+            cli.parse_crate_spec()
         }
 
         #[test]
         fn test_simple_crate() {
-            let cr = parse_crateref_from_args(&["ripgrep"]).unwrap();
+            let cr = parse_cratespec_from_args(&["ripgrep"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::CratesIo { ref name, version: None } if name == "ripgrep"
+                CrateSpec::CratesIo { ref name, version: None } if name == "ripgrep"
             );
         }
 
         #[test]
         fn test_crate_with_at_version() {
-            let cr = parse_crateref_from_args(&["ripgrep@14"]).unwrap();
+            let cr = parse_cratespec_from_args(&["ripgrep@14"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
+                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
             );
         }
 
         #[test]
         fn test_crate_with_flag_version() {
-            let cr = parse_crateref_from_args(&["ripgrep", "--version", "14"]).unwrap();
+            let cr = parse_cratespec_from_args(&["ripgrep", "--version", "14"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
+                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
             );
         }
 
         #[test]
         fn test_crate_with_matching_versions() {
-            let cr = parse_crateref_from_args(&["ripgrep@14", "--version", "14"]).unwrap();
+            let cr = parse_cratespec_from_args(&["ripgrep@14", "--version", "14"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
+                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
             );
         }
 
         #[test]
         fn test_crate_with_conflicting_versions() {
-            let result = parse_crateref_from_args(&["ripgrep@14", "--version", "15"]);
+            let result = parse_cratespec_from_args(&["ripgrep@14", "--version", "15"]);
             assert_matches!(result, Err(crate::error::Error::ConflictingVersions { .. }));
         }
 
         #[test]
         fn test_cargo_subcommand() {
-            let cr = parse_crateref_from_args(&["cargo", "deny"]).unwrap();
+            let cr = parse_cratespec_from_args(&["cargo", "deny"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::CratesIo { ref name, version: None } if name == "cargo-deny"
+                CrateSpec::CratesIo { ref name, version: None } if name == "cargo-deny"
             );
         }
 
         #[test]
         fn test_cargo_subcommand_with_version() {
-            let cr = parse_crateref_from_args(&["cargo", "deny@1"]).unwrap();
+            let cr = parse_cratespec_from_args(&["cargo", "deny@1"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::CratesIo { ref name, version: Some(_) } if name == "cargo-deny"
+                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "cargo-deny"
             );
         }
 
         #[test]
         fn test_git_source() {
-            let cr = parse_crateref_from_args(&["--git", "https://github.com/foo/bar", "mycrate"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--git", "https://github.com/foo/bar", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Git { ref repo, selector: None, ref name, version: None }
+                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
                 if repo == "https://github.com/foo/bar" && name.as_deref() == Some("mycrate")
             );
         }
 
         #[test]
         fn test_git_with_branch() {
-            let cr = parse_crateref_from_args(&[
+            let cr = parse_cratespec_from_args(&[
                 "--git",
                 "https://github.com/foo/bar",
                 "--branch",
@@ -451,7 +451,7 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Git {
+                CrateSpec::Git {
                     ref repo,
                     selector: Some(GitSelector::Branch(ref b)),
                     ref name,
@@ -462,7 +462,7 @@ mod tests {
 
         #[test]
         fn test_git_with_tag() {
-            let cr = parse_crateref_from_args(&[
+            let cr = parse_cratespec_from_args(&[
                 "--git",
                 "https://github.com/foo/bar",
                 "--tag",
@@ -472,7 +472,7 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Git {
+                CrateSpec::Git {
                     ref repo,
                     selector: Some(GitSelector::Tag(ref t)),
                     ref name,
@@ -483,7 +483,7 @@ mod tests {
 
         #[test]
         fn test_git_with_rev() {
-            let cr = parse_crateref_from_args(&[
+            let cr = parse_cratespec_from_args(&[
                 "--git",
                 "https://github.com/foo/bar",
                 "--rev",
@@ -493,7 +493,7 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Git {
+                CrateSpec::Git {
                     ref repo,
                     selector: Some(GitSelector::Commit(ref c)),
                     ref name,
@@ -504,10 +504,10 @@ mod tests {
 
         #[test]
         fn test_registry() {
-            let cr = parse_crateref_from_args(&["--registry", "my-registry", "mycrate"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--registry", "my-registry", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Registry {
+                CrateSpec::Registry {
                     source: crate::RegistrySource::Named(ref registry),
                     ref name,
                     version: None
@@ -518,10 +518,10 @@ mod tests {
         #[test]
         fn test_index() {
             let cr =
-                parse_crateref_from_args(&["--index", "https://my-index.com/git/index", "mycrate"]).unwrap();
+                parse_cratespec_from_args(&["--index", "https://my-index.com/git/index", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Registry {
+                CrateSpec::Registry {
                     source: crate::RegistrySource::IndexUrl(ref index),
                     ref name,
                     version: None
@@ -531,11 +531,11 @@ mod tests {
 
         #[test]
         fn test_index_with_version() {
-            let cr = parse_crateref_from_args(&["--index", "sparse+https://my-index.com/", "mycrate@1.0"])
+            let cr = parse_cratespec_from_args(&["--index", "sparse+https://my-index.com/", "mycrate@1.0"])
                 .unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Registry {
+                CrateSpec::Registry {
                     source: crate::RegistrySource::IndexUrl(ref index),
                     ref name,
                     version: Some(_)
@@ -545,20 +545,20 @@ mod tests {
 
         #[test]
         fn test_local_path() {
-            let cr = parse_crateref_from_args(&["--path", "./my-crate", "mycrate"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--path", "./my-crate", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::LocalDir { ref path, ref name, version: None }
+                CrateSpec::LocalDir { ref path, ref name, version: None }
                 if path.to_str().unwrap() == "./my-crate" && name.as_deref() == Some("mycrate")
             );
         }
 
         #[test]
         fn test_github() {
-            let cr = parse_crateref_from_args(&["--github", "owner/repo", "mycrate"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--github", "owner/repo", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Forge {
+                CrateSpec::Forge {
                     forge: Forge::GitHub {
                         custom_url: None,
                         ref owner,
@@ -573,7 +573,7 @@ mod tests {
 
         #[test]
         fn test_github_with_custom_url() {
-            let cr = parse_crateref_from_args(&[
+            let cr = parse_cratespec_from_args(&[
                 "--github",
                 "owner/repo",
                 "--github-url",
@@ -583,7 +583,7 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Forge {
+                CrateSpec::Forge {
                     forge: Forge::GitHub {
                         custom_url: Some(_),
                         ref owner,
@@ -598,11 +598,11 @@ mod tests {
 
         #[test]
         fn test_github_with_branch() {
-            let cr = parse_crateref_from_args(&["--github", "owner/repo", "--branch", "develop", "mycrate"])
+            let cr = parse_cratespec_from_args(&["--github", "owner/repo", "--branch", "develop", "mycrate"])
                 .unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Forge {
+                CrateSpec::Forge {
                     forge: Forge::GitHub { .. },
                     selector: Some(GitSelector::Branch(ref b)),
                     ref name,
@@ -613,10 +613,10 @@ mod tests {
 
         #[test]
         fn test_gitlab() {
-            let cr = parse_crateref_from_args(&["--gitlab", "owner/repo", "mycrate"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--gitlab", "owner/repo", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Forge {
+                CrateSpec::Forge {
                     forge: Forge::GitLab {
                         custom_url: None,
                         ref owner,
@@ -631,7 +631,7 @@ mod tests {
 
         #[test]
         fn test_gitlab_with_custom_url() {
-            let cr = parse_crateref_from_args(&[
+            let cr = parse_cratespec_from_args(&[
                 "--gitlab",
                 "owner/repo",
                 "--gitlab-url",
@@ -641,7 +641,7 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Forge {
+                CrateSpec::Forge {
                     forge: Forge::GitLab {
                         custom_url: Some(_),
                         ref owner,
@@ -656,44 +656,44 @@ mod tests {
 
         #[test]
         fn test_git_selector_without_git_source() {
-            let result = parse_crateref_from_args(&["--branch", "main", "mycrate"]);
+            let result = parse_cratespec_from_args(&["--branch", "main", "mycrate"]);
             assert_matches!(result, Err(crate::error::Error::GitSelectorWithoutGitSource));
         }
 
         #[test]
         fn test_invalid_repo_format() {
-            let result = parse_crateref_from_args(&["--github", "invalid-repo", "mycrate"]);
+            let result = parse_cratespec_from_args(&["--github", "invalid-repo", "mycrate"]);
             assert_matches!(result, Err(crate::error::Error::InvalidRepoFormat { .. }));
         }
 
         #[test]
         fn test_invalid_version() {
-            let result = parse_crateref_from_args(&["ripgrep@not-a-version"]);
+            let result = parse_cratespec_from_args(&["ripgrep@not-a-version"]);
             assert_matches!(result, Err(crate::error::Error::InvalidVersionReq { .. }));
         }
 
         #[test]
         fn test_invalid_index_url() {
-            let result = parse_crateref_from_args(&["--index", "not-a-valid-url", "mycrate"]);
+            let result = parse_cratespec_from_args(&["--index", "not-a-valid-url", "mycrate"]);
             assert_matches!(result, Err(crate::error::Error::InvalidUrl { .. }));
         }
 
         #[test]
         fn test_git_without_crate_name() {
-            let cr = parse_crateref_from_args(&["--git", "https://github.com/foo/bar"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--git", "https://github.com/foo/bar"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Git { ref repo, selector: None, name: None, version: None }
+                CrateSpec::Git { ref repo, selector: None, name: None, version: None }
                 if repo == "https://github.com/foo/bar"
             );
         }
 
         #[test]
         fn test_github_without_crate_name() {
-            let cr = parse_crateref_from_args(&["--github", "owner/repo"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--github", "owner/repo"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Forge {
+                CrateSpec::Forge {
                     forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
                     selector: None,
                     name: None,
@@ -704,10 +704,10 @@ mod tests {
 
         #[test]
         fn test_gitlab_without_crate_name() {
-            let cr = parse_crateref_from_args(&["--gitlab", "owner/repo"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--gitlab", "owner/repo"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::Forge {
+                CrateSpec::Forge {
                     forge: Forge::GitLab { custom_url: None, ref owner, ref repo },
                     selector: None,
                     name: None,
@@ -718,10 +718,10 @@ mod tests {
 
         #[test]
         fn test_path_without_crate_name() {
-            let cr = parse_crateref_from_args(&["--path", "./my-crate"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--path", "./my-crate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateRef::LocalDir { ref path, name: None, version: None }
+                CrateSpec::LocalDir { ref path, name: None, version: None }
                 if path.to_str().unwrap() == "./my-crate"
             );
         }
