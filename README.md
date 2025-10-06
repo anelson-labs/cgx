@@ -4,10 +4,10 @@
 
 Execute Rust crates easily and quickly. Like `uvx` or `npx` for Rust.
 
-## tl;dr
-
 `cgx` lets you run Cargo plugins and any other Rust binaries without needing to install them first. It will do what you
 would do manually with `cargo install`, `cargo binstall`, `cargo update`, and `cargo run-bin`, but in a single command.
+
+:warning: **NOTE**: `cgx` is still under active development, and is not yet considered stable. :warning:
 
 ## Installation
 
