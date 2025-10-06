@@ -383,7 +383,8 @@ mod tests {
             let cr = parse_cratespec_from_args(&["ripgrep@14"]).unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
+                CrateSpec::CratesIo { ref name, version: Some(ref v) }
+                if name == "ripgrep" && v == &semver::VersionReq::parse("14").unwrap()
             );
         }
 
@@ -392,7 +393,8 @@ mod tests {
             let cr = parse_cratespec_from_args(&["ripgrep", "--version", "14"]).unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
+                CrateSpec::CratesIo { ref name, version: Some(ref v) }
+                if name == "ripgrep" && v == &semver::VersionReq::parse("14").unwrap()
             );
         }
 
@@ -401,7 +403,8 @@ mod tests {
             let cr = parse_cratespec_from_args(&["ripgrep@14", "--version", "14"]).unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "ripgrep"
+                CrateSpec::CratesIo { ref name, version: Some(ref v) }
+                if name == "ripgrep" && v == &semver::VersionReq::parse("14").unwrap()
             );
         }
 
@@ -425,7 +428,8 @@ mod tests {
             let cr = parse_cratespec_from_args(&["cargo", "deny@1"]).unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::CratesIo { ref name, version: Some(_) } if name == "cargo-deny"
+                CrateSpec::CratesIo { ref name, version: Some(ref v) }
+                if name == "cargo-deny" && v == &semver::VersionReq::parse("1").unwrap()
             );
         }
 
@@ -498,7 +502,9 @@ mod tests {
                     selector: Some(GitSelector::Commit(ref c)),
                     ref name,
                     version: None
-                } if repo == "https://github.com/foo/bar" && c == "abc123" && name.as_deref() == Some("mycrate")
+                } if repo == "https://github.com/foo/bar" &&
+                     c == "abc123" &&
+                     name.as_deref() == Some("mycrate")
             );
         }
 
@@ -538,8 +544,10 @@ mod tests {
                 CrateSpec::Registry {
                     source: crate::RegistrySource::IndexUrl(ref index),
                     ref name,
-                    version: Some(_)
-                } if index.as_str() == "sparse+https://my-index.com/" && name == "mycrate"
+                    version: Some(ref v)
+                } if index.as_str() == "sparse+https://my-index.com/" &&
+                     name == "mycrate" &&
+                     v == &semver::VersionReq::parse("1.0").unwrap()
             );
         }
 
@@ -585,14 +593,17 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitHub {
-                        custom_url: Some(_),
+                        custom_url: Some(ref url),
                         ref owner,
                         ref repo
                     },
                     selector: None,
                     ref name,
                     version: None
-                } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
+                } if owner == "owner" &&
+                     repo == "repo" &&
+                     name.as_deref() == Some("mycrate") &&
+                     url.as_str() == "https://github.mycorp.com/"
             );
         }
 
@@ -603,11 +614,18 @@ mod tests {
             assert_matches!(
                 cr,
                 CrateSpec::Forge {
-                    forge: Forge::GitHub { .. },
+                    forge: Forge::GitHub {
+                        custom_url: None,
+                        ref owner,
+                        ref repo
+                    },
                     selector: Some(GitSelector::Branch(ref b)),
                     ref name,
                     version: None
-                } if b == "develop" && name.as_deref() == Some("mycrate")
+                } if owner == "owner" &&
+                     repo == "repo" &&
+                     b == "develop" &&
+                     name.as_deref() == Some("mycrate")
             );
         }
 
@@ -643,14 +661,17 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitLab {
-                        custom_url: Some(_),
+                        custom_url: Some(ref url),
                         ref owner,
                         ref repo
                     },
                     selector: None,
                     ref name,
                     version: None
-                } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
+                } if owner == "owner" &&
+                     repo == "repo" &&
+                     name.as_deref() == Some("mycrate") &&
+                     url.as_str() == "https://gitlab.mycorp.com/"
             );
         }
 
