@@ -64,6 +64,16 @@ impl<T> CacheEntry<T> {
 /// A cache entry for a resolved crate specification.
 type ResolveCacheEntry = CacheEntry<ResolvedCrate>;
 
+/// Manages the various caches that cgx uses to operate.
+///
+/// The root of the caches is controlled by [`Config::cache_dir`].  Below that are multiple
+/// subdirectories for caching various things:
+/// - Results of crate spec resolution
+/// - Downloaded/extracted crate source code packages
+/// - Git database (bare repos)
+/// - Git checkouts at specific commits
+///
+/// More may be added over time.
 #[derive(Clone, Debug)]
 pub struct Cache {
     inner: Arc<CacheInner>,
@@ -299,6 +309,42 @@ impl Cache {
         Ok(path)
     }
 
+    /// Get the cache path for a git database (bare repo) for a URL.
+    pub(crate) fn git_db_path(&self, url: &str) -> PathBuf {
+        let ident = self.compute_git_ident(url);
+        self.inner.config.cache_dir.join("git-db").join(ident)
+    }
+
+    /// Get the cache path for a git checkout at a specific commit.
+    pub(crate) fn git_checkout_path(&self, url: &str, commit: &str) -> PathBuf {
+        let ident = self.compute_git_ident(url);
+        self.inner
+            .config
+            .cache_dir
+            .join("git-checkouts")
+            .join(ident)
+            .join(commit)
+    }
+
+    /// Compute stable identifier for git URL (like cargo's ident).
+    ///
+    /// Format: `{repo-name}-{short-hash}`
+    /// Example: `tokio-a1b2c3d4` for `https://github.com/tokio-rs/tokio`
+    fn compute_git_ident(&self, url: &str) -> String {
+        // Extract repo name from URL (last path component)
+        let name = url
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .rsplit('/')
+            .next()
+            .unwrap_or("repo");
+
+        // Short hash of full URL for uniqueness
+        let hash = &Self::compute_hash(url.as_bytes())[..8];
+
+        format!("{}-{}", name, hash)
+    }
+
     /// Test helper to manually insert a stale resolve cache entry.
     ///
     /// This allows tests to populate the cache with entries of a specific age,
@@ -347,7 +393,7 @@ mod tests {
     }
 
     fn test_cache_with_timeout(timeout: Duration) -> (Cache, TempDir) {
-        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = Config {
             config_dir: temp_dir.path().join("config"),
             cache_dir: temp_dir.path().join("cache"),

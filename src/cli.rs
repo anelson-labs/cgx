@@ -1,8 +1,9 @@
 use crate::{
     Result,
     build::BuildOptions,
-    cratespec::{CrateSpec, Forge, GitSelector, RegistrySource},
+    cratespec::{CrateSpec, Forge, RegistrySource},
     error,
+    git::GitSelector,
 };
 use clap::Parser;
 use snafu::{OptionExt, ResultExt};
@@ -215,16 +216,16 @@ impl CliArgs {
         };
 
         let git_selector = match (&self.branch, &self.tag, &self.rev) {
-            (Some(branch), None, None) => Some(GitSelector::Branch(branch.clone())),
-            (None, Some(tag), None) => Some(GitSelector::Tag(tag.clone())),
-            (None, None, Some(rev)) => Some(GitSelector::Commit(rev.clone())),
-            (None, None, None) => None,
+            (Some(branch), None, None) => GitSelector::Branch(branch.clone()),
+            (None, Some(tag), None) => GitSelector::Tag(tag.clone()),
+            (None, None, Some(rev)) => GitSelector::Commit(rev.clone()),
+            (None, None, None) => GitSelector::DefaultBranch,
             _ => unreachable!("BUG: clap should enforce mutual exclusivity"),
         };
 
         let is_git_source = self.git.is_some() || self.github.is_some() || self.gitlab.is_some();
 
-        if git_selector.is_some() && !is_git_source {
+        if !matches!(git_selector, GitSelector::DefaultBranch) && !is_git_source {
             return error::GitSelectorWithoutGitSourceSnafu.fail();
         }
 
@@ -232,14 +233,14 @@ impl CliArgs {
             if let Some(forge) = Forge::try_parse_from_url(git_url) {
                 Ok(CrateSpec::Forge {
                     forge,
-                    selector: git_selector,
+                    selector: git_selector.clone(),
                     name,
                     version,
                 })
             } else {
                 Ok(CrateSpec::Git {
                     repo: git_url.clone(),
-                    selector: git_selector,
+                    selector: git_selector.clone(),
                     name,
                     version,
                 })
@@ -278,7 +279,7 @@ impl CliArgs {
                     owner,
                     repo,
                 },
-                selector: git_selector,
+                selector: git_selector.clone(),
                 name,
                 version,
             })
@@ -295,7 +296,7 @@ impl CliArgs {
                     owner,
                     repo,
                 },
-                selector: git_selector,
+                selector: git_selector.clone(),
                 name,
                 version,
             })
@@ -461,7 +462,7 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "foo" && repo == "bar" && name.as_deref() == Some("mycrate")
@@ -482,7 +483,7 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
-                    selector: Some(GitSelector::Branch(ref b)),
+                    selector: GitSelector::Branch(ref b),
                     ref name,
                     version: None
                 } if owner == "foo" && repo == "bar" && b == "main" && name.as_deref() == Some("mycrate")
@@ -503,7 +504,7 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
-                    selector: Some(GitSelector::Tag(ref t)),
+                    selector: GitSelector::Tag(ref t),
                     ref name,
                     version: None
                 } if owner == "foo" && repo == "bar" && t == "v1.0" && name.as_deref() == Some("mycrate")
@@ -524,7 +525,7 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
-                    selector: Some(GitSelector::Commit(ref c)),
+                    selector: GitSelector::Commit(ref c),
                     ref name,
                     version: None
                 } if owner == "foo" && repo == "bar" &&
@@ -545,7 +546,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
@@ -564,7 +565,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
@@ -583,7 +584,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
@@ -595,7 +596,7 @@ mod tests {
             let cr = parse_cratespec_from_args(&["--git", "git://github.com/owner/repo", "mycrate"]).unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                CrateSpec::Git { ref repo, selector: GitSelector::DefaultBranch, ref name, version: None }
                 if repo == "git://github.com/owner/repo" && name.as_deref() == Some("mycrate")
             );
         }
@@ -607,7 +608,7 @@ mod tests {
                     .unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                CrateSpec::Git { ref repo, selector: GitSelector::DefaultBranch, ref name, version: None }
                 if repo == "https://github.enterprise.com/owner/repo" && name.as_deref() == Some("mycrate")
             );
         }
@@ -619,7 +620,7 @@ mod tests {
                     .unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                CrateSpec::Git { ref repo, selector: GitSelector::DefaultBranch, ref name, version: None }
                 if repo == "https://github.com/owner/repo/pull/15" && name.as_deref() == Some("mycrate")
             );
         }
@@ -634,7 +635,7 @@ mod tests {
             .unwrap();
             assert_matches!(
                 cr,
-                CrateSpec::Git { ref repo, selector: None, ref name, version: None }
+                CrateSpec::Git { ref repo, selector: GitSelector::DefaultBranch, ref name, version: None }
                 if repo == "https://github.com/owner/repo/tree/master/some/path" &&
                    name.as_deref() == Some("mycrate")
             );
@@ -704,7 +705,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
@@ -729,7 +730,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "owner" &&
@@ -751,7 +752,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: Some(GitSelector::Branch(ref b)),
+                    selector: GitSelector::Branch(ref b),
                     ref name,
                     version: None
                 } if owner == "owner" &&
@@ -772,7 +773,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "owner" && repo == "repo" && name.as_deref() == Some("mycrate")
@@ -797,7 +798,7 @@ mod tests {
                         ref owner,
                         ref repo
                     },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     ref name,
                     version: None
                 } if owner == "owner" &&
@@ -838,7 +839,7 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     name: None,
                     version: None
                 } if owner == "foo" && repo == "bar"
@@ -852,7 +853,7 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitHub { custom_url: None, ref owner, ref repo },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     name: None,
                     version: None
                 } if owner == "owner" && repo == "repo"
@@ -866,7 +867,7 @@ mod tests {
                 cr,
                 CrateSpec::Forge {
                     forge: Forge::GitLab { custom_url: None, ref owner, ref repo },
-                    selector: None,
+                    selector: GitSelector::DefaultBranch,
                     name: None,
                     version: None
                 } if owner == "owner" && repo == "repo"

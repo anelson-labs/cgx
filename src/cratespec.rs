@@ -1,3 +1,4 @@
+use crate::git::GitSelector;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -48,7 +49,7 @@ pub enum CrateSpec {
     /// version that is compatible with the version specification or an error ocurrs.
     Git {
         repo: String,
-        selector: Option<GitSelector>,
+        selector: GitSelector,
         name: Option<String>,
         version: Option<VersionReq>,
     },
@@ -63,8 +64,8 @@ pub enum CrateSpec {
         /// A repository within a software forge
         forge: Forge,
 
-        /// An optional branch, tag, or commit hash within the repository
-        selector: Option<GitSelector>,
+        /// A branch, tag, or commit hash within the repository
+        selector: GitSelector,
 
         name: Option<String>,
 
@@ -115,6 +116,34 @@ pub enum Forge {
 }
 
 impl Forge {
+    /// Convert this forge reference into a git URL
+    pub(crate) fn git_url(&self) -> String {
+        match self {
+            Forge::GitHub {
+                custom_url,
+                owner,
+                repo,
+            } => {
+                let base = custom_url
+                    .as_ref()
+                    .map(|u| u.as_str().trim_end_matches('/'))
+                    .unwrap_or("https://github.com");
+                format!("{}/{}/{}.git", base, owner, repo)
+            }
+            Forge::GitLab {
+                custom_url,
+                owner,
+                repo,
+            } => {
+                let base = custom_url
+                    .as_ref()
+                    .map(|u| u.as_str().trim_end_matches('/'))
+                    .unwrap_or("https://gitlab.com");
+                format!("{}/{}/{}.git", base, owner, repo)
+            }
+        }
+    }
+
     /// Attempt to parse a URL into a reference to a repo in a forge
     ///
     /// When a known forge like Github or Gitlab is used, treating it as a forge as opposed to a
@@ -160,13 +189,4 @@ impl Forge {
             _other => None,
         }
     }
-}
-
-/// Cargo and thus cgx support adding an explicit branch, tag, or commit hash when specifying a git
-/// repo as a crate source.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum GitSelector {
-    Branch(String),
-    Tag(String),
-    Commit(String),
 }

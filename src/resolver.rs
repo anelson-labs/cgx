@@ -2,18 +2,15 @@ use crate::{
     Error, Result,
     cache::Cache,
     config::Config,
-    cratespec::{CrateSpec, Forge, GitSelector, RegistrySource},
+    cratespec::{CrateSpec, Forge, RegistrySource},
     error,
-    git::{GitUrl, Repository},
+    git::{GitClient, GitSelector},
 };
 use cargo_metadata::MetadataCommand;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
 use tame_index::{
     IndexLocation, IndexUrl, KrateName, SparseIndex, index::RemoteSparseIndex, utils::flock::LockOptions,
 };
@@ -103,8 +100,8 @@ pub enum ResolvedSource {
 
 /// Create the default [`CrateResolver`] implementation, repecting the given config and using the
 /// provided cache.
-pub fn create_resolver(config: Config, cache: Cache) -> impl CrateResolver {
-    let inner = DefaultCrateResolver::new(config);
+pub fn create_resolver(config: Config, cache: Cache, git_client: GitClient) -> impl CrateResolver {
+    let inner = DefaultCrateResolver::new(config, git_client);
     CachingResolver::new(inner, cache)
 }
 
@@ -113,12 +110,13 @@ pub fn create_resolver(config: Config, cache: Cache) -> impl CrateResolver {
 #[derive(Debug, Clone)]
 struct DefaultCrateResolver {
     config: Config,
+    git_client: GitClient,
 }
 
 impl DefaultCrateResolver {
-    /// Create a new [`DefaultCrateResolver`] with the given configuration.
-    pub fn new(config: Config) -> Self {
-        Self { config }
+    /// Create a new [`DefaultCrateResolver`] with the given configuration and git client.
+    pub fn new(config: Config, git_client: GitClient) -> Self {
+        Self { config, git_client }
     }
 
     /// Resolve a local directory crate specification.
@@ -279,50 +277,16 @@ impl DefaultCrateResolver {
     fn resolve_git(
         &self,
         repo: &str,
-        selector: &Option<GitSelector>,
+        selector: &GitSelector,
         name: &Option<String>,
         version: &Option<VersionReq>,
     ) -> Result<ResolvedCrate> {
-        let temp_dir = tempfile::tempdir().context(error::IoSnafu)?;
-        let temp_path = temp_dir.path().to_owned();
-
-        // Clone repository using appropriate method based on selector
-        let git_repo = match selector {
-            Some(GitSelector::Commit(commit_hash)) => {
-                // Commits require full clone and explicit checkout
-                let git_url = GitUrl::from_str(repo)?;
-                Repository::clone_at_commit(git_url, &temp_path, commit_hash)?
-            }
-            _ => {
-                // Branches, tags, or no selector: use shallow clone with URL fragment
-                let mut git_url_str = repo.to_string();
-                let expected_ref = if let Some(sel) = selector {
-                    match sel {
-                        GitSelector::Branch(b) => {
-                            git_url_str.push_str(&format!("#refs/heads/{}", b));
-                            Some(format!("refs/heads/{}", b))
-                        }
-                        GitSelector::Tag(t) => {
-                            git_url_str.push_str(&format!("#refs/tags/{}", t));
-                            Some(format!("refs/tags/{}", t))
-                        }
-                        GitSelector::Commit(_) => unreachable!(), // Handled above
-                    }
-                } else {
-                    None
-                };
-
-                let git_url = GitUrl::from_str(&git_url_str)?;
-
-                Repository::shallow_clone(git_url, &temp_path, expected_ref.as_deref())?
-            }
-        };
-
-        let commit_hash = git_repo.get_head_commit_hash()?;
+        // Checkout using git client (returns cached checkout path and commit hash)
+        let (checkout_path, commit_hash) = self.git_client.checkout_ref(repo, selector.clone())?;
 
         // Use cargo_metadata to read the crate info
         let metadata = MetadataCommand::new()
-            .manifest_path(temp_path.join("Cargo.toml"))
+            .manifest_path(checkout_path.join("Cargo.toml"))
             .no_deps()
             .exec()
             .context(error::CargoMetadataSnafu)?;
@@ -366,35 +330,12 @@ impl DefaultCrateResolver {
     fn resolve_forge(
         &self,
         forge: &Forge,
-        selector: &Option<GitSelector>,
+        selector: &GitSelector,
         name: &Option<String>,
         version: &Option<VersionReq>,
     ) -> Result<ResolvedCrate> {
         // Convert Forge to git URL
-        let git_url = match forge {
-            Forge::GitHub {
-                custom_url,
-                owner,
-                repo,
-            } => {
-                let base = custom_url
-                    .as_ref()
-                    .map(|u| u.as_str().trim_end_matches('/'))
-                    .unwrap_or("https://github.com");
-                format!("{}/{}/{}.git", base, owner, repo)
-            }
-            Forge::GitLab {
-                custom_url,
-                owner,
-                repo,
-            } => {
-                let base = custom_url
-                    .as_ref()
-                    .map(|u| u.as_str().trim_end_matches('/'))
-                    .unwrap_or("https://gitlab.com");
-                format!("{}/{}/{}.git", base, owner, repo)
-            }
-        };
+        let git_url = forge.git_url();
 
         // Resolve using git resolution logic
         let mut resolved = self.resolve_git(&git_url, selector, name, version)?;
@@ -481,7 +422,7 @@ mod tests {
     ///
     /// Returns the resolver and the TempDir which must be kept alive for the test duration.
     fn test_resolver() -> (CachingResolver<DefaultCrateResolver>, tempfile::TempDir) {
-        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = Config {
             config_dir: temp_dir.path().join("config"),
             cache_dir: temp_dir.path().join("cache"),
@@ -491,7 +432,8 @@ mod tests {
             locked: false,
         };
         let cache = Cache::new(config.clone());
-        let resolver = DefaultCrateResolver::new(config);
+        let git_client = GitClient::new(cache.clone());
+        let resolver = DefaultCrateResolver::new(config, git_client);
         (CachingResolver::new(resolver, cache), temp_dir)
     }
 
@@ -501,7 +443,8 @@ mod tests {
         let mut config = resolver.inner.config;
         config.offline = true;
         let cache = Cache::new(config.clone());
-        let resolver = DefaultCrateResolver::new(config);
+        let git_client = GitClient::new(cache.clone());
+        let resolver = DefaultCrateResolver::new(config, git_client);
         (CachingResolver::new(resolver, cache), temp_dir)
     }
 
@@ -510,7 +453,7 @@ mod tests {
     /// The packages are empty, they are only specified enough to exercise crate resolution in
     /// local paths.
     fn create_temp_workspace_with_crates(packages: &[(&str, &str)]) -> tempfile::TempDir {
-        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let temp_dir = tempfile::tempdir().unwrap();
         let workspace_path = temp_dir.path();
 
         let workspace_toml = format!(
@@ -521,21 +464,20 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        fs::write(workspace_path.join("Cargo.toml"), workspace_toml)
-            .expect("Failed to write workspace Cargo.toml");
+        fs::write(workspace_path.join("Cargo.toml"), workspace_toml).unwrap();
 
         for (name, version) in packages {
             let pkg_dir = workspace_path.join(name);
-            fs::create_dir_all(&pkg_dir).expect("Failed to create package dir");
+            fs::create_dir_all(&pkg_dir).unwrap();
 
             let pkg_toml = format!(
                 "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\n",
                 name, version
             );
-            fs::write(pkg_dir.join("Cargo.toml"), pkg_toml).expect("Failed to write package Cargo.toml");
+            fs::write(pkg_dir.join("Cargo.toml"), pkg_toml).unwrap();
 
-            fs::create_dir_all(pkg_dir.join("src")).expect("Failed to create src dir");
-            fs::write(pkg_dir.join("src").join("lib.rs"), "").expect("Failed to write lib.rs");
+            fs::create_dir_all(pkg_dir.join("src")).unwrap();
+            fs::write(pkg_dir.join("src").join("lib.rs"), "").unwrap();
         }
 
         temp_dir
@@ -607,11 +549,10 @@ mod tests {
                 .manifest_path(cgx_path.join("Cargo.toml"))
                 .no_deps()
                 .exec()
-                .expect("Failed to read cgx metadata");
+                .unwrap();
             let cgx_version = &metadata.packages[0].version;
 
-            let version_req =
-                VersionReq::parse(&format!("={}", cgx_version)).expect("Failed to parse version requirement");
+            let version_req = VersionReq::parse(&format!("={}", cgx_version)).unwrap();
 
             // Use the exact version from the actual crate; of course that matches
             let spec = CrateSpec::LocalDir {
@@ -640,7 +581,7 @@ mod tests {
             let (resolver, _temp_dir) = test_resolver();
             let cgx_path = cgx_manifest_dir();
 
-            let version_req = VersionReq::parse(">=999.0.0").expect("Failed to parse version requirement");
+            let version_req = VersionReq::parse(">=999.0.0").unwrap();
 
             let spec = CrateSpec::LocalDir {
                 path: cgx_path,
@@ -847,8 +788,9 @@ mod tests {
                 offline: true,
                 ..online_resolver.inner.config.clone()
             };
+            let git_client = GitClient::new(online_resolver.cache.clone());
             let offline_resolver = CachingResolver::new(
-                DefaultCrateResolver::new(offline_config),
+                DefaultCrateResolver::new(offline_config, git_client),
                 online_resolver.cache.clone(),
             );
 
@@ -898,8 +840,11 @@ mod tests {
                 offline: true,
                 ..resolver.inner.config.clone()
             };
-            let offline_resolver =
-                CachingResolver::new(DefaultCrateResolver::new(offline_config), resolver.cache);
+            let git_client = GitClient::new(resolver.cache.clone());
+            let offline_resolver = CachingResolver::new(
+                DefaultCrateResolver::new(offline_config, git_client),
+                resolver.cache,
+            );
 
             // Query in offline mode - should return stale entry without hitting network
             let resolved = offline_resolver.resolve(&invalid_spec).unwrap();
@@ -935,10 +880,10 @@ mod tests {
             resolver
                 .cache
                 .insert_stale_resolve_entry(&spec, &fake_resolved, Duration::from_secs(1))
-                .expect("Failed to insert cache entry");
+                .unwrap();
 
             // Query in online mode - should return the cached fake entry without hitting registry
-            let resolved = resolver.resolve(&spec).expect("Should return cached entry");
+            let resolved = resolver.resolve(&spec).unwrap();
 
             assert_eq!(resolved.name, "serde");
             assert_eq!(resolved.version, Version::parse("999.99.99").unwrap());
@@ -995,7 +940,7 @@ mod tests {
 
             let spec = CrateSpec::Git {
                 repo: repo.to_string(),
-                selector: None,
+                selector: GitSelector::DefaultBranch,
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1016,7 +961,7 @@ mod tests {
 
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: Some(GitSelector::Branch("main".to_string())),
+                selector: GitSelector::Branch("main".to_string()),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1035,7 +980,7 @@ mod tests {
 
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: Some(GitSelector::Tag("v6.0.0".to_string())),
+                selector: GitSelector::Tag("v6.0.0".to_string()),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1056,9 +1001,7 @@ mod tests {
             // This is the commit that v6.0.0 tag points to
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: Some(GitSelector::Commit(
-                    "28d2bb04326d7036514245d73f10fb72b9ed108c".to_string(),
-                )),
+                selector: GitSelector::Commit("28d2bb04326d7036514245d73f10fb72b9ed108c".to_string()),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1080,7 +1023,7 @@ mod tests {
 
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: Some(GitSelector::Branch("nonexistent-branch-xyzzy-99999".to_string())),
+                selector: GitSelector::Branch("nonexistent-branch-xyzzy-99999".to_string()),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1096,7 +1039,7 @@ mod tests {
 
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: Some(GitSelector::Tag("999.999.999".to_string())),
+                selector: GitSelector::Tag("999.999.999".to_string()),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1112,7 +1055,7 @@ mod tests {
 
             let spec = CrateSpec::Git {
                 repo: "https://[invalid-url".to_string(),
-                selector: None,
+                selector: GitSelector::DefaultBranch,
                 name: None,
                 version: None,
             };
@@ -1133,7 +1076,7 @@ mod tests {
 
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: None,
+                selector: GitSelector::DefaultBranch,
                 name: Some("rustlings".to_string()),
                 version: Some(version_req),
             };
@@ -1161,7 +1104,7 @@ mod tests {
                     owner: "rust-lang".to_string(),
                     repo: "rustlings".to_string(),
                 },
-                selector: None,
+                selector: GitSelector::DefaultBranch,
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1186,7 +1129,7 @@ mod tests {
                     owner: "rust-lang".to_string(),
                     repo: "rustlings".to_string(),
                 },
-                selector: Some(GitSelector::Branch("main".to_string())),
+                selector: GitSelector::Branch("main".to_string()),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1210,7 +1153,7 @@ mod tests {
                     owner: "rust-lang".to_string(),
                     repo: "rustlings".to_string(),
                 },
-                selector: Some(GitSelector::Tag("v6.0.0".to_string())),
+                selector: GitSelector::Tag("v6.0.0".to_string()),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1260,7 +1203,7 @@ mod tests {
             let (resolver, _temp_dir) = test_resolver();
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: None,
+                selector: GitSelector::DefaultBranch,
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1278,7 +1221,7 @@ mod tests {
                     owner: "rust-lang".to_string(),
                     repo: "rustlings".to_string(),
                 },
-                selector: None,
+                selector: GitSelector::DefaultBranch,
                 name: Some("rustlings".to_string()),
                 version: None,
             };

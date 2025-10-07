@@ -36,10 +36,11 @@ impl Cgx {
         println!("Using config: {:#?}", config);
 
         let cache = cache::Cache::new(config.clone());
+        let git_client = git::GitClient::new(cache.clone());
 
-        let resolver = resolver::create_resolver(config.clone(), cache.clone());
+        let resolver = resolver::create_resolver(config.clone(), cache.clone(), git_client.clone());
 
-        let downloader = downloader::create_downloader(config, cache);
+        let downloader = downloader::create_downloader(config, cache, git_client);
 
         Ok(Self {
             resolver: Box::new(resolver),
