@@ -8,12 +8,14 @@ use std::{path::PathBuf, time::Duration};
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Directory where config files are stored
+    #[allow(dead_code)] // Not used yet, but will be
     pub config_dir: PathBuf,
 
     /// The cache directory where various levels of cache are located
     pub cache_dir: PathBuf,
 
     /// Directory where compiled binaries that can be re-used are stored
+    #[allow(dead_code)] // Not used yet, but will be
     pub bin_dir: PathBuf,
 
     /// How long to keep resolved crate information in the cache before re-resolving
@@ -21,6 +23,7 @@ pub struct Config {
 
     pub offline: bool,
 
+    #[allow(dead_code)] // Not used yet, but will be
     pub locked: bool,
 }
 

@@ -53,16 +53,19 @@ pub enum Error {
     },
 
     #[snafu(display("Git clone failed: {source}"))]
-    GitCloneError { source: simple_git::GitError },
+    GitClone { source: simple_git::GitError },
+
+    #[snafu(display("Git operation failed: {message}"))]
+    Gix { message: String },
 
     #[snafu(display("Commit selectors (--rev) are not yet supported. Use branch or tag selectors instead."))]
     CommitSelectorNotYetSupported,
 
     #[snafu(display("Failed to query registry: {source}"))]
-    RegistryError { source: tame_index::Error },
+    Registry { source: tame_index::Error },
 
     #[snafu(display("Failed to read cargo metadata: {source}"))]
-    CargoMetadataError { source: cargo_metadata::Error },
+    CargoMetadata { source: cargo_metadata::Error },
 
     #[snafu(display("Invalid git URL '{url}': {source}"))]
     InvalidGitUrl {
@@ -74,13 +77,25 @@ pub enum Error {
     InvalidVersion { version: String, source: semver::Error },
 
     #[snafu(display("I/O error: {source}"))]
-    IoError { source: std::io::Error },
+    Io { source: std::io::Error },
 
     #[snafu(display("Tokio runtime error: {source}"))]
-    TokioRuntimeError { source: std::io::Error },
+    TokioRuntime { source: std::io::Error },
 
     #[snafu(display("Tokio task join error: {source}"))]
-    TokioJoinError { source: tokio::task::JoinError },
+    TokioJoin { source: tokio::task::JoinError },
+
+    #[snafu(display("JSON serialization error: {source}"))]
+    Json { source: serde_json::Error },
+
+    #[snafu(display("Cannot download '{name}' v{version}: network required but offline mode enabled"))]
+    OfflineMode { name: String, version: String },
+
+    #[snafu(display("Failed to download registry crate: {source}"))]
+    RegistryDownload { source: reqwest::Error },
+
+    #[snafu(display("Failed to extract crate tarball: {source}"))]
+    TarExtraction { source: std::io::Error },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

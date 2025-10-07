@@ -1,4 +1,5 @@
 use semver::VersionReq;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use url::Url;
 
@@ -20,7 +21,7 @@ use url::Url;
 /// version; the version of the crate is whatever it is at the specified location.  In those cases,
 /// if the `version` field is present, it is validated against the version found at the location,
 /// and if it's not compatible then an error ocurrs.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CrateSpec {
     /// A crate on Crates.io, specified by its name and optional version.
     CratesIo {
@@ -87,7 +88,7 @@ pub enum CrateSpec {
 ///
 /// Registries can be specified either by a named configuration in `.cargo/config.toml` or by
 /// directly providing the index URL.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RegistrySource {
     /// A named registry configured in `.cargo/config.toml` (corresponds to `--registry`).
     Named(String),
@@ -97,7 +98,7 @@ pub enum RegistrySource {
 }
 
 /// Supported software forges where crates can be hosted
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Forge {
     GitHub {
         /// Custom URL for Github Enterprise instances; None for github.com
@@ -163,7 +164,7 @@ impl Forge {
 
 /// Cargo and thus cgx support adding an explicit branch, tag, or commit hash when specifying a git
 /// repo as a crate source.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GitSelector {
     Branch(String),
     Tag(String),

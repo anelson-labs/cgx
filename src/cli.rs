@@ -1,6 +1,7 @@
 use crate::{
     Result,
-    cratespec::{CrateSpec, Forge, GitSelector},
+    build::BuildOptions,
+    cratespec::{CrateSpec, Forge, GitSelector, RegistrySource},
     error,
 };
 use clap::Parser;
@@ -11,6 +12,7 @@ use std::path::PathBuf;
 #[command(name = "cgx")]
 #[command(about = "Rust equivalent of uvx or npx, for use with Rust crates")]
 #[command(disable_version_flag = true)]
+#[non_exhaustive]
 pub struct CliArgs {
     /// Find crate in git repository at the given URL
     #[arg(long, conflicts_with_all = ["registry", "path", "github", "gitlab", "index"])]
@@ -149,6 +151,16 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
+    /// Parse CLI args from the current process's command line into a `CliArgs` struct.
+    ///
+    /// This simply spares a caller from having to have the [`clap::Parser`] trait in scope.
+    ///
+    /// Be advised that this uses `clap` which will exit the process if the args are invalid or
+    /// after printing `--help` output.
+    pub fn parse_from_cli_args() -> Self {
+        Self::parse()
+    }
+
     /// Attempt to parse a crate spec from the parameters provided by the user.
     ///
     /// This function uses the provided args to help interpret the string.
@@ -156,7 +168,7 @@ impl CliArgs {
     ///
     /// Upon successful return, there's no guarantee that the crate spec is valid or exists,
     /// just that it was unambiguously parsed into a spec.
-    pub fn parse_crate_spec(&self) -> Result<CrateSpec> {
+    pub(crate) fn parse_crate_spec(&self) -> Result<CrateSpec> {
         let (name, at_version) = if let Some(crate_spec) = &self.crate_spec {
             if crate_spec == "cargo" && !self.args.is_empty() {
                 let subcommand = &self.args[0];
@@ -235,7 +247,7 @@ impl CliArgs {
         } else if let Some(registry) = &self.registry {
             let name = name.context(error::MissingCrateParameterSnafu)?;
             Ok(CrateSpec::Registry {
-                source: crate::RegistrySource::Named(registry.clone()),
+                source: RegistrySource::Named(registry.clone()),
                 name,
                 version,
             })
@@ -243,7 +255,7 @@ impl CliArgs {
             let name = name.context(error::MissingCrateParameterSnafu)?;
             let index_url = url::Url::parse(index_str).context(error::InvalidUrlSnafu { url: index_str })?;
             Ok(CrateSpec::Registry {
-                source: crate::RegistrySource::IndexUrl(index_url),
+                source: RegistrySource::IndexUrl(index_url),
                 name,
                 version,
             })
@@ -293,6 +305,41 @@ impl CliArgs {
         }
     }
 
+    /// Parse build options from the CLI arguments.
+    ///
+    /// This extracts build-related flags and converts them into a [`BuildOptions`] struct
+    /// that can be used to configure how cargo builds the crate.
+    pub(crate) fn parse_build_options(&self) -> Result<BuildOptions> {
+        let features = if let Some(features_str) = &self.features {
+            Self::parse_features(features_str)
+        } else {
+            Vec::new()
+        };
+
+        let profile = if self.debug {
+            Some("dev".to_string())
+        } else {
+            self.profile.clone()
+        };
+
+        let locked = self.locked || self.frozen;
+        let offline = self.offline || self.frozen;
+
+        Ok(BuildOptions {
+            features,
+            all_features: self.all_features,
+            no_default_features: self.no_default_features,
+            profile,
+            target: self.target.clone(),
+            locked,
+            offline,
+            jobs: self.jobs,
+            ignore_rust_version: self.ignore_rust_version,
+            bin: self.bin.clone(),
+            example: self.example.clone(),
+        })
+    }
+
     fn parse_crate_name_and_version(spec: &str) -> Result<(String, Option<String>)> {
         if let Some((name, version)) = spec.split_once('@') {
             Ok((name.to_string(), Some(version.to_string())))
@@ -312,41 +359,6 @@ impl CliArgs {
         } else {
             InvalidRepoFormatSnafu { repo: repo_str }.fail()
         }
-    }
-
-    /// Parse build options from the CLI arguments.
-    ///
-    /// This extracts build-related flags and converts them into a [`crate::BuildOptions`] struct
-    /// that can be used to configure how cargo builds the crate.
-    pub fn parse_build_options(&self) -> Result<crate::BuildOptions> {
-        let features = if let Some(features_str) = &self.features {
-            Self::parse_features(features_str)
-        } else {
-            Vec::new()
-        };
-
-        let profile = if self.debug {
-            Some("dev".to_string())
-        } else {
-            self.profile.clone()
-        };
-
-        let locked = self.locked || self.frozen;
-        let offline = self.offline || self.frozen;
-
-        Ok(crate::BuildOptions {
-            features,
-            all_features: self.all_features,
-            no_default_features: self.no_default_features,
-            profile,
-            target: self.target.clone(),
-            locked,
-            offline,
-            jobs: self.jobs,
-            ignore_rust_version: self.ignore_rust_version,
-            bin: self.bin.clone(),
-            example: self.example.clone(),
-        })
     }
 
     fn parse_features(features_str: &str) -> Vec<String> {
@@ -634,7 +646,7 @@ mod tests {
             assert_matches!(
                 cr,
                 CrateSpec::Registry {
-                    source: crate::RegistrySource::Named(ref registry),
+                    source: RegistrySource::Named(ref registry),
                     ref name,
                     version: None
                 } if registry == "my-registry" && name == "mycrate"
@@ -648,7 +660,7 @@ mod tests {
             assert_matches!(
                 cr,
                 CrateSpec::Registry {
-                    source: crate::RegistrySource::IndexUrl(ref index),
+                    source: RegistrySource::IndexUrl(ref index),
                     ref name,
                     version: None
                 } if index.as_str() == "https://my-index.com/git/index" && name == "mycrate"
@@ -662,7 +674,7 @@ mod tests {
             assert_matches!(
                 cr,
                 CrateSpec::Registry {
-                    source: crate::RegistrySource::IndexUrl(ref index),
+                    source: RegistrySource::IndexUrl(ref index),
                     ref name,
                     version: Some(ref v)
                 } if index.as_str() == "sparse+https://my-index.com/" &&
@@ -875,7 +887,7 @@ mod tests {
     mod build_options {
         use super::*;
 
-        fn parse_build_options_from_args(args: &[&str]) -> Result<crate::BuildOptions> {
+        fn parse_build_options_from_args(args: &[&str]) -> Result<BuildOptions> {
             let mut full_args = vec!["cgx"];
             full_args.extend_from_slice(args);
             let cli = CliArgs::parse_from(full_args);
