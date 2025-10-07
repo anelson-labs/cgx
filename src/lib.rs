@@ -5,6 +5,7 @@ mod config;
 mod cratespec;
 mod downloader;
 mod error;
+mod git;
 mod resolver;
 
 pub use cli::CliArgs;

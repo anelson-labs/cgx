@@ -159,27 +159,12 @@ impl DefaultCrateDownloader {
         // We clone with the commit in the URL fragment, though we'll verify the commit afterward
         let temp_dir = tempfile::tempdir().context(error::IoSnafu)?;
 
-        // Construct git URL with commit as ref (gix/simple-git will handle shallow clone)
+        // Construct git URL with commit as ref (gix will handle shallow clone)
         let git_url_str = format!("{}#{}", repo, commit);
-        let git_url = std::str::FromStr::from_str(&git_url_str).map_err(|source| Error::InvalidGitUrl {
-            url: git_url_str.clone(),
-            source,
-        })?;
+        let git_url = std::str::FromStr::from_str(&git_url_str)?;
 
-        // Use tokio runtime for async operations (required by simple-git)
-        let rt = tokio::runtime::Runtime::new().context(error::TokioRuntimeSnafu)?;
-
-        let temp_path = rt.block_on(async {
-            let path = temp_dir.path().to_owned();
-            tokio::task::spawn_blocking(move || {
-                let _repo = simple_git::Repository::shallow_clone(git_url, &path, None)
-                    .context(error::GitCloneSnafu)?;
-
-                Ok::<_, Error>(path)
-            })
-            .await
-            .context(error::TokioJoinSnafu)?
-        })?;
+        let temp_path = temp_dir.path().to_owned();
+        let _repo = crate::git::Repository::shallow_clone(git_url, &temp_path, None)?;
 
         // Copy the cloned repository content to download_path, excluding .git directory
         Self::copy_dir_recursive(&temp_path, download_path, true)?;

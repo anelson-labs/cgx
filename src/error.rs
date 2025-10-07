@@ -2,6 +2,7 @@ use snafu::prelude::*;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
+#[non_exhaustive]
 pub enum Error {
     #[snafu(display("Crate name is required"))]
     MissingCrateParameter,
@@ -52,26 +53,16 @@ pub enum Error {
         found: semver::Version,
     },
 
-    #[snafu(display("Git clone failed: {source}"))]
-    GitClone { source: simple_git::GitError },
-
-    #[snafu(display("Git operation failed: {message}"))]
-    Gix { message: String },
-
-    #[snafu(display("Commit selectors (--rev) are not yet supported. Use branch or tag selectors instead."))]
-    CommitSelectorNotYetSupported,
+    #[snafu(transparent)]
+    Git {
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 
     #[snafu(display("Failed to query registry: {source}"))]
     Registry { source: tame_index::Error },
 
     #[snafu(display("Failed to read cargo metadata: {source}"))]
     CargoMetadata { source: cargo_metadata::Error },
-
-    #[snafu(display("Invalid git URL '{url}': {source}"))]
-    InvalidGitUrl {
-        url: String,
-        source: simple_git::GitUrlParseError,
-    },
 
     #[snafu(display("Failed to parse version '{version}': {source}"))]
     InvalidVersion { version: String, source: semver::Error },
@@ -96,6 +87,14 @@ pub enum Error {
 
     #[snafu(display("Failed to extract crate tarball: {source}"))]
     TarExtraction { source: std::io::Error },
+}
+
+impl From<crate::git::Error> for Error {
+    fn from(e: crate::git::Error) -> Self {
+        Self::Git {
+            source: Box::new(e) as Box<dyn std::error::Error + Send + Sync>,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

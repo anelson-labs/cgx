@@ -4,11 +4,11 @@ use crate::{
     config::Config,
     cratespec::{CrateSpec, Forge, GitSelector, RegistrySource},
     error,
+    git::{GitUrl, Repository},
 };
 use cargo_metadata::MetadataCommand;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
-use simple_git::{GitUrl, Repository};
 use snafu::ResultExt;
 use std::{
     path::{Path, PathBuf},
@@ -283,53 +283,42 @@ impl DefaultCrateResolver {
         name: &Option<String>,
         version: &Option<VersionReq>,
     ) -> Result<ResolvedCrate> {
-        // Construct URL with selector
-        let mut git_url_str = repo.to_string();
-        if let Some(sel) = selector {
-            match sel {
-                GitSelector::Branch(b) => {
-                    git_url_str.push_str(&format!("#refs/heads/{}", b));
-                }
-                GitSelector::Tag(t) => {
-                    git_url_str.push_str(&format!("#refs/tags/{}", t));
-                }
-                GitSelector::Commit(_) => {
-                    // Commit selectors require a different approach than URL fragments:
-                    // 1. Clone the repo (with sufficient depth or full)
-                    // 2. Checkout the specific commit (requires git checkout operation)
-                    // 3. Read the crate metadata
-                    // The simple-git library doesn't expose checkout operations, so this
-                    // would require either a different git library or direct git subprocess calls.
-                    return Err(Error::CommitSelectorNotYetSupported);
-                }
-            }
-        }
-
-        let git_url = GitUrl::from_str(&git_url_str).map_err(|source| Error::InvalidGitUrl {
-            url: git_url_str.clone(),
-            source,
-        })?;
-
         let temp_dir = tempfile::tempdir().context(error::IoSnafu)?;
+        let temp_path = temp_dir.path().to_owned();
 
-        // Create tokio runtime for async operations (required by simple-git)
-        let rt = tokio::runtime::Runtime::new().context(error::TokioRuntimeSnafu)?;
+        // Clone repository using appropriate method based on selector
+        let git_repo = match selector {
+            Some(GitSelector::Commit(commit_hash)) => {
+                // Commits require full clone and explicit checkout
+                let git_url = GitUrl::from_str(repo)?;
+                Repository::clone_at_commit(git_url, &temp_path, commit_hash)?
+            }
+            _ => {
+                // Branches, tags, or no selector: use shallow clone with URL fragment
+                let mut git_url_str = repo.to_string();
+                let expected_ref = if let Some(sel) = selector {
+                    match sel {
+                        GitSelector::Branch(b) => {
+                            git_url_str.push_str(&format!("#refs/heads/{}", b));
+                            Some(format!("refs/heads/{}", b))
+                        }
+                        GitSelector::Tag(t) => {
+                            git_url_str.push_str(&format!("#refs/tags/{}", t));
+                            Some(format!("refs/tags/{}", t))
+                        }
+                        GitSelector::Commit(_) => unreachable!(), // Handled above
+                    }
+                } else {
+                    None
+                };
 
-        let (commit_hash, temp_path) = rt.block_on(async {
-            let path = temp_dir.path().to_owned();
-            tokio::task::spawn_blocking(move || {
-                let repo = Repository::shallow_clone(git_url, &path, None).context(error::GitCloneSnafu)?;
+                let git_url = GitUrl::from_str(&git_url_str)?;
 
-                let commit = repo
-                    .get_head_commit_hash()
-                    .context(error::GitCloneSnafu)?
-                    .to_string();
+                Repository::shallow_clone(git_url, &temp_path, expected_ref.as_deref())?
+            }
+        };
 
-                Ok::<_, Error>((commit, path))
-            })
-            .await
-            .context(error::TokioJoinSnafu)?
-        })?;
+        let commit_hash = git_repo.get_head_commit_hash()?;
 
         // Use cargo_metadata to read the crate info
         let metadata = MetadataCommand::new()
@@ -416,6 +405,8 @@ impl DefaultCrateResolver {
                 forge: forge.clone(),
                 commit,
             };
+        } else {
+            panic!("BUG: Expected ResolvedSource::Git from resolve_git");
         }
 
         Ok(resolved)
@@ -1038,20 +1029,13 @@ mod tests {
             }
         }
 
-        // TODO: Test for nonexistent branch/tag should return an error, but currently
-        // simple-git's Repository::shallow_clone() silently falls back to the default
-        // branch when given an invalid ref. This is a bug - users should get an error
-        // when specifying a branch/tag that doesn't exist. Would need to add validation
-        // to check the returned commit corresponds to the requested ref, or use a different
-        // git library that properly fails on invalid refs.
-
         #[test]
         fn with_tag() {
             let (resolver, _temp_dir) = test_resolver();
 
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: Some(GitSelector::Tag("6.0.0".to_string())),
+                selector: Some(GitSelector::Tag("v6.0.0".to_string())),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
@@ -1065,21 +1049,61 @@ mod tests {
         }
 
         #[test]
-        fn commit_not_yet_supported() {
+        fn with_commit() {
+            let (resolver, _temp_dir) = test_resolver();
+
+            // Use actual commit hash (not tag object hash)
+            // This is the commit that v6.0.0 tag points to
+            let spec = CrateSpec::Git {
+                repo: "https://github.com/rust-lang/rustlings.git".to_string(),
+                selector: Some(GitSelector::Commit(
+                    "28d2bb04326d7036514245d73f10fb72b9ed108c".to_string(),
+                )),
+                name: Some("rustlings".to_string()),
+                version: None,
+            };
+
+            let resolved = resolver.resolve(&spec).unwrap();
+            assert_eq!(resolved.name, "rustlings");
+
+            if let ResolvedSource::Git { repo: r, commit } = &resolved.source {
+                assert_eq!(r, "https://github.com/rust-lang/rustlings.git");
+                assert_eq!(commit, "28d2bb04326d7036514245d73f10fb72b9ed108c");
+            } else {
+                panic!("Expected Git source, got {:?}", resolved.source);
+            }
+        }
+
+        #[test]
+        fn nonexistent_branch() {
             let (resolver, _temp_dir) = test_resolver();
 
             let spec = CrateSpec::Git {
                 repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: Some(GitSelector::Commit(
-                    "0a22687f04fade8e7d6a51f0034efc926a056724".to_string(),
-                )),
+                selector: Some(GitSelector::Branch("nonexistent-branch-xyzzy-99999".to_string())),
                 name: Some("rustlings".to_string()),
                 version: None,
             };
 
             let result = resolver.resolve(&spec);
 
-            assert_matches!(result.unwrap_err(), Error::CommitSelectorNotYetSupported);
+            assert_matches!(result.unwrap_err(), Error::Git { .. });
+        }
+
+        #[test]
+        fn nonexistent_tag() {
+            let (resolver, _temp_dir) = test_resolver();
+
+            let spec = CrateSpec::Git {
+                repo: "https://github.com/rust-lang/rustlings.git".to_string(),
+                selector: Some(GitSelector::Tag("999.999.999".to_string())),
+                name: Some("rustlings".to_string()),
+                version: None,
+            };
+
+            let result = resolver.resolve(&spec);
+
+            assert_matches!(result.unwrap_err(), Error::Git { .. });
         }
 
         #[test]
@@ -1095,7 +1119,7 @@ mod tests {
 
             let result = resolver.resolve(&spec);
 
-            assert_matches!(result.unwrap_err(), Error::InvalidGitUrl { .. });
+            assert_matches!(result.unwrap_err(), Error::Git { .. });
         }
 
         /// As with local paths, versions don't have to be specified when pointing to a git repo
@@ -1186,7 +1210,7 @@ mod tests {
                     owner: "rust-lang".to_string(),
                     repo: "rustlings".to_string(),
                 },
-                selector: Some(GitSelector::Tag("6.0.0".to_string())),
+                selector: Some(GitSelector::Tag("v6.0.0".to_string())),
                 name: Some("rustlings".to_string()),
                 version: None,
             };

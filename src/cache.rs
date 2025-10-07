@@ -237,7 +237,7 @@ impl Cache {
     fn should_use_stale_cache(&self, error: &crate::Error) -> bool {
         matches!(
             error,
-            crate::Error::Registry { .. } | crate::Error::GitClone { .. } | crate::Error::Io { .. }
+            crate::Error::Registry { .. } | crate::Error::Git { .. } | crate::Error::Io { .. }
         )
     }
 
