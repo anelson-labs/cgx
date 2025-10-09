@@ -44,6 +44,86 @@ ecosystems, respectively.
   are allowed. There may be limited exceptions to this rule, but those exceptions will be stated explicitly in the task
   description.
 
+### Error Reporting
+
+We use `snafu` for error reporting. The error enum is in `error.rs`, and is called `Error`. Each crate should import
+`crate::Result` and use that as the return type for functions that can fail.
+
+To report an error in Snafu, you do not instantiate the error variants directly. Instead, you use the context selector
+syntax. For example, if you have an error variant like this:
+
+```rust
+#[snafu(display("Failed to read file {}: {}", path.display(), source))]
+ReadFile {
+  path: PathBuf,
+  source: std::io::Error,
+},
+```
+
+You would report this error like so (NB: There is no `ReadFile` error variant it's just an example):
+
+```rust
+use crate::Error;
+use crate::error;
+use crate::Result;
+use snafu::ResultExt;
+use std::path::PathBuf;
+// ...
+fn read_file(path: &PathBuf) -> Result<String> {
+  let contents = std::fs::read_to_string(path).with_context(|_| error::ReadFileSnafu { path: path.clone() })?;
+  Ok(contents)
+}
+```
+
+Note that `with_context` defers the creation of the context until the error actually occurs. This is essential when the
+context involves cloning or formatting, which you don't want to do unless the error actually happens. For simpler error
+scenarios that don't involve cloning or formatting, you can use the `context` method instead.
+
+When propagating errors from other libraries, use the `source` field to wrap the original error. This preserves the
+error chain and allows for better debugging.
+
+If you have not a `Result` but some error type, you can use the `into_error` method on the generated Snafu context
+selectors. To continue the above example, imagine you have an `std::io::Error` from somewhere and you need to construct
+a `ReadFile` error variant from it:
+
+```rust
+use crate::Error;
+use crate::error;
+use snafu::ResultExt;
+use std::path::PathBuf;
+// ...
+fn handle_io_error(path: &Path, io_err: std::io::Error) -> Error {
+  error::ReadFileSnafu { path: path.clone() }.into_error(io_err)
+}
+```
+
+Similarly, you can produce a `Result::Err` from a snafu context selector with its `fail` method.
+
+When adding new error variants, make sure to provide a clear and informative error message in the `display` attribute.
+
+DO NOT ABUSE EXISTING ERROR VARIANTS. When reporting an error, consider all existing `Error` variants and choose the one that best fits the situation. If none of them fit, then add a new variant. But do not just pick the closest one and shoehorn your error into it. This leads to confusing and misleading error messages.
+
+`snafu` also offers helper methods on `Option` via `OptionExt`, when you need to turn a `None` value into an error. Use
+those in favor of `ok_or_else` or similar methods, because they are more concise.
+
+It also offers `ensure!` macros, which are like `assert!` but return an error instead of panicking.
+
+### Unit testing
+
+- Unit tests go in the same file as the code they are testing, in a `#[cfg(test)] mod tests` module at the bottom of the file.
+- When asserting that something worked, DO NOT DO `assert!(result.is_ok())`. This is stupid and unhelpful. Just call
+  `unwrap()` on the result and let it panic if it was an error (NOTE THIS IS ONLY IN TESTS! Production code must report
+  errors and not panic except in very specific situations where an unreachable panic is appropriate).
+- Likewise when asserting that something failed, DO NOT DO `assert!(result.is_err())`. Instead, use
+  `assert_matches::assert_matches!(result, Err(Error::SpecificErrorVariant { .. }))`
+- Construct asserts so that they provide useful information on failure. Using the `assert_matches` crate is often
+  better than using `assert!` to assert some truthy statement, because `assert_matches` will print the actual value on failure,
+  which is often very helpful for debugging.
+- Do not use `expect` with an error message in favor of `unwrap` unless that additional context will make the test
+  failure panic more understandable. In most cases, `unwrap` is sufficient.
+- In general, tests and test helpers should panic instead of return `Result`. There will be limited exceptions to this,
+  but in general test helpers and tests themselves should panic on failure.
+
 ## Git instructions
 
 You can assume that the `gh` CLI is available to you to interact with Github. You can use the `git` CLI as needed, however you are strictly prohibited from staging, unstaging, committing, or revering any files under source control unless you have been explicitly asked to do so.

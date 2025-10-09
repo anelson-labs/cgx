@@ -1,0 +1,10 @@
+[package]
+description = "A test crate that has a proc-macro dependency (serde_derive)"
+edition     = "2024"
+name        = "proc-macro-dep"
+version     = "0.1.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[workspace]

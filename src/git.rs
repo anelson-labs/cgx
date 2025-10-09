@@ -133,7 +133,9 @@ impl GitClient {
         let db_path = self.cache.git_db_path(url);
 
         if !db_path.exists() {
-            fs::create_dir_all(&db_path).context(CreateDirectorySnafu { path: &db_path })?;
+            fs::create_dir_all(&db_path).with_context(|_| CreateDirectorySnafu {
+                path: db_path.clone(),
+            })?;
             init_bare_repo(&db_path)?;
         }
 
@@ -160,7 +162,9 @@ impl GitClient {
         }
 
         // Need to perform checkout
-        fs::create_dir_all(&checkout_path).context(CreateDirectorySnafu { path: &checkout_path })?;
+        fs::create_dir_all(&checkout_path).with_context(|_| CreateDirectorySnafu {
+            path: checkout_path.clone(),
+        })?;
         let _ = fs::remove_file(checkout_path.join(".cgx-ok"));
 
         let commit_oid = ObjectId::from_hex(commit.as_bytes())
@@ -170,7 +174,9 @@ impl GitClient {
 
         // Mark as ready
         let marker_path = checkout_path.join(".cgx-ok");
-        fs::write(&marker_path, "").context(WriteMarkerFileSnafu { path: &marker_path })?;
+        fs::write(&marker_path, "").with_context(|_| WriteMarkerFileSnafu {
+            path: marker_path.clone(),
+        })?;
 
         Ok(checkout_path)
     }
@@ -400,9 +406,11 @@ mod tests {
             config_dir: temp_dir.path().join("config"),
             cache_dir: temp_dir.path().join("cache"),
             bin_dir: temp_dir.path().join("bin"),
+            build_dir: temp_dir.path().join("build"),
             resolve_cache_timeout: Duration::from_secs(3600),
             offline: false,
             locked: false,
+            toolchain: None,
         };
         let cache = Cache::new(config);
         let git_client = GitClient::new(cache);

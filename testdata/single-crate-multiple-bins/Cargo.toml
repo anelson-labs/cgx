@@ -1,0 +1,15 @@
+[package]
+description = "A single crate that has multiple binary targets which means a specific bin must be specified when running cargo commands"
+edition     = "2024"
+name        = "single-crate-multiple-bins"
+version     = "0.1.0"
+
+[[bin]]
+name = "bin1"
+path = "src/bin1.rs"
+
+[[bin]]
+name = "bin2"
+path = "src/bin2.rs"
+
+[dependencies]

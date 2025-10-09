@@ -1,0 +1,37 @@
+---
+source: src/sbom.rs
+expression: normalized
+---
+{
+  "bomFormat": "CycloneDX",
+  "components": [],
+  "dependencies": [
+    {
+      "ref": "pkg:cargo/timestamp@0.1.0"
+    }
+  ],
+  "metadata": {
+    "component": {
+      "bom-ref": "pkg:cargo/timestamp@0.1.0",
+      "name": "timestamp",
+      "properties": [
+        {
+          "name": "build:no-default-features",
+          "value": "true"
+        }
+      ],
+      "purl": "pkg:cargo/timestamp@0.1.0",
+      "type": "application",
+      "version": "0.1.0"
+    },
+    "tools": [
+      {
+        "name": "cgx",
+        "vendor": "cgx project",
+        "version": "0.0.3"
+      }
+    ]
+  },
+  "specVersion": "1.4",
+  "version": 1
+}

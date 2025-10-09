@@ -1,0 +1,124 @@
+---
+source: src/sbom.rs
+expression: normalized
+---
+{
+  "bomFormat": "CycloneDX",
+  "components": [
+    {
+      "bom-ref": "pkg:cargo/autocfg@1.5.0",
+      "description": "Automatic cfg for Rust compiler features",
+      "name": "autocfg",
+      "properties": [
+        {
+          "name": "cdx:rustc:dependency_kind",
+          "value": "build"
+        }
+      ],
+      "purl": "pkg:cargo/autocfg@1.5.0",
+      "type": "library",
+      "version": "1.5.0"
+    },
+    {
+      "bom-ref": "pkg:cargo/chrono@0.4.42",
+      "description": "Date and time library for Rust",
+      "name": "chrono",
+      "purl": "pkg:cargo/chrono@0.4.42",
+      "type": "library",
+      "version": "0.4.42"
+    },
+    {
+      "bom-ref": "pkg:cargo/iana-time-zone@0.1.64",
+      "description": "get the IANA time zone for the current system",
+      "name": "iana-time-zone",
+      "purl": "pkg:cargo/iana-time-zone@0.1.64",
+      "type": "library",
+      "version": "0.1.64"
+    },
+    {
+      "bom-ref": "pkg:cargo/num-traits@0.2.19",
+      "description": "Numeric traits for generic mathematics",
+      "name": "num-traits",
+      "purl": "pkg:cargo/num-traits@0.2.19",
+      "type": "library",
+      "version": "0.2.19"
+    },
+    {
+      "bom-ref": "pkg:cargo/serde@1.0.228",
+      "description": "A generic serialization/deserialization framework",
+      "name": "serde",
+      "purl": "pkg:cargo/serde@1.0.228",
+      "type": "library",
+      "version": "1.0.228"
+    },
+    {
+      "bom-ref": "pkg:cargo/serde_core@1.0.228",
+      "description": "Serde traits only, with no support for derive -- use the `serde` crate instead",
+      "name": "serde_core",
+      "purl": "pkg:cargo/serde_core@1.0.228",
+      "type": "library",
+      "version": "1.0.228"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:cargo/autocfg@1.5.0"
+    },
+    {
+      "dependsOn": [
+        "pkg:cargo/iana-time-zone@0.1.64",
+        "pkg:cargo/num-traits@0.2.19"
+      ],
+      "ref": "pkg:cargo/chrono@0.4.42"
+    },
+    {
+      "ref": "pkg:cargo/iana-time-zone@0.1.64"
+    },
+    {
+      "dependsOn": [
+        "pkg:cargo/autocfg@1.5.0"
+      ],
+      "ref": "pkg:cargo/num-traits@0.2.19"
+    },
+    {
+      "dependsOn": [
+        "pkg:cargo/serde_core@1.0.228"
+      ],
+      "ref": "pkg:cargo/serde@1.0.228"
+    },
+    {
+      "ref": "pkg:cargo/serde_core@1.0.228"
+    },
+    {
+      "dependsOn": [
+        "pkg:cargo/chrono@0.4.42",
+        "pkg:cargo/serde@1.0.228"
+      ],
+      "ref": "pkg:cargo/timestamp@0.1.0"
+    }
+  ],
+  "metadata": {
+    "component": {
+      "bom-ref": "pkg:cargo/timestamp@0.1.0",
+      "name": "timestamp",
+      "properties": [
+        {
+          "name": "build:all-features",
+          "value": "true"
+        }
+      ],
+      "purl": "pkg:cargo/timestamp@0.1.0",
+      "type": "application",
+      "version": "0.1.0"
+    },
+    "tools": [
+      {
+        "name": "cgx",
+        "vendor": "cgx project",
+        "version": "0.0.3"
+      }
+    ]
+  },
+  "specVersion": "1.4",
+  "version": 1
+}

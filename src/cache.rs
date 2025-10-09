@@ -1,7 +1,10 @@
 use crate::{
     Result,
+    builder::BuildOptions,
+    cargo::Metadata,
     config::Config,
     cratespec::{CrateSpec, Forge, RegistrySource},
+    downloader::DownloadedCrate,
     error,
     resolver::{ResolvedCrate, ResolvedSource},
 };
@@ -9,25 +12,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use snafu::ResultExt;
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
-
-/// A cached crate represents source code that has been downloaded to the local cache directory.
-///
-/// This is the final stage of the crate lifecycle:
-/// 1. [`CrateSpec`] - user's specification (may be ambiguous)
-/// 2. [`ResolvedCrate`] - validated, concrete reference
-/// 3. [`CachedCrate`] - materialized source code on disk, ready to build/run
-///
-/// A [`CachedCrate`] contains both the resolved crate metadata and the path to where
-/// the source code has been downloaded in the local cache.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CachedCrate {
-    /// The resolved crate metadata (name, version, source)
-    pub resolved: ResolvedCrate,
-
-    /// The path to the cached source code on disk
-    pub crate_path: PathBuf,
-}
+use std::{
+    collections::hash_map::DefaultHasher,
+    fs,
+    hash::{Hash, Hasher},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 /// A cache entry wrapping a value with timestamp metadata.
 ///
@@ -133,7 +125,7 @@ impl Cache {
     /// 3. Call the downloader function with the temp directory path
     /// 4. On success, atomically rename the temp directory to the cache location
     /// 5. Handle race conditions where multiple processes download simultaneously
-    pub fn get_or_download<F>(&self, resolved: &ResolvedCrate, downloader: F) -> Result<CachedCrate>
+    pub fn get_or_download<F>(&self, resolved: &ResolvedCrate, downloader: F) -> Result<DownloadedCrate>
     where
         F: FnOnce(&std::path::Path) -> Result<()>,
     {
@@ -147,10 +139,14 @@ impl Cache {
 
         // Ensure parent directory exists
         let parent = cache_path.parent().expect("BUG: Cache path has no parent");
-        fs::create_dir_all(parent).context(error::IoSnafu)?;
+        fs::create_dir_all(parent).with_context(|_| error::IoSnafu {
+            path: parent.to_path_buf(),
+        })?;
 
         // Create a temp directory in the same parent directory for atomic rename
-        let temp_dir = tempfile::tempdir_in(parent).context(error::IoSnafu)?;
+        let temp_dir = tempfile::tempdir_in(parent).with_context(|_| error::TempDirCreationSnafu {
+            parent: parent.to_path_buf(),
+        })?;
 
         // Call the downloader with the temp path
         downloader(temp_dir.path())?;
@@ -162,7 +158,7 @@ impl Cache {
         match fs::rename(&temp_path, &cache_path) {
             Ok(()) => {
                 // Successfully moved to cache
-                Ok(CachedCrate {
+                Ok(DownloadedCrate {
                     resolved: resolved.clone(),
                     crate_path: cache_path,
                 })
@@ -172,7 +168,7 @@ impl Cache {
                 // Clean up our temp dir
                 let _ = fs::remove_dir_all(&temp_path);
 
-                Ok(CachedCrate {
+                Ok(DownloadedCrate {
                     resolved: resolved.clone(),
                     crate_path: cache_path,
                 })
@@ -180,7 +176,10 @@ impl Cache {
             Err(e) => {
                 // Some other error during rename - clean up and propagate
                 let _ = fs::remove_dir_all(&temp_path);
-                Err(e).context(error::IoSnafu)
+                Err(e).with_context(|_| error::RenameFileSnafu {
+                    src: temp_path.clone(),
+                    dst: cache_path.clone(),
+                })
             }
         }
     }
@@ -194,7 +193,9 @@ impl Cache {
             return Ok(None);
         }
 
-        let contents = fs::read_to_string(&cache_file).context(error::IoSnafu)?;
+        let contents = fs::read_to_string(&cache_file).with_context(|_| error::IoSnafu {
+            path: cache_file.clone(),
+        })?;
         let entry: ResolveCacheEntry = serde_json::from_str(&contents).context(error::JsonSnafu)?;
 
         Ok(Some(entry))
@@ -205,13 +206,17 @@ impl Cache {
         let cache_file = self.resolve_cache_path(spec)?;
 
         if let Some(parent) = cache_file.parent() {
-            fs::create_dir_all(parent).context(error::IoSnafu)?;
+            fs::create_dir_all(parent).with_context(|_| error::IoSnafu {
+                path: parent.to_path_buf(),
+            })?;
         }
 
         let entry = CacheEntry::new(resolved.clone());
 
         let json = serde_json::to_string_pretty(&entry).context(error::JsonSnafu)?;
-        fs::write(&cache_file, json).context(error::IoSnafu)?;
+        fs::write(&cache_file, json).with_context(|_| error::IoSnafu {
+            path: cache_file.clone(),
+        })?;
 
         Ok(())
     }
@@ -252,11 +257,11 @@ impl Cache {
     }
 
     /// Check if a resolved crate's source code package is already in the cache.
-    fn get_cached_source(&self, resolved: &ResolvedCrate) -> Result<Option<CachedCrate>> {
+    fn get_cached_source(&self, resolved: &ResolvedCrate) -> Result<Option<DownloadedCrate>> {
         let cache_path = self.source_cache_path(resolved)?;
 
         if cache_path.exists() {
-            Ok(Some(CachedCrate {
+            Ok(Some(DownloadedCrate {
                 resolved: resolved.clone(),
                 crate_path: cache_path,
             }))
@@ -359,7 +364,9 @@ impl Cache {
         let cache_file = self.resolve_cache_path(spec)?;
 
         if let Some(parent) = cache_file.parent() {
-            fs::create_dir_all(parent).context(error::IoSnafu)?;
+            fs::create_dir_all(parent).with_context(|_| error::IoSnafu {
+                path: parent.to_path_buf(),
+            })?;
         }
 
         let cached_at = Utc::now() - chrono::Duration::from_std(age).unwrap();
@@ -369,9 +376,180 @@ impl Cache {
         };
 
         let json = serde_json::to_string_pretty(&entry).context(error::JsonSnafu)?;
-        fs::write(&cache_file, json).context(error::IoSnafu)?;
+        fs::write(&cache_file, json).with_context(|_| error::IoSnafu {
+            path: cache_file.clone(),
+        })?;
 
         Ok(())
+    }
+
+    /// Get a cached binary or build it if not present.
+    ///
+    /// This method implements binary caching with a cache key computed from both the
+    /// crate identity and the build options. Local directory sources are never cached,
+    /// as their source code can change arbitrarily.
+    ///
+    /// An SBOM (Software Bill of Materials) is generated and stored alongside the binary
+    /// for all cached sources, describing the dependencies and build configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `krate` - The resolved crate to build
+    /// * `options` - Build options that affect the output binary
+    /// * `build_fn` - Closure that builds the binary and returns both the binary path and cargo
+    ///   metadata
+    ///
+    /// # Returns
+    ///
+    /// The path to the binary, either from cache or freshly built.
+    pub fn get_or_build_binary<F>(
+        &self,
+        krate: &ResolvedCrate,
+        options: &BuildOptions,
+        metadata: &Metadata,
+        build_fn: F,
+    ) -> Result<PathBuf>
+    where
+        F: FnOnce() -> Result<PathBuf>,
+    {
+        // Don't cache local directories - their source can change
+        if matches!(krate.source, ResolvedSource::LocalDir { .. }) {
+            return build_fn();
+        }
+
+        let source_hash = Self::compute_source_hash(&krate.source);
+        let build_hash = Self::compute_build_hash(options);
+        let binary_name = Self::expected_binary_name(&krate.name, &options.build_target);
+
+        let cache_dir = self
+            .inner
+            .config
+            .bin_dir
+            .join(format!("{}-{}", krate.name, krate.version))
+            .join(source_hash)
+            .join(build_hash);
+
+        let cache_path = cache_dir.join(&binary_name);
+        let sbom_path = cache_dir.join("sbom.cyclonedx.json");
+
+        // Return cached binary if it exists (SBOM should also exist)
+        if cache_path.exists() {
+            return Ok(cache_path);
+        }
+
+        // Build the binary
+        let built_binary = build_fn()?;
+
+        // Create cache directory
+        fs::create_dir_all(&cache_dir).with_context(|_| error::IoSnafu {
+            path: cache_dir.clone(),
+        })?;
+
+        // Copy binary to cache
+        fs::copy(&built_binary, &cache_path).with_context(|_| error::CopyBinarySnafu {
+            src: built_binary.clone(),
+            dst: cache_path.clone(),
+        })?;
+
+        // Generate and write SBOM
+        let sbom_json = crate::sbom::generate_sbom(&metadata, krate, options)?;
+        fs::write(&sbom_path, sbom_json).with_context(|_| error::IoSnafu {
+            path: sbom_path.clone(),
+        })?;
+
+        Ok(cache_path)
+    }
+
+    /// Compute a hash of the resolved source to distinguish different crate origins.
+    ///
+    /// Different sources (crates.io vs git vs forge) will produce different hashes
+    /// even for the same crate name and version.
+    fn compute_source_hash(source: &ResolvedSource) -> String {
+        let mut hasher = DefaultHasher::new();
+        match source {
+            ResolvedSource::CratesIo => {
+                "crates-io".hash(&mut hasher);
+            }
+            ResolvedSource::Registry { source: registry } => {
+                "registry".hash(&mut hasher);
+                match registry {
+                    RegistrySource::Named(name) => name.hash(&mut hasher),
+                    RegistrySource::IndexUrl(url) => url.as_str().hash(&mut hasher),
+                }
+            }
+            ResolvedSource::Git { repo, commit } => {
+                "git".hash(&mut hasher);
+                repo.hash(&mut hasher);
+                commit.hash(&mut hasher);
+            }
+            ResolvedSource::Forge { forge, commit } => {
+                "forge".hash(&mut hasher);
+                // Format Debug output of forge for hashing
+                format!("{:?}", forge).hash(&mut hasher);
+                commit.hash(&mut hasher);
+            }
+            ResolvedSource::LocalDir { .. } => {
+                panic!("Should not compute hash for LocalDir sources");
+            }
+        }
+        format!("{:016x}", hasher.finish())
+    }
+
+    /// Compute a hash of build options that affect the output binary.
+    ///
+    /// Only options that actually change the binary output are included.
+    /// Options like `offline`, `jobs`, and `ignore_rust_version` affect build
+    /// behavior but not the resulting binary, so they're excluded.
+    ///
+    /// The `locked` flag DOES affect the binary because it affects dependency
+    /// resolution - different dependency versions produce different binaries.
+    ///
+    /// Features are sorted before hashing to ensure consistent cache keys
+    /// regardless of the order they're specified.
+    fn compute_build_hash(options: &BuildOptions) -> String {
+        let mut hasher = DefaultHasher::new();
+
+        // Sort features for consistency - order shouldn't matter for cache key
+        let mut features = options.features.clone();
+        features.sort();
+        features.hash(&mut hasher);
+
+        options.all_features.hash(&mut hasher);
+        options.no_default_features.hash(&mut hasher);
+        options.profile.hash(&mut hasher);
+        options.target.hash(&mut hasher);
+        options.build_target.hash(&mut hasher);
+        options.toolchain.hash(&mut hasher);
+
+        // locked affects dependency resolution, which affects the binary
+        options.locked.hash(&mut hasher);
+
+        // Explicitly NOT hashing these fields as they don't affect the binary output:
+        // - offline: affects network access, not binary
+        // - jobs: affects build parallelism, not binary
+        // - ignore_rust_version: affects cargo checks, not binary
+
+        format!("{:016x}", hasher.finish())
+    }
+
+    /// Compute the expected binary name based on the build target.
+    ///
+    /// The binary name is deterministic based on the crate name and build target,
+    /// with platform-specific extensions added automatically.
+    fn expected_binary_name(crate_name: &str, build_target: &crate::builder::BuildTarget) -> String {
+        use crate::builder::BuildTarget;
+
+        let base_name = match build_target {
+            BuildTarget::DefaultBin => crate_name,
+            BuildTarget::Bin(name) => name.as_str(),
+            BuildTarget::Example(name) => name.as_str(),
+        };
+
+        #[cfg(windows)]
+        return format!("{}.exe", base_name);
+
+        #[cfg(not(windows))]
+        return base_name.to_string();
     }
 }
 
@@ -383,8 +561,9 @@ struct CacheInner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Error;
+    use assert_matches::assert_matches;
     use semver::Version;
+    use snafu::IntoError;
     use std::{cell::RefCell, rc::Rc, time::Duration};
     use tempfile::TempDir;
 
@@ -398,9 +577,11 @@ mod tests {
             config_dir: temp_dir.path().join("config"),
             cache_dir: temp_dir.path().join("cache"),
             bin_dir: temp_dir.path().join("bins"),
+            build_dir: temp_dir.path().join("build"),
             resolve_cache_timeout: timeout,
             offline: false,
             locked: false,
+            toolchain: None,
         };
         (Cache::new(config), temp_dir)
     }
@@ -516,12 +697,12 @@ mod tests {
             std::thread::sleep(Duration::from_secs(1));
 
             let result = cache.get_or_resolve(&spec, || {
-                Err(Error::Registry {
-                    source: tame_index::Error::Io(std::io::Error::new(
+                Err(
+                    error::RegistrySnafu.into_error(tame_index::Error::Io(std::io::Error::new(
                         std::io::ErrorKind::Other,
                         "network error",
-                    )),
-                })
+                    ))),
+                )
             });
 
             assert!(result.is_ok());
@@ -534,16 +715,15 @@ mod tests {
             let spec = test_spec();
 
             let result = cache.get_or_resolve(&spec, || {
-                Err(Error::Registry {
-                    source: tame_index::Error::Io(std::io::Error::new(
+                Err(
+                    error::RegistrySnafu.into_error(tame_index::Error::Io(std::io::Error::new(
                         std::io::ErrorKind::Other,
                         "network error",
-                    )),
-                })
+                    ))),
+                )
             });
 
-            assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), Error::Registry { .. }));
+            assert_matches!(result.unwrap_err(), crate::Error::Registry { .. });
         }
 
         #[test]
@@ -556,9 +736,10 @@ mod tests {
             std::thread::sleep(Duration::from_secs(1));
 
             let result = cache.get_or_resolve(&spec, || {
-                Err(Error::Io {
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "io error"),
-                })
+                Err(error::IoSnafu {
+                    path: PathBuf::from("/fake/test/path"),
+                }
+                .into_error(std::io::Error::new(std::io::ErrorKind::Other, "io error")))
             });
 
             assert!(result.is_ok());
@@ -579,15 +760,15 @@ mod tests {
 
             let result = cache.get_or_resolve(&spec, || {
                 *call_count_clone.borrow_mut() += 1;
-                Err(Error::VersionMismatch {
+                error::VersionMismatchSnafu {
                     requirement: "2.0.0".to_string(),
                     found: Version::parse("1.0.0").unwrap(),
-                })
+                }
+                .fail()
             });
 
             assert_eq!(*call_count.borrow(), 1, "Closure should have been called");
-            assert!(result.is_err(), "Result should be an error, got: {:?}", result);
-            assert!(matches!(result.unwrap_err(), Error::VersionMismatch { .. }));
+            assert_matches!(result.unwrap_err(), crate::Error::VersionMismatch { .. });
         }
 
         #[test]
@@ -626,9 +807,13 @@ mod tests {
 
             let result = cache.get_or_download(&resolved, |_download_path| {
                 *call_count_clone.borrow_mut() += 1;
-                Err(Error::Io {
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "should not be called"),
-                })
+                Err(error::IoSnafu {
+                    path: PathBuf::from("/fake/test/path"),
+                }
+                .into_error(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "should not be called",
+                )))
             });
 
             assert!(result.is_ok());
@@ -667,13 +852,13 @@ mod tests {
             let resolved = test_resolved();
 
             let result = cache.get_or_download(&resolved, |_download_path| {
-                Err(Error::Io {
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "download failed"),
-                })
+                Err(error::IoSnafu {
+                    path: PathBuf::from("/fake/test/path"),
+                }
+                .into_error(std::io::Error::new(std::io::ErrorKind::Other, "download failed")))
             });
 
-            assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), Error::Io { .. }));
+            assert_matches!(result.unwrap_err(), crate::Error::Io { .. });
         }
 
         #[test]
@@ -712,13 +897,16 @@ mod tests {
                 // Create some files but then fail
                 fs::create_dir_all(download_path).unwrap();
                 fs::write(download_path.join("partial.txt"), b"partial data").unwrap();
-                Err(Error::Io {
-                    source: std::io::Error::new(std::io::ErrorKind::Other, "simulated failure"),
-                })
+                Err(error::IoSnafu {
+                    path: PathBuf::from("/fake/test/path"),
+                }
+                .into_error(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "simulated failure",
+                )))
             });
 
-            assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), Error::Io { .. }));
+            assert_matches!(result.unwrap_err(), crate::Error::Io { .. });
 
             // Verify cache path doesn't exist (no partial download)
             assert!(!cache_path.exists());
@@ -774,6 +962,318 @@ mod tests {
             // Verify first download's content is preserved
             let content = fs::read_to_string(cache_path.join("version.txt")).unwrap();
             assert_eq!(content, "download1");
+        }
+    }
+
+    mod binary_cache_hash {
+        use super::*;
+        use crate::builder::{BuildOptions, BuildTarget};
+
+        #[test]
+        fn same_inputs_produce_same_hash() {
+            let options = BuildOptions {
+                features: vec!["foo".to_string(), "bar".to_string()],
+                profile: Some("release".to_string()),
+                ..Default::default()
+            };
+
+            let hash1 = Cache::compute_build_hash(&options);
+            let hash2 = Cache::compute_build_hash(&options);
+
+            assert_eq!(hash1, hash2);
+        }
+
+        #[test]
+        fn feature_order_doesnt_matter() {
+            let options1 = BuildOptions {
+                features: vec!["foo".to_string(), "bar".to_string(), "baz".to_string()],
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                features: vec!["baz".to_string(), "foo".to_string(), "bar".to_string()],
+                ..Default::default()
+            };
+
+            assert_eq!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2),
+                "Same features in different order should produce same hash"
+            );
+        }
+
+        #[test]
+        fn different_features_produce_different_hash() {
+            let options1 = BuildOptions {
+                features: vec!["foo".to_string()],
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                features: vec!["bar".to_string()],
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2)
+            );
+        }
+
+        #[test]
+        fn different_profile_produces_different_hash() {
+            let options1 = BuildOptions {
+                profile: Some("dev".to_string()),
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                profile: Some("release".to_string()),
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2)
+            );
+        }
+
+        #[test]
+        fn different_target_produces_different_hash() {
+            let options1 = BuildOptions {
+                target: Some("x86_64-unknown-linux-gnu".to_string()),
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                target: Some("aarch64-unknown-linux-gnu".to_string()),
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2)
+            );
+        }
+
+        #[test]
+        fn different_toolchain_produces_different_hash() {
+            let options1 = BuildOptions {
+                toolchain: Some("stable".to_string()),
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                toolchain: Some("nightly".to_string()),
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2)
+            );
+        }
+
+        #[test]
+        fn different_build_target_produces_different_hash() {
+            let options1 = BuildOptions {
+                build_target: BuildTarget::DefaultBin,
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                build_target: BuildTarget::Bin("foo".to_string()),
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2)
+            );
+        }
+
+        #[test]
+        fn all_features_affects_hash() {
+            let options1 = BuildOptions {
+                all_features: false,
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                all_features: true,
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2)
+            );
+        }
+
+        #[test]
+        fn no_default_features_affects_hash() {
+            let options1 = BuildOptions {
+                no_default_features: false,
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                no_default_features: true,
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2)
+            );
+        }
+
+        #[test]
+        fn locked_flag_affects_hash() {
+            let options1 = BuildOptions {
+                locked: true,
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                locked: false,
+                ..Default::default()
+            };
+
+            assert_ne!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2),
+                "locked flag affects dependency resolution, so it must affect hash"
+            );
+        }
+
+        #[test]
+        fn offline_flag_does_not_affect_hash() {
+            let options1 = BuildOptions {
+                offline: true,
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                offline: false,
+                ..Default::default()
+            };
+
+            assert_eq!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2),
+                "offline flag should not affect hash"
+            );
+        }
+
+        #[test]
+        fn jobs_does_not_affect_hash() {
+            let options1 = BuildOptions {
+                jobs: Some(1),
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                jobs: Some(8),
+                ..Default::default()
+            };
+
+            assert_eq!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2),
+                "jobs setting should not affect hash"
+            );
+        }
+
+        #[test]
+        fn ignore_rust_version_does_not_affect_hash() {
+            let options1 = BuildOptions {
+                ignore_rust_version: true,
+                ..Default::default()
+            };
+            let options2 = BuildOptions {
+                ignore_rust_version: false,
+                ..Default::default()
+            };
+
+            assert_eq!(
+                Cache::compute_build_hash(&options1),
+                Cache::compute_build_hash(&options2),
+                "ignore_rust_version should not affect hash"
+            );
+        }
+
+        #[test]
+        fn source_hash_distinguishes_crates_io() {
+            let hash = Cache::compute_source_hash(&ResolvedSource::CratesIo);
+            assert_eq!(hash.len(), 16, "Hash should be 16 hex chars");
+        }
+
+        #[test]
+        fn source_hash_distinguishes_git() {
+            let hash1 = Cache::compute_source_hash(&ResolvedSource::Git {
+                repo: "https://github.com/rust-lang/cargo".to_string(),
+                commit: "abc123".to_string(),
+            });
+            let hash2 = Cache::compute_source_hash(&ResolvedSource::Git {
+                repo: "https://github.com/rust-lang/cargo".to_string(),
+                commit: "def456".to_string(),
+            });
+
+            assert_ne!(hash1, hash2, "Different commits should produce different hashes");
+        }
+
+        #[test]
+        fn source_hash_distinguishes_forge() {
+            let hash1 = Cache::compute_source_hash(&ResolvedSource::Forge {
+                forge: Forge::GitHub {
+                    custom_url: None,
+                    owner: "rust-lang".to_string(),
+                    repo: "cargo".to_string(),
+                },
+                commit: "abc123".to_string(),
+            });
+            let hash2 = Cache::compute_source_hash(&ResolvedSource::Forge {
+                forge: Forge::GitHub {
+                    custom_url: None,
+                    owner: "rust-lang".to_string(),
+                    repo: "cargo".to_string(),
+                },
+                commit: "def456".to_string(),
+            });
+
+            assert_ne!(hash1, hash2, "Different commits should produce different hashes");
+        }
+
+        #[test]
+        fn source_hash_distinguishes_registry() {
+            let hash1 = Cache::compute_source_hash(&ResolvedSource::Registry {
+                source: RegistrySource::Named("my-registry".to_string()),
+            });
+            let hash2 = Cache::compute_source_hash(&ResolvedSource::Registry {
+                source: RegistrySource::Named("other-registry".to_string()),
+            });
+
+            assert_ne!(
+                hash1, hash2,
+                "Different registries should produce different hashes"
+            );
+        }
+
+        #[test]
+        fn expected_binary_name_default_bin() {
+            let name = Cache::expected_binary_name("my-crate", &BuildTarget::DefaultBin);
+            #[cfg(windows)]
+            assert_eq!(name, "my-crate.exe");
+            #[cfg(not(windows))]
+            assert_eq!(name, "my-crate");
+        }
+
+        #[test]
+        fn expected_binary_name_specific_bin() {
+            let name = Cache::expected_binary_name("my-crate", &BuildTarget::Bin("foo".to_string()));
+            #[cfg(windows)]
+            assert_eq!(name, "foo.exe");
+            #[cfg(not(windows))]
+            assert_eq!(name, "foo");
+        }
+
+        #[test]
+        fn expected_binary_name_example() {
+            let name = Cache::expected_binary_name("my-crate", &BuildTarget::Example("bar".to_string()));
+            #[cfg(windows)]
+            assert_eq!(name, "bar.exe");
+            #[cfg(not(windows))]
+            assert_eq!(name, "bar");
         }
     }
 

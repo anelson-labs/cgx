@@ -1,19 +1,31 @@
-mod build;
+mod builder;
 mod cache;
+mod cargo;
 mod cli;
 mod config;
 mod cratespec;
 mod downloader;
 mod error;
 mod git;
+mod helpers;
 mod resolver;
+mod sbom;
+#[cfg(test)]
+mod testdata;
 
+use std::sync::Arc;
+
+use builder::CrateBuilder;
 pub use cli::CliArgs;
 use config::Config;
 use cratespec::CrateSpec;
 use downloader::CrateDownloader;
-use error::{Error, Result};
+pub use error::{Error, Result};
 use resolver::CrateResolver;
+
+/// Re-export of the snafu [`snafu::Report`] type so that callers can refer to this type without
+/// taking an explicit snafu dep
+pub use snafu::Report as SnafuReport;
 
 /// Instance of the engine that powers the `cgx` tool.
 ///
@@ -23,8 +35,9 @@ use resolver::CrateResolver;
 /// available to everyone using the project whether or not they previously installed `cgx` on their
 /// systems.
 pub struct Cgx {
-    resolver: Box<dyn CrateResolver>,
-    downloader: Box<dyn CrateDownloader>,
+    resolver: Arc<dyn CrateResolver>,
+    downloader: Arc<dyn CrateDownloader>,
+    builder: Arc<dyn CrateBuilder>,
 }
 
 impl Cgx {
@@ -38,13 +51,27 @@ impl Cgx {
         let cache = cache::Cache::new(config.clone());
         let git_client = git::GitClient::new(cache.clone());
 
-        let resolver = resolver::create_resolver(config.clone(), cache.clone(), git_client.clone());
+        let cargo_runner = Arc::new(cargo::find_cargo()?);
 
-        let downloader = downloader::create_downloader(config, cache, git_client);
+        let resolver = Arc::new(resolver::create_resolver(
+            config.clone(),
+            cache.clone(),
+            git_client.clone(),
+            cargo_runner.clone(),
+        ));
+
+        let downloader = Arc::new(downloader::create_downloader(
+            config.clone(),
+            cache.clone(),
+            git_client,
+        ));
+
+        let builder = Arc::new(builder::create_builder(config, cache, cargo_runner));
 
         Ok(Self {
-            resolver: Box::new(resolver),
-            downloader: Box::new(downloader),
+            resolver,
+            downloader,
+            builder,
         })
     }
 }
@@ -65,6 +92,7 @@ pub fn cgx_main() -> Result<()> {
     let cgx = Cgx::new_from_cli_args(&args)?;
 
     let crate_spec = args.parse_crate_spec()?;
+    let build_options = args.parse_build_options()?;
 
     println!("Got crate spec:");
     match &crate_spec {
@@ -148,13 +176,15 @@ pub fn cgx_main() -> Result<()> {
         resolved_crate.name, resolved_crate.version
     );
 
-    let cache_crate = cgx.downloader.download(&resolved_crate)?;
+    let downloaded_crate = cgx.downloader.download(resolved_crate)?;
 
-    println!("Downloaded crate to cache: {:#?}", cache_crate);
+    println!("Downloaded crate to cache: {:#?}", downloaded_crate);
 
-    let _build_options = args.parse_build_options()?;
-    // TODO: Actually build the crate, or use an existing binary if one is already cached or
-    // available for download
+    println!("Building crate...");
+
+    let bin_path = cgx.builder.build(&downloaded_crate, &build_options)?;
+
+    println!("Built crate binary at: {}", bin_path.display());
 
     todo!()
 }

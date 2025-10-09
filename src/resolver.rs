@@ -1,16 +1,19 @@
 use crate::{
-    Error, Result,
+    Result,
     cache::Cache,
+    cargo::{CargoMetadataOptions, CargoRunner},
     config::Config,
     cratespec::{CrateSpec, Forge, RegistrySource},
     error,
     git::{GitClient, GitSelector},
 };
-use cargo_metadata::MetadataCommand;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
-use snafu::ResultExt;
-use std::path::{Path, PathBuf};
+use snafu::{OptionExt, ResultExt};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tame_index::{
     IndexLocation, IndexUrl, KrateName, SparseIndex, index::RemoteSparseIndex, utils::flock::LockOptions,
 };
@@ -41,7 +44,7 @@ pub struct ResolvedCrate {
 ///
 /// The trait abstraction is important to allow thorough testing of the many edge cases and failure
 /// modes involved.
-pub trait CrateResolver {
+pub trait CrateResolver: std::fmt::Debug + Send + Sync + 'static {
     /// Resolve a (potentially ambiguous, potentially invalid) [`CrateSpec`] to a concrete,
     /// validated [`ResolvedCrate`].
     ///
@@ -100,8 +103,13 @@ pub enum ResolvedSource {
 
 /// Create the default [`CrateResolver`] implementation, repecting the given config and using the
 /// provided cache.
-pub fn create_resolver(config: Config, cache: Cache, git_client: GitClient) -> impl CrateResolver {
-    let inner = DefaultCrateResolver::new(config, git_client);
+pub fn create_resolver(
+    config: Config,
+    cache: Cache,
+    git_client: GitClient,
+    cargo: Arc<dyn CargoRunner>,
+) -> impl CrateResolver {
+    let inner = DefaultCrateResolver::new(config, git_client, cargo);
     CachingResolver::new(inner, cache)
 }
 
@@ -111,12 +119,17 @@ pub fn create_resolver(config: Config, cache: Cache, git_client: GitClient) -> i
 struct DefaultCrateResolver {
     config: Config,
     git_client: GitClient,
+    cargo: Arc<dyn CargoRunner>,
 }
 
 impl DefaultCrateResolver {
     /// Create a new [`DefaultCrateResolver`] with the given configuration and git client.
-    pub fn new(config: Config, git_client: GitClient) -> Self {
-        Self { config, git_client }
+    pub fn new(config: Config, git_client: GitClient, cargo: Arc<dyn CargoRunner>) -> Self {
+        Self {
+            config,
+            git_client,
+            cargo,
+        }
     }
 
     /// Resolve a local directory crate specification.
@@ -126,23 +139,33 @@ impl DefaultCrateResolver {
         name: &Option<String>,
         version: &Option<VersionReq>,
     ) -> Result<ResolvedCrate> {
-        let metadata = MetadataCommand::new()
-            .manifest_path(path.join("Cargo.toml"))
-            .no_deps()
-            .exec()
-            .context(error::CargoMetadataSnafu)?;
+        let metadata = self.cargo.metadata(
+            path,
+            &CargoMetadataOptions {
+                no_deps: true,
+                ..Default::default()
+            },
+        )?;
 
         let package = match name {
             Some(n) => metadata
                 .packages
                 .iter()
                 .find(|p| p.name.as_str() == n)
-                .ok_or_else(|| Error::PackageNotFoundInWorkspace { name: n.clone() })?,
+                .with_context(|| error::PackageNotFoundInWorkspaceSnafu {
+                    name: n.clone(),
+                    available: metadata
+                        .packages
+                        .iter()
+                        .map(|p| p.name.to_string())
+                        .collect::<Vec<_>>(),
+                })?,
             None => {
                 if metadata.packages.len() != 1 {
-                    return Err(Error::AmbiguousPackageName {
+                    return error::AmbiguousPackageNameSnafu {
                         count: metadata.packages.len(),
-                    });
+                    }
+                    .fail();
                 }
                 &metadata.packages[0]
             }
@@ -150,10 +173,11 @@ impl DefaultCrateResolver {
 
         if let Some(req) = version {
             if !req.matches(&package.version) {
-                return Err(Error::VersionMismatch {
+                return error::VersionMismatchSnafu {
                     requirement: req.to_string(),
                     found: package.version.clone(),
-                });
+                }
+                .fail();
             }
         }
 
@@ -226,7 +250,7 @@ impl DefaultCrateResolver {
             remote_index
                 .cached_krate(krate_name, &lock)
                 .context(error::RegistrySnafu)?
-                .ok_or_else(|| Error::OfflineMode {
+                .with_context(|| error::OfflineModeSnafu {
                     name: name.to_string(),
                     version: version.to_string(),
                 })?
@@ -234,7 +258,7 @@ impl DefaultCrateResolver {
             remote_index
                 .krate(krate_name, true, &lock)
                 .context(error::RegistrySnafu)?
-                .ok_or_else(|| Error::CrateNotFoundInRegistry {
+                .with_context(|| error::CrateNotFoundInRegistrySnafu {
                     name: name.to_string(),
                 })?
         };
@@ -252,7 +276,7 @@ impl DefaultCrateResolver {
                     .map(|ver| (v, ver))
             })
             .max_by(|(_, a), (_, b)| a.cmp(b))
-            .ok_or_else(|| Error::NoMatchingVersion {
+            .with_context(|| error::NoMatchingVersionSnafu {
                 name: name.to_string(),
                 requirement: version.to_string(),
             })?;
@@ -285,23 +309,33 @@ impl DefaultCrateResolver {
         let (checkout_path, commit_hash) = self.git_client.checkout_ref(repo, selector.clone())?;
 
         // Use cargo_metadata to read the crate info
-        let metadata = MetadataCommand::new()
-            .manifest_path(checkout_path.join("Cargo.toml"))
-            .no_deps()
-            .exec()
-            .context(error::CargoMetadataSnafu)?;
+        let metadata = self.cargo.metadata(
+            &checkout_path,
+            &CargoMetadataOptions {
+                no_deps: true,
+                ..Default::default()
+            },
+        )?;
 
         let package = match name {
             Some(n) => metadata
                 .packages
                 .iter()
                 .find(|p| p.name.as_str() == n)
-                .ok_or_else(|| Error::PackageNotFoundInWorkspace { name: n.clone() })?,
+                .with_context(|| error::PackageNotFoundInWorkspaceSnafu {
+                    name: n.clone(),
+                    available: metadata
+                        .packages
+                        .iter()
+                        .map(|p| p.name.to_string())
+                        .collect::<Vec<_>>(),
+                })?,
             None => {
                 if metadata.packages.len() != 1 {
-                    return Err(Error::AmbiguousPackageName {
+                    return error::AmbiguousPackageNameSnafu {
                         count: metadata.packages.len(),
-                    });
+                    }
+                    .fail();
                 }
                 &metadata.packages[0]
             }
@@ -309,10 +343,11 @@ impl DefaultCrateResolver {
 
         if let Some(req) = version {
             if !req.matches(&package.version) {
-                return Err(Error::VersionMismatch {
+                return error::VersionMismatchSnafu {
                     requirement: req.to_string(),
                     found: package.version.clone(),
-                });
+                }
+                .fail();
             }
         }
 
@@ -385,6 +420,7 @@ impl CrateResolver for DefaultCrateResolver {
 /// This resolver adds a caching layer on top of an inner resolver, storing resolutions
 /// in a cache and using them to avoid unnecessary network requests. It also implements
 /// resilient behavior like falling back to stale cache entries when network errors occur.
+#[derive(Debug)]
 pub struct CachingResolver<R: CrateResolver> {
     inner: R,
     cache: Cache,
@@ -411,12 +447,9 @@ impl<R: CrateResolver> CrateResolver for CachingResolver<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testdata::TestCase;
     use assert_matches::assert_matches;
-    use std::{fs, time::Duration};
-
-    fn cgx_manifest_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-    }
+    use std::time::Duration;
 
     /// Create a test resolver with online config and an isolated temp directory.
     ///
@@ -427,13 +460,19 @@ mod tests {
             config_dir: temp_dir.path().join("config"),
             cache_dir: temp_dir.path().join("cache"),
             bin_dir: temp_dir.path().join("bins"),
+            build_dir: temp_dir.path().join("build"),
             resolve_cache_timeout: Duration::from_secs(60 * 60),
             offline: false,
             locked: false,
+            toolchain: None,
         };
         let cache = Cache::new(config.clone());
         let git_client = GitClient::new(cache.clone());
-        let resolver = DefaultCrateResolver::new(config, git_client);
+        let resolver = DefaultCrateResolver::new(
+            config.clone(),
+            git_client,
+            Arc::new(crate::cargo::find_cargo().unwrap()),
+        );
         (CachingResolver::new(resolver, cache), temp_dir)
     }
 
@@ -444,153 +483,88 @@ mod tests {
         config.offline = true;
         let cache = Cache::new(config.clone());
         let git_client = GitClient::new(cache.clone());
-        let resolver = DefaultCrateResolver::new(config, git_client);
+        let resolver = DefaultCrateResolver::new(config, git_client, resolver.inner.cargo);
         (CachingResolver::new(resolver, cache), temp_dir)
     }
 
-    /// Create a temporary cargo workspace with the specified packages.
-    ///
-    /// The packages are empty, they are only specified enough to exercise crate resolution in
-    /// local paths.
-    fn create_temp_workspace_with_crates(packages: &[(&str, &str)]) -> tempfile::TempDir {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let workspace_path = temp_dir.path();
-
-        let workspace_toml = format!(
-            "[workspace]\nmembers = [{}]\nresolver = \"2\"\n",
-            packages
-                .iter()
-                .map(|(name, _)| format!("\"{}\"", name))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        fs::write(workspace_path.join("Cargo.toml"), workspace_toml).unwrap();
-
-        for (name, version) in packages {
-            let pkg_dir = workspace_path.join(name);
-            fs::create_dir_all(&pkg_dir).unwrap();
-
-            let pkg_toml = format!(
-                "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\n",
-                name, version
-            );
-            fs::write(pkg_dir.join("Cargo.toml"), pkg_toml).unwrap();
-
-            fs::create_dir_all(pkg_dir.join("src")).unwrap();
-            fs::write(pkg_dir.join("src").join("lib.rs"), "").unwrap();
-        }
-
-        temp_dir
-    }
-
-    /// Exercise resolving LocalDir crate specs.
-    ///
-    /// Most of these tests use this crate's own directory as a sample crate.
+    /// Exercise resolving LocalDir crate specs using test cases from testdata/.
     mod local_dir {
         use super::*;
+        use crate::Error;
 
-        /// When invoking with a local crate path, if no crate name is specified it should be
-        /// determined automatically as long as there's only one crate
         #[test]
-        fn cgx_no_name() {
+        fn single_package_auto_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let cgx_path = cgx_manifest_dir();
+            let testcase = TestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
-                path: cgx_path,
+                path: testcase.path().to_path_buf(),
                 name: None,
                 version: None,
             };
 
             let resolved = resolver.resolve(&spec).unwrap();
-            assert_eq!(resolved.name, "cgx");
+            assert_eq!(resolved.name, "simple-bin-no-deps");
             assert_matches!(resolved.source, ResolvedSource::LocalDir { .. });
         }
 
         #[test]
-        fn cgx_with_name() {
+        fn single_package_explicit_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let cgx_path = cgx_manifest_dir();
+            let testcase = TestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
-                path: cgx_path,
-                name: Some("cgx".to_string()),
+                path: testcase.path().to_path_buf(),
+                name: Some("simple-bin-no-deps".to_string()),
                 version: None,
             };
 
             let resolved = resolver.resolve(&spec).unwrap();
-            assert_eq!(resolved.name, "cgx");
+            assert_eq!(resolved.name, "simple-bin-no-deps");
         }
 
         #[test]
-        fn wrong_name() {
+        fn single_package_wrong_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let cgx_path = cgx_manifest_dir();
+            let testcase = TestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
-                path: cgx_path,
-                name: Some("not-cgx".to_string()),
+                path: testcase.path().to_path_buf(),
+                name: Some("wrong-name".to_string()),
                 version: None,
             };
 
             let result = resolver.resolve(&spec);
-
             assert_matches!(result.unwrap_err(), Error::PackageNotFoundInWorkspace { .. });
         }
 
-        /// Specifying a version is not required, but if specified it must match the version that
-        /// is actually present at the local path.
         #[test]
-        fn version_matches_exactly() {
+        fn single_package_version_req_match() {
             let (resolver, _temp_dir) = test_resolver();
-            let cgx_path = cgx_manifest_dir();
+            let testcase = TestCase::simple_bin_no_deps();
 
-            let metadata = MetadataCommand::new()
-                .manifest_path(cgx_path.join("Cargo.toml"))
-                .no_deps()
-                .exec()
-                .unwrap();
-            let cgx_version = &metadata.packages[0].version;
-
-            let version_req = VersionReq::parse(&format!("={}", cgx_version)).unwrap();
-
-            // Use the exact version from the actual crate; of course that matches
             let spec = CrateSpec::LocalDir {
-                path: cgx_path.clone(),
+                path: testcase.path().to_path_buf(),
                 name: None,
-                version: Some(version_req),
+                version: Some(VersionReq::parse(">=0.1.0").unwrap()),
             };
 
             let resolved = resolver.resolve(&spec).unwrap();
-            assert_eq!(resolved.version, *cgx_version);
-
-            // Use a version requirement that will match but isn't the actual version
-
-            let spec = CrateSpec::LocalDir {
-                path: cgx_path,
-                name: None,
-                version: Some(VersionReq::parse(">0.0.1").unwrap()),
-            };
-
-            let resolved = resolver.resolve(&spec).unwrap();
-            assert_eq!(resolved.version, *cgx_version);
+            assert_eq!(resolved.version, Version::parse("0.1.0").unwrap());
         }
 
         #[test]
-        fn version_mismatch() {
+        fn single_package_version_req_mismatch() {
             let (resolver, _temp_dir) = test_resolver();
-            let cgx_path = cgx_manifest_dir();
-
-            let version_req = VersionReq::parse(">=999.0.0").unwrap();
+            let testcase = TestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
-                path: cgx_path,
+                path: testcase.path().to_path_buf(),
                 name: None,
-                version: Some(version_req),
+                version: Some(VersionReq::parse(">=999.0.0").unwrap()),
             };
 
             let result = resolver.resolve(&spec);
-
             assert_matches!(result.unwrap_err(), Error::VersionMismatch { .. });
         }
 
@@ -606,46 +580,85 @@ mod tests {
             };
 
             let result = resolver.resolve(&spec);
-
             assert_matches!(result.unwrap_err(), Error::CargoMetadata { .. });
         }
 
-        /// If the local directory is a workspace with multiple crates, and no name is specified,
-        /// that is an error because we can't determine which crate to use.
         #[test]
-        fn workspace_ambiguity() {
+        fn workspace_ambiguous_without_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let temp_workspace =
-                create_temp_workspace_with_crates(&[("package-one", "0.1.0"), ("package-two", "0.2.0")]);
+            let testcase = TestCase::workspace_all_libs();
 
             let spec = CrateSpec::LocalDir {
-                path: temp_workspace.path().to_path_buf(),
+                path: testcase.path().to_path_buf(),
                 name: None,
                 version: None,
             };
 
             let result = resolver.resolve(&spec);
-
             assert_matches!(result.unwrap_err(), Error::AmbiguousPackageName { .. });
         }
 
-        /// If the local directory is a workspace with multiple crates, specifying a name should
-        /// work.
         #[test]
-        fn workspace_with_name() {
+        fn workspace_with_valid_package_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let temp_workspace =
-                create_temp_workspace_with_crates(&[("package-one", "0.1.0"), ("package-two", "0.2.0")]);
+            let testcase = TestCase::workspace_all_libs();
 
             let spec = CrateSpec::LocalDir {
-                path: temp_workspace.path().to_path_buf(),
-                name: Some("package-one".to_string()),
+                path: testcase.path().to_path_buf(),
+                name: Some("lib1".to_string()),
                 version: None,
             };
 
             let resolved = resolver.resolve(&spec).unwrap();
-            assert_eq!(resolved.name, "package-one");
+            assert_eq!(resolved.name, "lib1");
             assert_eq!(resolved.version, Version::parse("0.1.0").unwrap());
+        }
+
+        #[test]
+        fn workspace_with_nonexistent_package() {
+            let (resolver, _temp_dir) = test_resolver();
+            let testcase = TestCase::workspace_all_libs();
+
+            let spec = CrateSpec::LocalDir {
+                path: testcase.path().to_path_buf(),
+                name: Some("nonexistent".to_string()),
+                version: None,
+            };
+
+            let result = resolver.resolve(&spec);
+            assert_matches!(result.unwrap_err(), Error::PackageNotFoundInWorkspace { .. });
+        }
+
+        #[test]
+        fn workspace_package_with_version() {
+            let (resolver, _temp_dir) = test_resolver();
+            let testcase = TestCase::workspace_all_libs();
+
+            let spec = CrateSpec::LocalDir {
+                path: testcase.path().to_path_buf(),
+                name: Some("lib2".to_string()),
+                version: Some(VersionReq::parse("=0.1.0").unwrap()),
+            };
+
+            let resolved = resolver.resolve(&spec).unwrap();
+            assert_eq!(resolved.name, "lib2");
+            assert_eq!(resolved.version, Version::parse("0.1.0").unwrap());
+        }
+
+        #[test]
+        fn library_package_auto_name() {
+            let (resolver, _temp_dir) = test_resolver();
+            let testcase = TestCase::simple_lib_no_deps();
+
+            let spec = CrateSpec::LocalDir {
+                path: testcase.path().to_path_buf(),
+                name: None,
+                version: None,
+            };
+
+            let resolved = resolver.resolve(&spec).unwrap();
+            assert_eq!(resolved.name, "simple-lib-no-deps");
+            assert_matches!(resolved.source, ResolvedSource::LocalDir { .. });
         }
     }
 
@@ -655,6 +668,7 @@ mod tests {
     /// throttled.
     mod registry {
         use super::*;
+        use crate::Error;
 
         #[test]
         fn serde_latest() {
@@ -790,7 +804,7 @@ mod tests {
             };
             let git_client = GitClient::new(online_resolver.cache.clone());
             let offline_resolver = CachingResolver::new(
-                DefaultCrateResolver::new(offline_config, git_client),
+                DefaultCrateResolver::new(offline_config, git_client, online_resolver.inner.cargo.clone()),
                 online_resolver.cache.clone(),
             );
 
@@ -835,14 +849,15 @@ mod tests {
                 )
                 .unwrap();
 
-            // Create offline config and resolver
+            // Create offline config and resolver, that shares the same cache as the one we just
+            // inserted the stale cache entry into
             let offline_config = Config {
                 offline: true,
                 ..resolver.inner.config.clone()
             };
             let git_client = GitClient::new(resolver.cache.clone());
             let offline_resolver = CachingResolver::new(
-                DefaultCrateResolver::new(offline_config, git_client),
+                DefaultCrateResolver::new(offline_config, git_client, resolver.inner.cargo.clone()),
                 resolver.cache,
             );
 
@@ -931,6 +946,7 @@ mod tests {
     /// Tests exercising crate specs pointing to git repositories.
     mod git {
         use super::*;
+        use crate::Error;
 
         /// Absent any kind of selector, defaults to the most recent commit on the default branch.
         #[test]
@@ -1165,69 +1181,6 @@ mod tests {
             } else {
                 panic!("Expected Forge source, got {:?}", resolved.source);
             }
-        }
-    }
-
-    // TODO: Why are these here?  Aren't they duplicative?
-    mod integration {
-        use super::*;
-
-        #[test]
-        fn crates_io() {
-            let (resolver, _temp_dir) = test_resolver();
-            let spec = CrateSpec::CratesIo {
-                name: "serde".to_string(),
-                version: None,
-            };
-
-            let resolved = resolver.resolve(&spec).unwrap();
-            assert_eq!(resolved.name, "serde");
-            assert_matches!(resolved.source, ResolvedSource::CratesIo);
-        }
-
-        #[test]
-        fn local_dir() {
-            let (resolver, _temp_dir) = test_resolver();
-            let spec = CrateSpec::LocalDir {
-                path: cgx_manifest_dir(),
-                name: None,
-                version: None,
-            };
-
-            let resolved = resolver.resolve(&spec).unwrap();
-            assert_eq!(resolved.name, "cgx");
-        }
-
-        #[test]
-        fn git() {
-            let (resolver, _temp_dir) = test_resolver();
-            let spec = CrateSpec::Git {
-                repo: "https://github.com/rust-lang/rustlings.git".to_string(),
-                selector: GitSelector::DefaultBranch,
-                name: Some("rustlings".to_string()),
-                version: None,
-            };
-
-            let resolved = resolver.resolve(&spec).unwrap();
-            assert_matches!(resolved.source, ResolvedSource::Git { .. });
-        }
-
-        #[test]
-        fn forge() {
-            let (resolver, _temp_dir) = test_resolver();
-            let spec = CrateSpec::Forge {
-                forge: Forge::GitHub {
-                    custom_url: None,
-                    owner: "rust-lang".to_string(),
-                    repo: "rustlings".to_string(),
-                },
-                selector: GitSelector::DefaultBranch,
-                name: Some("rustlings".to_string()),
-                version: None,
-            };
-
-            let resolved = resolver.resolve(&spec).unwrap();
-            assert_matches!(resolved.source, ResolvedSource::Forge { .. });
         }
     }
 }

@@ -1,0 +1,8 @@
+[package]
+description = "A crate whose Cargo.lock has a stale serde dependency"
+edition     = "2024"
+name        = "stale-serde"
+version     = "0.1.0"
+
+[dependencies]
+serde = "1.0.5"

@@ -1,0 +1,46 @@
+---
+source: src/sbom.rs
+expression: normalized
+---
+{
+  "bomFormat": "CycloneDX",
+  "components": [
+    {
+      "bom-ref": "pkg:cargo/serde@1.0.5",
+      "description": "A generic serialization/deserialization framework",
+      "name": "serde",
+      "purl": "pkg:cargo/serde@1.0.5",
+      "type": "library",
+      "version": "1.0.5"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:cargo/serde@1.0.5"
+    },
+    {
+      "dependsOn": [
+        "pkg:cargo/serde@1.0.5"
+      ],
+      "ref": "pkg:cargo/stale-serde@0.1.0"
+    }
+  ],
+  "metadata": {
+    "component": {
+      "bom-ref": "pkg:cargo/stale-serde@0.1.0",
+      "name": "stale-serde",
+      "purl": "pkg:cargo/stale-serde@0.1.0",
+      "type": "application",
+      "version": "0.1.0"
+    },
+    "tools": [
+      {
+        "name": "cgx",
+        "vendor": "cgx project",
+        "version": "0.0.3"
+      }
+    ]
+  },
+  "specVersion": "1.4",
+  "version": 1
+}

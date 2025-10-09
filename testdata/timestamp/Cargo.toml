@@ -1,0 +1,14 @@
+[package]
+description = "A crate that prints the timestamp when it is built, as well as all features enabled at build time"
+edition     = "2024"
+name        = "timestamp"
+version     = "0.1.0"
+
+[features]
+default     = ["gonkolator"]
+frobnulator = ["dep:chrono"]
+gonkolator  = ["dep:serde"]
+
+[dependencies]
+chrono = { version = "0.4", optional = true }
+serde  = { version = "1", optional = true }

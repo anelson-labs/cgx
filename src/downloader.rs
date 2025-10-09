@@ -1,5 +1,5 @@
 use crate::{
-    Error, Result,
+    Result,
     cache::Cache,
     config::Config,
     cratespec::RegistrySource,
@@ -8,18 +8,37 @@ use crate::{
     resolver::{ResolvedCrate, ResolvedSource},
 };
 use semver::Version;
-use snafu::ResultExt;
+use snafu::{OptionExt, ResultExt};
 use std::path::{Path, PathBuf};
 use tame_index::{
     IndexLocation, IndexUrl, KrateName, SparseIndex, index::RemoteSparseIndex, utils::flock::LockOptions,
 };
+
+/// A crate whose code is available locally on disk after downloading.
+///
+/// This nomenclature is perhaps a bit misleading, since it's possible for the user to specify a
+/// [`crate::cratespec::CrateSpec::LocalDir`] crate spec to the resolver, which will resolve
+/// directly to that local dir without any downloading or caching.  However,
+/// `DownlaodedOrPossiblyAlreadyLocalCrate` isn't very catchy, so you'll have to do that
+/// substitution in your head.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DownloadedCrate {
+    /// The resolved crate metadata (name, version, source)
+    pub resolved: ResolvedCrate,
+
+    /// The path to the crate source code on disk.
+    ///
+    /// This may be a path into the crate cache, but if a local crate was specified then this is
+    /// the direct path to that local crate without any cache layer.
+    pub crate_path: PathBuf,
+}
 
 /// Abstract interface for downloading a (validated) [`ResolvedCrate`] and returning
 /// the filesystem path where its source code is located.
 ///
 /// The trait abstraction allows for thorough testing and alternative implementations
 /// (e.g., mock downloaders for testing).
-pub trait CrateDownloader {
+pub trait CrateDownloader: std::fmt::Debug + Send + Sync + 'static {
     /// Download a resolved crate and return the path to its source code.
     ///
     /// This involves:
@@ -34,7 +53,7 @@ pub trait CrateDownloader {
     /// - The download fails
     /// - Extraction fails
     /// - Offline mode is enabled and the crate is not cached
-    fn download(&self, krate: &ResolvedCrate) -> Result<PathBuf>;
+    fn download(&self, krate: ResolvedCrate) -> Result<DownloadedCrate>;
 }
 
 /// Create a default implementation of [`CrateDownloader`] using the given cache, config, and git
@@ -109,14 +128,14 @@ impl DefaultCrateDownloader {
             remote_index
                 .cached_krate(krate_name, &lock)
                 .context(error::RegistrySnafu)?
-                .ok_or_else(|| Error::CrateNotFoundInRegistry {
+                .with_context(|| error::CrateNotFoundInRegistrySnafu {
                     name: name.to_string(),
                 })?
         } else {
             remote_index
                 .krate(krate_name, true, &lock)
                 .context(error::RegistrySnafu)?
-                .ok_or_else(|| Error::CrateNotFoundInRegistry {
+                .with_context(|| error::CrateNotFoundInRegistrySnafu {
                     name: name.to_string(),
                 })?
         };
@@ -131,7 +150,7 @@ impl DefaultCrateDownloader {
                     .map(|ver| &ver == version)
                     .unwrap_or(false)
             })
-            .ok_or_else(|| Error::NoMatchingVersion {
+            .with_context(|| error::NoMatchingVersionSnafu {
                 name: name.to_string(),
                 requirement: version.to_string(),
             })?;
@@ -140,104 +159,145 @@ impl DefaultCrateDownloader {
         let index_config = remote_index.index.index_config().context(error::RegistrySnafu)?;
 
         // Get download URL for this version
-        let download_url = index_version
-            .download_url(&index_config)
-            .ok_or_else(|| Error::Registry {
-                source: tame_index::Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Failed to construct download URL",
-                )),
-            })?;
+        let download_url = index_version.download_url(&index_config).with_context(|| {
+            error::DownloadUrlUnavailableSnafu {
+                name: name.to_string(),
+                version: version.to_string(),
+            }
+        })?;
 
         // Download the .crate file
         let response = reqwest::blocking::get(&download_url).context(error::RegistryDownloadSnafu)?;
 
         // The .crate file is a gzipped tarball, extract it to download_path
+        //
+        // Crates.io tarballs have all files nested under a top-level directory named
+        // "{name}-{version}/" (e.g., "serde-1.0.200/Cargo.toml"). We need to strip this
+        // prefix during extraction so files end up directly in download_path rather than
+        // in a subdirectory. This is equivalent to `tar --strip-components=1`.
         let tar_gz = flate2::read::GzDecoder::new(response);
         let mut archive = tar::Archive::new(tar_gz);
-        archive.unpack(download_path).context(error::TarExtractionSnafu)?;
+
+        for entry in archive.entries().context(error::TarExtractionSnafu)? {
+            let mut entry = entry.context(error::TarExtractionSnafu)?;
+            let path = entry.path().context(error::TarExtractionSnafu)?;
+
+            // Strip the first path component (the "{name}-{version}" directory)
+            let stripped_path: PathBuf = path.components().skip(1).collect();
+
+            // Skip if there's nothing left after stripping (shouldn't happen, but be safe)
+            if stripped_path.as_os_str().is_empty() {
+                continue;
+            }
+
+            let dest_path = download_path.join(stripped_path);
+
+            // Ensure parent directory exists before unpacking
+            if let Some(parent) = dest_path.parent() {
+                std::fs::create_dir_all(parent).with_context(|_| error::IoSnafu {
+                    path: parent.to_path_buf(),
+                })?;
+            }
+
+            entry.unpack(&dest_path).context(error::TarExtractionSnafu)?;
+        }
 
         Ok(())
+    }
+
+    fn download_git(&self, krate: &ResolvedCrate, repo_url: &str, commit: String) -> Result<PathBuf> {
+        // Git sources use the git-specific two-tier cache (db + checkout)
+        // The checkout path IS the final source code, no need for duplication
+        self.git_client
+            .checkout_ref(repo_url, GitSelector::Commit(commit))
+            .map(|(path, _commit_hash)| path) // Discard commit hash, downloader only needs path
+            .map_err(|e| {
+                // If we're offline and the checkout isn't cached, return OfflineMode error
+                if self.config.offline {
+                    error::OfflineModeSnafu {
+                        name: krate.name.clone(),
+                        version: krate.version.to_string(),
+                    }
+                    .build()
+                } else {
+                    e.into()
+                }
+            })
     }
 }
 
 impl CrateDownloader for DefaultCrateDownloader {
-    fn download(&self, krate: &ResolvedCrate) -> Result<PathBuf> {
-        match &krate.source {
+    fn download(&self, krate: ResolvedCrate) -> Result<DownloadedCrate> {
+        let source = krate.source.clone();
+        match source {
             ResolvedSource::LocalDir { path } => {
                 // Local directories don't need caching or downloading
-                Ok(path.clone())
+                Ok(DownloadedCrate {
+                    resolved: krate,
+                    crate_path: path,
+                })
             }
 
             ResolvedSource::Git { repo, commit } => {
-                // Git sources use the git-specific two-tier cache (db + checkout)
-                // The checkout path IS the final source code, no need for duplication
-                self.git_client
-                    .checkout_ref(repo, GitSelector::Commit(commit.clone()))
-                    .map(|(path, _commit_hash)| path) // Discard commit hash, downloader only needs path
-                    .map_err(|e| {
-                        // If we're offline and the checkout isn't cached, return OfflineMode error
-                        if self.config.offline {
-                            Error::OfflineMode {
-                                name: krate.name.clone(),
-                                version: krate.version.to_string(),
-                            }
-                        } else {
-                            e.into()
-                        }
-                    })
+                let cached_krate_path = self.download_git(&krate, &repo, commit)?;
+
+                Ok(DownloadedCrate {
+                    resolved: krate,
+                    crate_path: cached_krate_path,
+                })
             }
 
             ResolvedSource::Forge { forge, commit } => {
                 // Forge sources also use git
-                let url = forge.git_url();
-                self.git_client
-                    .checkout_ref(&url, GitSelector::Commit(commit.clone()))
-                    .map(|(path, _commit_hash)| path) // Discard commit hash, downloader only needs path
-                    .map_err(|e| {
-                        // If we're offline and the checkout isn't cached, return OfflineMode error
-                        if self.config.offline {
-                            Error::OfflineMode {
-                                name: krate.name.clone(),
-                                version: krate.version.to_string(),
-                            }
-                        } else {
-                            e.into()
-                        }
-                    })
+                let repo_url = forge.git_url();
+                let cached_krate_path = self.download_git(&krate, &repo_url, commit)?;
+
+                Ok(DownloadedCrate {
+                    resolved: krate,
+                    crate_path: cached_krate_path,
+                })
             }
 
-            _ => {
+            ResolvedSource::CratesIo { .. } | ResolvedSource::Registry { .. } => {
                 // For registry sources, use the cache which handles checking for existing
                 // cached copies and atomically downloading if not present
-                self.cache
-                    .get_or_download(krate, |download_path| {
+                let cached_krate_path = self
+                    .cache
+                    .get_or_download(&krate, |download_path| {
                         // The cache check happens before this closure is called, so if we're here
                         // it means we need to actually download the crate.
                         //
                         // Check offline mode AFTER the cache check, so cached entries work offline
                         if self.config.offline {
-                            return Err(Error::OfflineMode {
+                            return error::OfflineModeSnafu {
                                 name: krate.name.clone(),
                                 version: krate.version.to_string(),
-                            });
+                            }
+                            .fail();
                         }
 
                         // Perform the actual download based on source type
-                        match &krate.source {
+                        match source {
                             ResolvedSource::CratesIo => {
                                 self.download_registry(download_path, &krate.name, &krate.version, None)
                             }
-                            ResolvedSource::Registry { source } => self.download_registry(
+                            ResolvedSource::Registry {
+                                source: registry_source,
+                            } => self.download_registry(
                                 download_path,
                                 &krate.name,
                                 &krate.version,
-                                Some(source),
+                                Some(&registry_source),
                             ),
                             _ => unreachable!("Git, Forge, and LocalDir handled above"),
                         }
                     })
-                    .map(|cached| cached.crate_path)
+                    .map(|cached| cached.crate_path)?;
+
+                Ok(DownloadedCrate {
+                    resolved: krate,
+                    crate_path: cached_krate_path,
+                })
             }
         }
     }
@@ -246,7 +306,8 @@ impl CrateDownloader for DefaultCrateDownloader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Config;
+    use crate::{Config, cargo::CargoRunner};
+    use assert_matches::assert_matches;
     use std::time::Duration;
 
     /// Create a test downloader with online config and an isolated temp directory.
@@ -258,9 +319,11 @@ mod tests {
             config_dir: temp_dir.path().join("config"),
             cache_dir: temp_dir.path().join("cache"),
             bin_dir: temp_dir.path().join("bins"),
+            build_dir: temp_dir.path().join("build"),
             resolve_cache_timeout: Duration::from_secs(60 * 60),
             offline: false,
             locked: false,
+            toolchain: None,
         };
         let cache = Cache::new(config.clone());
         let git_client = GitClient::new(cache.clone());
@@ -275,6 +338,43 @@ mod tests {
         let cache = Cache::new(config.clone());
         let git_client = GitClient::new(cache.clone());
         (DefaultCrateDownloader::new(cache, config, git_client), temp_dir)
+    }
+
+    fn test_cargo_runner() -> impl CargoRunner {
+        crate::cargo::find_cargo().unwrap()
+    }
+
+    fn validate_downloaded_crate(downloaded: &DownloadedCrate) {
+        // Basic sanity checks on the downloaded crate
+        assert!(
+            downloaded.crate_path.exists(),
+            "Downloaded crate path does not exist"
+        );
+        assert!(
+            downloaded.crate_path.join("Cargo.toml").exists(),
+            "Downloaded crate missing Cargo.toml"
+        );
+
+        // Make sure we can query metadata on it
+        let cargo_runner = test_cargo_runner();
+        let metadata = cargo_runner
+            .metadata(
+                &downloaded.crate_path,
+                &crate::cargo::CargoMetadataOptions::default(),
+            )
+            .unwrap();
+
+        // Most of the validation is the fact that cargo metadata was successful.
+        // Just do a few basic checks on the metadata itself to make sure it matches the crate we
+        // downloaded
+        assert!(
+            metadata
+                .packages
+                .iter()
+                .any(|p| p.name.as_str() == downloaded.resolved.name
+                    && p.version == downloaded.resolved.version),
+            "Downloaded crate metadata does not match expected name/version"
+        );
     }
 
     mod local_dir {
@@ -295,8 +395,8 @@ mod tests {
                 },
             };
 
-            let path = downloader.download(&resolved).unwrap();
-            assert_eq!(path, local_path);
+            let downloaded_crate = downloader.download(resolved).unwrap();
+            assert_eq!(downloaded_crate.crate_path, local_path);
         }
     }
 
@@ -313,22 +413,8 @@ mod tests {
                 source: ResolvedSource::CratesIo,
             };
 
-            let download_path = downloader.download(&resolved).unwrap();
-            assert!(download_path.exists(), "Download path doesn't exist");
-
-            // Verify the tarball was extracted properly - should have a Cargo.toml
-            // Note: crates.io tarballs extract to a versioned directory
-            let cargo_toml_paths = [
-                download_path.join("Cargo.toml"),
-                download_path.join("serde-1.0.200").join("Cargo.toml"),
-            ];
-
-            let has_cargo_toml = cargo_toml_paths.iter().any(|p| p.exists());
-            assert!(
-                has_cargo_toml,
-                "Cargo.toml not found in any expected location: {:?}",
-                cargo_toml_paths
-            );
+            let downloaded_crate = downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&downloaded_crate);
         }
 
         #[test]
@@ -342,10 +428,12 @@ mod tests {
             };
 
             // First download
-            let path1 = downloader.download(&resolved).unwrap();
+            let path1 = downloader.download(resolved.clone()).unwrap();
+            validate_downloaded_crate(&path1);
 
             // Second download - should hit cache
-            let path2 = downloader.download(&resolved).unwrap();
+            let path2 = downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&path2);
 
             // Should be the exact same path
             assert_eq!(path1, path2, "Cached download should return same path");
@@ -361,7 +449,8 @@ mod tests {
                 source: ResolvedSource::CratesIo,
             };
 
-            let _ = online_downloader.download(&resolved).unwrap();
+            let online_result = online_downloader.download(resolved.clone()).unwrap();
+            validate_downloaded_crate(&online_result);
 
             // Now try offline mode - should work because it's cached
             let offline_config = Config {
@@ -372,7 +461,8 @@ mod tests {
             let git_client = GitClient::new(cache.clone());
             let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
 
-            offline_downloader.download(&resolved).unwrap();
+            let offline_result = offline_downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&offline_result);
         }
 
         #[test]
@@ -386,12 +476,8 @@ mod tests {
                 source: ResolvedSource::CratesIo,
             };
 
-            let result = downloader.download(&resolved);
-            assert!(result.is_err(), "Should fail in offline mode without cache");
-            assert!(
-                matches!(result.unwrap_err(), Error::OfflineMode { .. }),
-                "Should return OfflineMode"
-            );
+            let result = downloader.download(resolved);
+            assert_matches!(result.unwrap_err(), crate::Error::OfflineMode { .. });
         }
     }
 
@@ -412,12 +498,8 @@ mod tests {
                 },
             };
 
-            let download_path = downloader.download(&resolved).unwrap();
-            assert!(download_path.exists(), "Download path doesn't exist");
-            assert!(
-                download_path.join("Cargo.toml").exists(),
-                "Cargo.toml not found in cloned repo"
-            );
+            let downloaded_crate = downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&downloaded_crate);
         }
 
         #[test]
@@ -433,10 +515,12 @@ mod tests {
                 },
             };
 
-            let download_path = downloader.download(&resolved).unwrap();
+            let downloaded_crate = downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&downloaded_crate);
+
             // .git directory should not be in the cached result
             assert!(
-                !download_path.join(".git").exists(),
+                !downloaded_crate.crate_path.join(".git").exists(),
                 ".git directory should be excluded from cache"
             );
         }
@@ -455,12 +539,17 @@ mod tests {
             };
 
             // First clone
-            let path1 = downloader.download(&resolved).unwrap();
+            let downloaded_crate1 = downloader.download(resolved.clone()).unwrap();
+            validate_downloaded_crate(&downloaded_crate1);
 
             // Second clone - should hit cache
-            let path2 = downloader.download(&resolved).unwrap();
+            let downloaded_crate2 = downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&downloaded_crate2);
 
-            assert_eq!(path1, path2, "Cached clone should return same path");
+            assert_eq!(
+                downloaded_crate1, downloaded_crate2,
+                "Cached clone should return same result"
+            );
         }
 
         #[test]
@@ -476,7 +565,8 @@ mod tests {
                 },
             };
 
-            let online_download_path = online_downloader.download(&resolved).unwrap();
+            let online_downloaded_crate = online_downloader.download(resolved.clone()).unwrap();
+            validate_downloaded_crate(&online_downloaded_crate);
 
             // Now try offline mode - should work because it's cached
             let offline_config = Config {
@@ -487,9 +577,10 @@ mod tests {
             let git_client = GitClient::new(cache.clone());
             let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
 
-            let offline_download_path = offline_downloader.download(&resolved).unwrap();
+            let offline_downloaded_crate = offline_downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&offline_downloaded_crate);
 
-            assert_eq!(online_download_path, offline_download_path);
+            assert_eq!(online_downloaded_crate, offline_downloaded_crate);
         }
 
         #[test]
@@ -506,8 +597,8 @@ mod tests {
                 },
             };
 
-            let result = downloader.download(&resolved);
-            assert!(matches!(result, Err(Error::OfflineMode { .. })),);
+            let result = downloader.download(resolved);
+            assert!(matches!(result, Err(crate::Error::OfflineMode { .. })),);
         }
     }
 
@@ -532,11 +623,8 @@ mod tests {
                 },
             };
 
-            let download_path = downloader.download(&resolved).unwrap();
-            assert!(
-                download_path.join("Cargo.toml").exists(),
-                "Cargo.toml not found in forge download"
-            );
+            let downloaded_crate = downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&downloaded_crate);
         }
 
         #[test]
@@ -557,12 +645,17 @@ mod tests {
             };
 
             // First download
-            let path1 = downloader.download(&resolved).unwrap();
+            let downloaded_crate1 = downloader.download(resolved.clone()).unwrap();
+            validate_downloaded_crate(&downloaded_crate1);
 
             // Second download - should hit cache
-            let path2 = downloader.download(&resolved).unwrap();
+            let downloaded_crate2 = downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&downloaded_crate2);
 
-            assert_eq!(path1, path2, "Cached forge download should return same path");
+            assert_eq!(
+                downloaded_crate1, downloaded_crate2,
+                "Cached forge download should return same path"
+            );
         }
 
         #[test]
@@ -582,7 +675,8 @@ mod tests {
                 },
             };
 
-            let _ = online_downloader.download(&resolved).unwrap();
+            let online_result = online_downloader.download(resolved.clone()).unwrap();
+            validate_downloaded_crate(&online_result);
 
             // Now try offline mode - should work because it's cached
             let offline_config = Config {
@@ -593,7 +687,8 @@ mod tests {
             let git_client = GitClient::new(cache.clone());
             let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
 
-            offline_downloader.download(&resolved).unwrap();
+            let offline_result = offline_downloader.download(resolved).unwrap();
+            validate_downloaded_crate(&offline_result);
         }
     }
 }

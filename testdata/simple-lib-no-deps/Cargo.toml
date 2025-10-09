@@ -1,0 +1,7 @@
+[package]
+description = "A simple lib crate that has no dependencies"
+edition     = "2024"
+name        = "simple-lib-no-deps"
+version     = "0.1.0"
+
+[dependencies]

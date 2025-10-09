@@ -1,6 +1,6 @@
 use crate::{
     Result,
-    build::BuildOptions,
+    builder::{BuildOptions, BuildTarget},
     cratespec::{CrateSpec, Forge, RegistrySource},
     error,
     git::GitSelector,
@@ -15,6 +15,13 @@ use std::path::PathBuf;
 #[command(disable_version_flag = true)]
 #[non_exhaustive]
 pub struct CliArgs {
+    /// Rust toolchain to use for building (e.g., +nightly, +stable, +1.70.0)
+    ///
+    /// This field is populated via pre-processing before clap parsing and is not directly
+    /// parsed from command line arguments.
+    #[arg(skip)]
+    pub toolchain: Option<String>,
+
     /// Find crate in git repository at the given URL
     #[arg(long, conflicts_with_all = ["registry", "path", "github", "gitlab", "index"])]
     pub git: Option<String>,
@@ -159,7 +166,56 @@ impl CliArgs {
     /// Be advised that this uses `clap` which will exit the process if the args are invalid or
     /// after printing `--help` output.
     pub fn parse_from_cli_args() -> Self {
-        Self::parse()
+        let args: Vec<String> = std::env::args().collect();
+        let (toolchain, filtered_args) = Self::extract_toolchain(&args);
+
+        let mut cli = Self::parse_from(filtered_args);
+        cli.toolchain = toolchain;
+        cli
+    }
+
+    /// Extract `+toolchain` syntax from the first positional argument.
+    ///
+    /// This method performs pre-processing to extract cargo/rustup-style toolchain overrides
+    /// before clap parses the arguments. This is necessary because:
+    ///
+    /// 1. The `+toolchain` syntax must appear as the first argument (after the binary name)
+    /// 2. It uses a `+` prefix which conflicts with clap's normal argument parsing
+    /// 3. It's a modifier that applies globally, not a flag or positional argument
+    /// 4. This matches how rustup handles toolchain selection for cargo
+    ///
+    /// clap has no native support for this pattern, so we extract it manually and then
+    /// pass the filtered arguments to clap for normal parsing.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - The raw command line arguments including the binary name at position 0
+    ///
+    /// # Returns
+    ///
+    /// A tuple of `(Option<String>, Vec<String>)` where:
+    /// - The first element is `Some(toolchain)` if `+toolchain` was found, `None` otherwise
+    /// - The second element is the filtered argument list with `+toolchain` removed
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let args = vec!["cgx".to_string(), "+nightly".to_string(), "ripgrep".to_string()];
+    /// let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+    /// assert_eq!(toolchain, Some("nightly".to_string()));
+    /// assert_eq!(filtered, vec!["cgx", "ripgrep"]);
+    /// ```
+    fn extract_toolchain(args: &[String]) -> (Option<String>, Vec<String>) {
+        if args.len() > 1 && args[1].starts_with('+') && args[1].len() > 1 {
+            let toolchain = args[1][1..].to_string();
+
+            let mut filtered = vec![args[0].clone()];
+            filtered.extend_from_slice(&args[2..]);
+
+            (Some(toolchain), filtered)
+        } else {
+            (None, args.to_vec())
+        }
     }
 
     /// Attempt to parse a crate spec from the parameters provided by the user.
@@ -201,16 +257,16 @@ impl CliArgs {
                 }
                 Some(
                     semver::VersionReq::parse(at_ver)
-                        .context(error::InvalidVersionReqSnafu { version: at_ver })?,
+                        .with_context(|_| error::InvalidVersionReqSnafu { version: at_ver })?,
                 )
             }
             (Some(at_ver), None) => Some(
                 semver::VersionReq::parse(at_ver)
-                    .context(error::InvalidVersionReqSnafu { version: at_ver })?,
+                    .with_context(|_| error::InvalidVersionReqSnafu { version: at_ver })?,
             ),
             (None, Some(flag_ver)) => Some(
                 semver::VersionReq::parse(flag_ver)
-                    .context(error::InvalidVersionReqSnafu { version: flag_ver })?,
+                    .with_context(|_| error::InvalidVersionReqSnafu { version: flag_ver })?,
             ),
             (None, None) => None,
         };
@@ -254,7 +310,8 @@ impl CliArgs {
             })
         } else if let Some(index_str) = &self.index {
             let name = name.context(error::MissingCrateParameterSnafu)?;
-            let index_url = url::Url::parse(index_str).context(error::InvalidUrlSnafu { url: index_str })?;
+            let index_url =
+                url::Url::parse(index_str).with_context(|_| error::InvalidUrlSnafu { url: index_str })?;
             Ok(CrateSpec::Registry {
                 source: RegistrySource::IndexUrl(index_url),
                 name,
@@ -269,7 +326,7 @@ impl CliArgs {
         } else if let Some(github_repo) = &self.github {
             let (owner, repo) = Self::parse_owner_repo(github_repo)?;
             let custom_url = if let Some(url_str) = &self.github_url {
-                Some(url::Url::parse(url_str).context(error::InvalidUrlSnafu { url: url_str })?)
+                Some(url::Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
             } else {
                 None
             };
@@ -286,7 +343,7 @@ impl CliArgs {
         } else if let Some(gitlab_repo) = &self.gitlab {
             let (owner, repo) = Self::parse_owner_repo(gitlab_repo)?;
             let custom_url = if let Some(url_str) = &self.gitlab_url {
-                Some(url::Url::parse(url_str).context(error::InvalidUrlSnafu { url: url_str })?)
+                Some(url::Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
             } else {
                 None
             };
@@ -323,6 +380,15 @@ impl CliArgs {
             self.profile.clone()
         };
 
+        let build_target = match (&self.bin, &self.example) {
+            (Some(_), Some(_)) => {
+                unreachable!("BUG: clap should enforce mutual exclusivity");
+            }
+            (Some(bin_name), None) => BuildTarget::Bin(bin_name.clone()),
+            (None, Some(example_name)) => BuildTarget::Example(example_name.clone()),
+            (None, None) => BuildTarget::default(),
+        };
+
         let locked = self.locked || self.frozen;
         let offline = self.offline || self.frozen;
 
@@ -336,8 +402,8 @@ impl CliArgs {
             offline,
             jobs: self.jobs,
             ignore_rust_version: self.ignore_rust_version,
-            bin: self.bin.clone(),
-            example: self.example.clone(),
+            build_target,
+            toolchain: self.toolchain.clone(),
         })
     }
 
@@ -993,15 +1059,129 @@ mod tests {
         #[test]
         fn test_bin_flag() {
             let opts = parse_build_options_from_args(&["--bin", "mybinary", "ripgrep"]).unwrap();
-            assert_eq!(opts.bin, Some("mybinary".to_string()));
-            assert_eq!(opts.example, None);
+            assert_eq!(opts.build_target, BuildTarget::Bin("mybinary".to_string()));
+            assert_eq!(opts.build_target, BuildTarget::Bin("mybinary".to_string()));
         }
 
         #[test]
         fn test_example_flag() {
             let opts = parse_build_options_from_args(&["--example", "myexample", "ripgrep"]).unwrap();
-            assert_eq!(opts.example, Some("myexample".to_string()));
-            assert_eq!(opts.bin, None);
+            assert_eq!(opts.build_target, BuildTarget::Example("myexample".to_string()));
+        }
+    }
+
+    mod toolchain_tests {
+        use super::*;
+
+        #[test]
+        fn test_extract_toolchain_nightly() {
+            let args = vec!["cgx".to_string(), "+nightly".to_string(), "ripgrep".to_string()];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+
+            assert_eq!(toolchain, Some("nightly".to_string()));
+            assert_eq!(filtered, vec!["cgx", "ripgrep"]);
+        }
+
+        #[test]
+        fn test_extract_toolchain_specific_version() {
+            let args = vec!["cgx".to_string(), "+1.70.0".to_string(), "ripgrep".to_string()];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+
+            assert_eq!(toolchain, Some("1.70.0".to_string()));
+            assert_eq!(filtered, vec!["cgx", "ripgrep"]);
+        }
+
+        #[test]
+        fn test_extract_toolchain_stable() {
+            let args = vec!["cgx".to_string(), "+stable".to_string(), "ripgrep".to_string()];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+
+            assert_eq!(toolchain, Some("stable".to_string()));
+            assert_eq!(filtered, vec!["cgx", "ripgrep"]);
+        }
+
+        #[test]
+        fn test_extract_toolchain_with_other_flags() {
+            let args = vec![
+                "cgx".to_string(),
+                "+nightly".to_string(),
+                "--git".to_string(),
+                "https://github.com/foo/bar".to_string(),
+                "mycrate".to_string(),
+            ];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+
+            assert_eq!(toolchain, Some("nightly".to_string()));
+            assert_eq!(
+                filtered,
+                vec!["cgx", "--git", "https://github.com/foo/bar", "mycrate"]
+            );
+        }
+
+        #[test]
+        fn test_no_toolchain() {
+            let args = vec!["cgx".to_string(), "ripgrep".to_string()];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+
+            assert_eq!(toolchain, None);
+            assert_eq!(filtered, vec!["cgx", "ripgrep"]);
+        }
+
+        #[test]
+        fn test_bare_plus() {
+            let args = vec!["cgx".to_string(), "+".to_string(), "ripgrep".to_string()];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+
+            assert_eq!(toolchain, None);
+            assert_eq!(filtered, vec!["cgx", "+", "ripgrep"]);
+        }
+
+        #[test]
+        fn test_plus_in_middle_not_toolchain() {
+            let args = vec!["cgx".to_string(), "ripgrep".to_string(), "+something".to_string()];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+
+            assert_eq!(toolchain, None);
+            assert_eq!(filtered, vec!["cgx", "ripgrep", "+something"]);
+        }
+
+        #[test]
+        fn test_toolchain_with_version_flag() {
+            let args: Vec<String> = vec!["cgx", "+nightly", "ripgrep", "--version", "14"]
+                .into_iter()
+                .map(String::from)
+                .collect();
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let mut cli = CliArgs::parse_from(filtered);
+            cli.toolchain = toolchain;
+
+            assert_eq!(cli.toolchain, Some("nightly".to_string()));
+            assert_eq!(cli.crate_spec, Some("ripgrep".to_string()));
+        }
+
+        #[test]
+        fn test_toolchain_propagates_to_build_options() {
+            let args: Vec<String> = vec!["cgx", "+nightly", "ripgrep"]
+                .into_iter()
+                .map(String::from)
+                .collect();
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let mut cli = CliArgs::parse_from(filtered);
+            cli.toolchain = toolchain;
+
+            let opts = cli.parse_build_options().unwrap();
+            assert_eq!(opts.toolchain, Some("nightly".to_string()));
+        }
+
+        #[test]
+        fn test_no_toolchain_in_build_options() {
+            let args: Vec<String> = vec!["cgx", "ripgrep"].into_iter().map(String::from).collect();
+            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let mut cli = CliArgs::parse_from(filtered);
+            cli.toolchain = toolchain;
+
+            let opts = cli.parse_build_options().unwrap();
+            assert_eq!(opts.toolchain, None);
         }
     }
 }

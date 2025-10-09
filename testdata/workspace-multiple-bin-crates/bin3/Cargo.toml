@@ -1,0 +1,7 @@
+[package]
+edition = "2024"
+name    = "bin3"
+version = "0.1.0"
+
+[dependencies]
+lib3 = { path = "../lib3" }

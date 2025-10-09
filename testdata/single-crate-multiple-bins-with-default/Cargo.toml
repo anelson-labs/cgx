@@ -1,0 +1,16 @@
+[package]
+default-run = "bin1"
+description = "A single crate that has multiple binary targets with one specified as default"
+edition     = "2024"
+name        = "single-crate-multiple-bins-with-default"
+version     = "0.1.0"
+
+[[bin]]
+name = "bin1"
+path = "src/bin1.rs"
+
+[[bin]]
+name = "bin2"
+path = "src/bin2.rs"
+
+[dependencies]
