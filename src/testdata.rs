@@ -134,6 +134,10 @@ impl TestCase {
         let crate_path = temp_dir.path().join(name);
         crate::helpers::copy_source_tree(&path, &crate_path).unwrap();
 
+        // Canonicalize the path to ensure consistent handling across platforms
+        // (e.g., resolves /var -> /private/var symlink on macOS)
+        let crate_path = std::fs::canonicalize(crate_path).unwrap();
+
         Self {
             name,
             path,
