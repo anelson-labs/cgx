@@ -586,6 +586,13 @@ pub(crate) mod tests {
         }
     }
 
+    /// These snapshot tests let us generate SBOMs for various test crates, and inspect them in the
+    /// corresponding snapshot files see (`src/snapshots`).  By design, SBOMs contain dependencies
+    /// for the specific platform being targeted, so these tests are only run on Linux.  There's no
+    /// reason we couldn't run them on Windows or Mac, but that would produce different
+    /// dependencies and thus different snpashots.  If you try to run these tests that use linux
+    /// SBOMs on non-Linux platforms, they will fail.
+    #[cfg(target_os = "linux")]
     mod snapshots {
         use super::*;
 
