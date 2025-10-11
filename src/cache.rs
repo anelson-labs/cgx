@@ -452,7 +452,7 @@ impl Cache {
         })?;
 
         // Generate and write SBOM
-        let sbom_json = crate::sbom::generate_sbom(&metadata, krate, options)?;
+        let sbom_json = crate::sbom::generate_sbom(metadata, krate, options)?;
         fs::write(&sbom_path, sbom_json).with_context(|_| error::IoSnafu {
             path: sbom_path.clone(),
         })?;

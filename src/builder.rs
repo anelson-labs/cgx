@@ -534,7 +534,6 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         let mut build_timestamp = None;
-        let mut source_dir = None;
         let mut features = Vec::new();
 
         for line in stdout.lines() {

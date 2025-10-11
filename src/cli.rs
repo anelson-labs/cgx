@@ -435,6 +435,26 @@ impl CliArgs {
             .map(|s| s.to_string())
             .collect()
     }
+
+    /// Extract the arguments that should be passed to the executed binary.
+    ///
+    /// For the special case of `cgx cargo <subcommand>`, the first argument is consumed
+    /// as part of the crate spec (to form `cargo-<subcommand>`), so we skip it.
+    /// Otherwise, all trailing args are passed to the binary.
+    pub(crate) fn get_binary_args(&self) -> Vec<std::ffi::OsString> {
+        let skip = if self.crate_spec.as_deref() == Some("cargo") && !self.args.is_empty() {
+            // Skip the first arg (the cargo subcommand name)
+            1
+        } else {
+            0
+        };
+
+        self.args
+            .iter()
+            .skip(skip)
+            .map(std::ffi::OsString::from)
+            .collect()
+    }
 }
 
 #[cfg(test)]

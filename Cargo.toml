@@ -32,7 +32,7 @@ gix             = { version = "0.73", features = ["blocking-http-transport-reqwe
 home            = "0.5.11"
 ignore          = "0.4.23"
 indicatif       = "0.18.0"
-reqwest         = { version = "0.12.23", features = ["blocking"] }
+reqwest         = { version = "0.12.23", default-features = false, features = ["blocking", "rustls-tls", "http2", "charset", "gzip", "system-proxy"] }
 semver          = { version = "1.0.27", features = ["serde"] }
 serde           = { version = "1.0.228", features = ["derive"] }
 serde-cyclonedx = "0.10.0"
@@ -46,6 +46,9 @@ tokio           = { version = "1", features = ["rt", "rt-multi-thread"] }
 url             = { version = "2.5.7", features = ["serde"] }
 uuid            = { version = "1.18.1", features = ["v4"] }
 which           = "8.0.0"
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = "3.5"
 
 # The profile that 'dist' will build with
 [profile.dist]

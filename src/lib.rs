@@ -9,6 +9,7 @@ mod error;
 mod git;
 mod helpers;
 mod resolver;
+mod runner;
 mod sbom;
 #[cfg(test)]
 mod testdata;
@@ -186,5 +187,10 @@ pub fn cgx_main() -> Result<()> {
 
     println!("Built crate binary at: {}", bin_path.display());
 
-    todo!()
+    // Extract arguments to pass to the binary
+    let binary_args = args.get_binary_args();
+
+    // Run the binary - this function never returns on success
+    // It either replaces the process (Unix) or exits with the child's code (Windows)
+    runner::run(&bin_path, &binary_args)
 }

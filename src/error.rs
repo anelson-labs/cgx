@@ -175,6 +175,20 @@ pub enum Error {
         dst: PathBuf,
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
+
+    // Binary execution errors
+    #[snafu(display("Failed to execute binary at {}: {source}", path.display()))]
+    ExecFailed { path: PathBuf, source: std::io::Error },
+
+    #[snafu(display("Failed to spawn process at {}: {source}", path.display()))]
+    SpawnFailed { path: PathBuf, source: std::io::Error },
+
+    #[snafu(display("Failed to wait for child process: {source}"))]
+    WaitFailed { source: std::io::Error },
+
+    #[cfg(windows)]
+    #[snafu(display("Failed to set up Windows console control handler"))]
+    ConsoleHandlerFailed,
 }
 
 impl From<crate::git::Error> for Error {
