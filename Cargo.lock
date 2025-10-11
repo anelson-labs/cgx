@@ -3265,8 +3265,7 @@ dependencies = [
 [[package]]
 name = "tame-index"
 version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee1412760d33e443bd048ceca650053cf26e7dee73daae39fb4932ebeebafe9"
+source = "git+https://github.com/anelson/tame-index?branch=fix%2F94-windows-lock-always-times-out#bb436f35016b394f5c16ebbf4d8f379dcc7a5d91"
 dependencies = [
  "camino",
  "crossbeam-channel",
