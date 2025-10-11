@@ -126,8 +126,7 @@ impl Forge {
             } => {
                 let base = custom_url
                     .as_ref()
-                    .map(|u| u.as_str().trim_end_matches('/'))
-                    .unwrap_or("https://github.com");
+                    .map_or("https://github.com", |u| u.as_str().trim_end_matches('/'));
                 format!("{}/{}/{}.git", base, owner, repo)
             }
             Forge::GitLab {
@@ -137,8 +136,7 @@ impl Forge {
             } => {
                 let base = custom_url
                     .as_ref()
-                    .map(|u| u.as_str().trim_end_matches('/'))
-                    .unwrap_or("https://gitlab.com");
+                    .map_or("https://gitlab.com", |u| u.as_str().trim_end_matches('/'));
                 format!("{}/{}/{}.git", base, owner, repo)
             }
         }

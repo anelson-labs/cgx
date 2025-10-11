@@ -86,7 +86,7 @@ pub fn cgx_main() -> Result<()> {
     if let Some(version_arg) = &args.version {
         if version_arg.is_empty() {
             println!("cgx {}", env!("CARGO_PKG_VERSION"));
-            std::process::exit(0);
+            return Ok(());
         }
     }
 
@@ -103,8 +103,7 @@ pub fn cgx_main() -> Result<()> {
                 name,
                 version
                     .as_ref()
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "latest".to_string()),
+                    .map_or_else(|| "latest".to_string(), |v| v.to_string()),
             );
         }
         CrateSpec::Registry {
@@ -117,8 +116,7 @@ pub fn cgx_main() -> Result<()> {
                 name,
                 version
                     .as_ref()
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "latest".to_string()),
+                    .map_or_else(|| "latest".to_string(), |v| v.to_string()),
                 source
             );
         }
@@ -133,8 +131,7 @@ pub fn cgx_main() -> Result<()> {
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
                     .as_ref()
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "latest".to_string()),
+                    .map_or_else(|| "latest".to_string(), |v| v.to_string()),
                 repo,
                 selector
             );
@@ -150,8 +147,7 @@ pub fn cgx_main() -> Result<()> {
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
                     .as_ref()
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "latest".to_string()),
+                    .map_or_else(|| "latest".to_string(), |v| v.to_string()),
                 forge,
                 selector
             );
@@ -162,8 +158,7 @@ pub fn cgx_main() -> Result<()> {
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
                     .as_ref()
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "latest".to_string()),
+                    .map_or_else(|| "latest".to_string(), |v| v.to_string()),
                 path.display()
             );
         }

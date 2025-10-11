@@ -114,9 +114,9 @@ impl CrateBuilder for RealCrateBuilder {
         // If the user has not specified an explicit binary target, attempt to resolve it now.
         // If the crate has multiple (or no) binary targets, this is the time to fail fast.
         // Plus the cache needs to know the actual binary name, not DefaultBin.
-        let options: Cow<BuildOptions> = if matches!(options.build_target, BuildTarget::DefaultBin) {
+        let options: Cow<'_, BuildOptions> = if matches!(options.build_target, BuildTarget::DefaultBin) {
             Cow::Owned(BuildOptions {
-                build_target: self.resolve_binary_target(krate, options, &metadata)?,
+                build_target: Self::resolve_binary_target(krate, options, &metadata)?,
                 ..options.clone()
             })
         } else {
@@ -149,7 +149,6 @@ impl RealCrateBuilder {
     /// Returns an explicit [`BuildTarget`] guaranteed not to be `DefaultBin`, or an error if
     /// resolution fails.
     fn resolve_binary_target(
-        &self,
         krate: &DownloadedCrate,
         options: &BuildOptions,
         metadata: &Metadata,
@@ -277,7 +276,7 @@ impl RealCrateBuilder {
     ) -> Result<PathBuf> {
         let build_dir = self.prepare_build_dir(krate)?;
 
-        let package_name = self.resolve_package_name(metadata, &krate.resolved.name)?;
+        let package_name = Self::resolve_package_name(metadata, &krate.resolved.name)?;
 
         let binary_path = self
             .cargo_runner
@@ -300,7 +299,7 @@ impl RealCrateBuilder {
     /// TODO: Fix this so that build dirs are cleaned up after successful builds.
     fn prepare_build_dir(&self, krate: &DownloadedCrate) -> Result<PathBuf> {
         if let ResolvedSource::LocalDir { .. } = krate.resolved.source {
-            return Ok(krate.crate_path.to_path_buf());
+            return Ok(krate.crate_path.clone());
         }
 
         std::fs::create_dir_all(&self.config.build_dir).with_context(|_| error::IoSnafu {
@@ -328,11 +327,7 @@ impl RealCrateBuilder {
     /// `Ok(None)` is returned.  If the workspace has multiple members, then the crate name must
     /// match one of them, and `Ok(Some(name))` is returned.  If it does not match any, then an
     /// error is returned.
-    fn resolve_package_name(
-        &self,
-        metadata: &cargo_metadata::Metadata,
-        crate_name: &str,
-    ) -> Result<Option<String>> {
+    fn resolve_package_name(metadata: &cargo_metadata::Metadata, crate_name: &str) -> Result<Option<String>> {
         let workspace_members: Vec<_> = metadata
             .workspace_packages()
             .iter()
@@ -340,8 +335,7 @@ impl RealCrateBuilder {
             .collect();
 
         match workspace_members.len() {
-            0 => Ok(None),
-            1 => Ok(None),
+            0 | 1 => Ok(None),
             _ => {
                 if workspace_members.iter().any(|name| *name == crate_name) {
                     Ok(Some(crate_name.to_string()))
@@ -412,7 +406,7 @@ mod tests {
         LocalDir,
     }
 
-    /// Create a fake DownloadedCrate from a TestCase for testing different source types
+    /// Create a fake `DownloadedCrate` from a `TestCase` for testing different source types
     fn fake_downloaded_crate(
         tc: &TestCase,
         source_type: FakeSourceType,

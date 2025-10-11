@@ -36,7 +36,7 @@ pub(crate) struct TestCase {
     #[allow(dead_code)]
     temp_dir: TempDir,
 
-    /// Path to the crate within the temp directory (temp_dir/{crate_name}/).
+    /// Path to the crate within the temp directory (`temp_dir/{crate_name`}/).
     /// This is what tests should use as the source directory.
     crate_path: PathBuf,
 }

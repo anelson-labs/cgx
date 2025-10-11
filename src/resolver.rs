@@ -147,8 +147,8 @@ impl DefaultCrateResolver {
             },
         )?;
 
-        let package = match name {
-            Some(n) => metadata
+        let package = if let Some(n) = name {
+            metadata
                 .packages
                 .iter()
                 .find(|p| p.name.as_str() == n)
@@ -159,16 +159,15 @@ impl DefaultCrateResolver {
                         .iter()
                         .map(|p| p.name.to_string())
                         .collect::<Vec<_>>(),
-                })?,
-            None => {
-                if metadata.packages.len() != 1 {
-                    return error::AmbiguousPackageNameSnafu {
-                        count: metadata.packages.len(),
-                    }
-                    .fail();
+                })?
+        } else {
+            if metadata.packages.len() != 1 {
+                return error::AmbiguousPackageNameSnafu {
+                    count: metadata.packages.len(),
                 }
-                &metadata.packages[0]
+                .fail();
             }
+            &metadata.packages[0]
         };
 
         if let Some(req) = version {
@@ -317,8 +316,8 @@ impl DefaultCrateResolver {
             },
         )?;
 
-        let package = match name {
-            Some(n) => metadata
+        let package = if let Some(n) = name {
+            metadata
                 .packages
                 .iter()
                 .find(|p| p.name.as_str() == n)
@@ -329,16 +328,15 @@ impl DefaultCrateResolver {
                         .iter()
                         .map(|p| p.name.to_string())
                         .collect::<Vec<_>>(),
-                })?,
-            None => {
-                if metadata.packages.len() != 1 {
-                    return error::AmbiguousPackageNameSnafu {
-                        count: metadata.packages.len(),
-                    }
-                    .fail();
+                })?
+        } else {
+            if metadata.packages.len() != 1 {
+                return error::AmbiguousPackageNameSnafu {
+                    count: metadata.packages.len(),
                 }
-                &metadata.packages[0]
+                .fail();
             }
+            &metadata.packages[0]
         };
 
         if let Some(req) = version {
@@ -453,7 +451,7 @@ mod tests {
 
     /// Create a test resolver with online config and an isolated temp directory.
     ///
-    /// Returns the resolver and the TempDir which must be kept alive for the test duration.
+    /// Returns the resolver and the `TempDir` which must be kept alive for the test duration.
     fn test_resolver() -> (CachingResolver<DefaultCrateResolver>, tempfile::TempDir) {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = Config {
@@ -487,7 +485,7 @@ mod tests {
         (CachingResolver::new(resolver, cache), temp_dir)
     }
 
-    /// Exercise resolving LocalDir crate specs using test cases from testdata/.
+    /// Exercise resolving `LocalDir` crate specs using test cases from testdata/.
     mod local_dir {
         use super::*;
         use crate::Error;
@@ -761,8 +759,8 @@ mod tests {
         /// Test that resolving an uncached crate in offline mode fails.
         ///
         /// This test attempts to resolve a definitely-nonexistent crate name in offline mode
-        /// without any prior caching. Because the crate is not in tame_index's cache and we're
-        /// in offline mode (which only uses cached_krate), the resolve fails with
+        /// without any prior caching. Because the crate is not in `tame_index`'s cache and we're
+        /// in offline mode (which only uses `cached_krate`), the resolve fails with
         /// [`OfflineMode`].
         #[test]
         fn offline_without_cached_fails() {
@@ -780,10 +778,10 @@ mod tests {
 
         /// Test that resolving a cached crate in offline mode succeeds.
         ///
-        /// This test first queries serde online to populate tame_index's cache, then
+        /// This test first queries serde online to populate `tame_index`'s cache, then
         /// queries the same crate in offline mode. The second query should succeed
         /// by using our cached resolution result. While we can't prove the network wasn't
-        /// used, this exercises the offline code path that calls cached_krate instead of krate.
+        /// used, this exercises the offline code path that calls `cached_krate` instead of krate.
         #[test]
         fn offline_with_cached_works() {
             let (online_resolver, _temp_dir) = test_resolver();
@@ -908,8 +906,8 @@ mod tests {
         ///
         /// This test inserts a fake serde@999.99.99 entry into the cache with a stale timestamp.
         /// When resolving in online mode, the resolver queries the registry, which returns
-        /// NoMatchingVersion (since 999.99.99 doesn't exist). Because NoMatchingVersion is not
-        /// a transient error (not in should_use_stale_cache list), the stale cache should NOT
+        /// `NoMatchingVersion` (since 999.99.99 doesn't exist). Because `NoMatchingVersion` is not
+        /// a transient error (not in `should_use_stale_cache` list), the stale cache should NOT
         /// be used as a fallback, and the error should propagate.
         #[test]
         fn stale_cache_not_used_for_permanent_errors() {

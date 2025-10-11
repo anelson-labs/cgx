@@ -112,15 +112,15 @@ impl GitClient {
     /// 1. Bare repository cache (one per URL) - for efficient fetching
     /// 2. Checkout cache (one per commit) - the actual source code
     ///
-    /// Returns a tuple of (checkout_path, commit_hash) where:
-    /// - checkout_path: Path to the checked-out working tree (the final source code)
-    /// - commit_hash: Full 40-character SHA-1 hash of the checked-out commit
+    /// Returns a tuple of (`checkout_path`, `commit_hash`) where:
+    /// - `checkout_path`: Path to the checked-out working tree (the final source code)
+    /// - `commit_hash`: Full 40-character SHA-1 hash of the checked-out commit
     pub(crate) fn checkout_ref(&self, url: &str, selector: GitSelector) -> Result<(PathBuf, String)> {
         // Step 1: Ensure bare repo database exists
         let db_path = self.ensure_db(url)?;
 
         // Step 2: Ensure ref is fetched into database (with targeted refspec!)
-        let commit_oid = self.ensure_ref(&db_path, url, &selector)?;
+        let commit_oid = Self::ensure_ref(&db_path, url, &selector)?;
         let commit_str = commit_oid.to_string();
 
         // Step 3: Ensure checkout exists
@@ -142,7 +142,7 @@ impl GitClient {
         Ok(db_path)
     }
 
-    fn ensure_ref(&self, db_path: &Path, url: &str, selector: &GitSelector) -> Result<ObjectId> {
+    fn ensure_ref(db_path: &Path, url: &str, selector: &GitSelector) -> Result<ObjectId> {
         // Try to resolve locally first (cache hit at DB level)
         if let Ok(oid) = resolve_selector(db_path, selector) {
             return Ok(oid);

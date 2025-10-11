@@ -144,12 +144,7 @@ impl DefaultCrateDownloader {
         let index_version = krate
             .versions
             .iter()
-            .find(|v| {
-                Version::parse(&v.version)
-                    .ok()
-                    .map(|ver| &ver == version)
-                    .unwrap_or(false)
-            })
+            .find(|v| Version::parse(&v.version).ok().is_some_and(|ver| &ver == version))
             .with_context(|| error::NoMatchingVersionSnafu {
                 name: name.to_string(),
                 requirement: version.to_string(),
@@ -312,7 +307,7 @@ mod tests {
 
     /// Create a test downloader with online config and an isolated temp directory.
     ///
-    /// Returns the downloader and the TempDir which must be kept alive for the test duration.
+    /// Returns the downloader and the `TempDir` which must be kept alive for the test duration.
     fn test_downloader() -> (DefaultCrateDownloader, tempfile::TempDir) {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = Config {

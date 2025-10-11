@@ -111,7 +111,7 @@ pub trait CargoRunner: std::fmt::Debug + Send + Sync + 'static {
     ///
     /// # Errors
     ///
-    /// - Cargo.toml not found in source_dir
+    /// - Cargo.toml not found in `source_dir`
     /// - Toolchain specified but rustup not found
     /// - Cargo build command fails
     /// - Expected binary not found in cargo's JSON output

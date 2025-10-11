@@ -5,7 +5,7 @@ use serde_cyclonedx::cyclonedx::v_1_4::{
 };
 use snafu::ResultExt;
 
-/// Generate a CycloneDX SBOM from cargo metadata.
+/// Generate a `CycloneDX` SBOM from cargo metadata.
 ///
 /// Creates a Software Bill of Materials describing the crate being built, its dependencies,
 /// and the build configuration used to produce the binary.
@@ -18,7 +18,7 @@ use snafu::ResultExt;
 ///
 /// # Returns
 ///
-/// A JSON string containing the CycloneDX SBOM in version 1.4 format.
+/// A JSON string containing the `CycloneDX` SBOM in version 1.4 format.
 pub(crate) fn generate_sbom(
     metadata: &cargo_metadata::Metadata,
     resolved: &ResolvedCrate,
@@ -81,7 +81,7 @@ impl DepKind {
 
 /// Analyzes dependency graph to determine which packages are included and their kinds.
 ///
-/// Returns a HashMap mapping PackageId → (index, DepKind) for packages that should
+/// Returns a `HashMap` mapping `PackageId` → (index, `DepKind`) for packages that should
 /// be included in the SBOM. Dev-only dependencies are excluded.
 fn analyze_dependencies(
     metadata: &cargo_metadata::Metadata,

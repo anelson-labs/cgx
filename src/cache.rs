@@ -106,7 +106,7 @@ impl Cache {
                 let _ = self.put_resolved(spec, &resolved);
                 Ok(resolved)
             }
-            Err(e) if self.should_use_stale_cache(&e) => {
+            Err(e) if Self::should_use_stale_cache(&e) => {
                 // If there was already an entry in the cache, but we didn't use it because it was
                 // stale, return it now as a fallback since a stale cache entry is better than
                 // failing with this error
@@ -223,7 +223,7 @@ impl Cache {
 
     /// Get the filesystem path for the resolve cache file for a given [`CrateSpec`].
     fn resolve_cache_path(&self, spec: &CrateSpec) -> Result<PathBuf> {
-        let hash = self.compute_spec_hash(spec)?;
+        let hash = Self::compute_spec_hash(spec)?;
         Ok(self
             .inner
             .config
@@ -233,7 +233,7 @@ impl Cache {
     }
 
     /// Compute a SHA256 hash of the serialized [`CrateSpec`] to use as a cache key.
-    fn compute_spec_hash(&self, spec: &CrateSpec) -> Result<String> {
+    fn compute_spec_hash(spec: &CrateSpec) -> Result<String> {
         let json = serde_json::to_string(spec).context(error::JsonSnafu)?;
         Ok(Self::compute_hash(json.as_bytes()))
     }
@@ -249,7 +249,7 @@ impl Cache {
     ///
     /// Network and I/O errors are considered transient and should use stale cache if available.
     /// Other errors (like version mismatches) are permanent and should not use stale cache.
-    fn should_use_stale_cache(&self, error: &crate::Error) -> bool {
+    fn should_use_stale_cache(error: &crate::Error) -> bool {
         matches!(
             error,
             crate::Error::Registry { .. } | crate::Error::Git { .. } | crate::Error::Io { .. }
@@ -316,13 +316,13 @@ impl Cache {
 
     /// Get the cache path for a git database (bare repo) for a URL.
     pub(crate) fn git_db_path(&self, url: &str) -> PathBuf {
-        let ident = self.compute_git_ident(url);
+        let ident = Self::compute_git_ident(url);
         self.inner.config.cache_dir.join("git-db").join(ident)
     }
 
     /// Get the cache path for a git checkout at a specific commit.
     pub(crate) fn git_checkout_path(&self, url: &str, commit: &str) -> PathBuf {
-        let ident = self.compute_git_ident(url);
+        let ident = Self::compute_git_ident(url);
         self.inner
             .config
             .cache_dir
@@ -335,7 +335,7 @@ impl Cache {
     ///
     /// Format: `{repo-name}-{short-hash}`
     /// Example: `tokio-a1b2c3d4` for `https://github.com/tokio-rs/tokio`
-    fn compute_git_ident(&self, url: &str) -> String {
+    fn compute_git_ident(url: &str) -> String {
         // Extract repo name from URL (last path component)
         let name = url
             .trim_end_matches('/')
@@ -541,8 +541,7 @@ impl Cache {
 
         let base_name = match build_target {
             BuildTarget::DefaultBin => crate_name,
-            BuildTarget::Bin(name) => name.as_str(),
-            BuildTarget::Example(name) => name.as_str(),
+            BuildTarget::Bin(name) | BuildTarget::Example(name) => name.as_str(),
         };
 
         #[cfg(windows)]
@@ -1282,23 +1281,21 @@ mod tests {
 
         #[test]
         fn hash_stability() {
-            let (cache, _temp) = test_cache();
             let spec = test_spec();
 
-            let hash1 = cache.compute_spec_hash(&spec).unwrap();
-            let hash2 = cache.compute_spec_hash(&spec).unwrap();
+            let hash1 = Cache::compute_spec_hash(&spec).unwrap();
+            let hash2 = Cache::compute_spec_hash(&spec).unwrap();
 
             assert_eq!(hash1, hash2);
         }
 
         #[test]
         fn hash_uniqueness() {
-            let (cache, _temp) = test_cache();
             let spec1 = test_spec();
             let spec2 = test_spec_alt();
 
-            let hash1 = cache.compute_spec_hash(&spec1).unwrap();
-            let hash2 = cache.compute_spec_hash(&spec2).unwrap();
+            let hash1 = Cache::compute_spec_hash(&spec1).unwrap();
+            let hash2 = Cache::compute_spec_hash(&spec2).unwrap();
 
             assert_ne!(hash1, hash2);
         }
