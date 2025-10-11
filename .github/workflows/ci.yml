@@ -134,7 +134,7 @@ jobs:
   # sure that build and test have passed on the amd64 versions of all of these platforms
   test-arm-platforms:
     name: Test (ARM ${{ matrix.name }})
-    needs: test-linux-amd64
+    needs: [test-linux-amd64, test-tier1-platforms]
     strategy:
       fail-fast: false
       matrix:
