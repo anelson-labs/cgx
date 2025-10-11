@@ -502,13 +502,6 @@ pub(crate) mod tests {
         sbom
     }
 
-    /// Normalize SBOM JSON for snapshot testing by removing non-deterministic fields.
-    fn normalize_sbom_json(json_str: &str) -> String {
-        let sbom: CycloneDx = serde_json::from_str(json_str).unwrap();
-        let normalized = normalize_sbom(sbom);
-        serde_json::to_string_pretty(&normalized).unwrap()
-    }
-
     /// Read an SBOM from a file and normalize it by removing non-deterministic fields.
     fn read_and_normalize_sbom(path: &Path) -> CycloneDx {
         let json_str = std::fs::read_to_string(path)
@@ -595,6 +588,13 @@ pub(crate) mod tests {
     #[cfg(target_os = "linux")]
     mod snapshots {
         use super::*;
+
+        /// Normalize SBOM JSON for snapshot testing by removing non-deterministic fields.
+        fn normalize_sbom_json(json_str: &str) -> String {
+            let sbom: CycloneDx = serde_json::from_str(json_str).unwrap();
+            let normalized = normalize_sbom(sbom);
+            serde_json::to_string_pretty(&normalized).unwrap()
+        }
 
         #[test]
         fn snapshot_simple_bin_no_deps() {
