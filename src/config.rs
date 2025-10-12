@@ -1,6 +1,12 @@
 use crate::{Result, cli::CliArgs};
+use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+use snafu::ResultExt;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 /// Represents the sources to check for pre-built binaries before building from source.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -180,64 +186,6 @@ pub struct Config {
 }
 
 impl Config {
-    /// Discover all config file locations in order of precedence.
-    ///
-    /// Returns paths from lowest to highest precedence. Later config files override earlier ones.
-    ///
-    /// The search order is:
-    /// 1. System config: `/etc/cgx.toml` on Unix, Windows equivalent
-    /// 2. User config: `$XDG_CONFIG_HOME/cgx/cgx.toml` or platform equivalent
-    /// 3. Directory hierarchy: All `cgx.toml` files from filesystem root to current directory
-    fn discover_config_files() -> Vec<PathBuf> {
-        use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
-
-        let mut config_files = Vec::new();
-
-        let strategy = choose_app_strategy(AppStrategyArgs {
-            top_level_domain: "org".to_string(),
-            author: "Adam Nelson".to_string(),
-            app_name: "cgx".to_string(),
-        })
-        .unwrap();
-
-        #[cfg(unix)]
-        {
-            let system_config = PathBuf::from("/etc/cgx.toml");
-            if system_config.exists() {
-                config_files.push(system_config);
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            if let Some(program_data) = std::env::var_os("ProgramData") {
-                let system_config = PathBuf::from(program_data).join("cgx").join("cgx.toml");
-                if system_config.exists() {
-                    config_files.push(system_config);
-                }
-            }
-        }
-
-        let user_config = strategy.config_dir().join("cgx.toml");
-        if user_config.exists() {
-            config_files.push(user_config);
-        }
-
-        if let Ok(current_dir) = std::env::current_dir() {
-            let mut ancestors: Vec<PathBuf> = current_dir.ancestors().map(|p| p.to_path_buf()).collect();
-            ancestors.reverse();
-
-            for ancestor in ancestors {
-                let config_file = ancestor.join("cgx.toml");
-                if config_file.exists() {
-                    config_files.push(config_file);
-                }
-            }
-        }
-
-        config_files
-    }
-
     /// Load the configuration, honoring config files and command line arguments.
     ///
     /// Configuration is loaded from multiple sources with the following precedence
@@ -248,19 +196,20 @@ impl Config {
     /// 4. Directory hierarchy config files (from root to current directory)
     /// 5. Command-line arguments (highest priority)
     pub fn load(args: &CliArgs) -> Result<Self> {
-        use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+        Self::load_from_dir(&cwd, args)
+    }
+
+    /// Load config from the CLI args and a specified directory which may or may not contain config
+    /// files.
+    pub(crate) fn load_from_dir(cwd: &Path, args: &CliArgs) -> Result<Self> {
         use figment::{
             Figment,
             providers::{Format, Serialized, Toml},
         };
-        use snafu::ResultExt;
 
-        let strategy = choose_app_strategy(AppStrategyArgs {
-            top_level_domain: "org".to_string(),
-            author: "Adam Nelson".to_string(),
-            app_name: "cgx".to_string(),
-        })
-        .unwrap();
+        let strategy = Self::get_user_dirs()?;
 
         let default_config = ConfigFile {
             resolve_cache_timeout: Some(Duration::from_secs(60 * 60)),
@@ -271,7 +220,7 @@ impl Config {
 
         let mut figment = Figment::new().merge(Serialized::defaults(default_config));
 
-        for config_file in Self::discover_config_files() {
+        for config_file in Self::discover_config_files(cwd, args)? {
             figment = figment.merge(Toml::file(config_file));
         }
 
@@ -307,6 +256,74 @@ impl Config {
             tools: config_file.tools.unwrap_or_default(),
             aliases: config_file.aliases.unwrap_or_default(),
         })
+    }
+
+    /// Discover all config file locations in order of precedence.
+    ///
+    /// Returns paths from lowest to highest precedence. Later config files override earlier ones.
+    ///
+    /// The search order is:
+    /// 1. System config: `/etc/cgx.toml` on Unix, Windows equivalent
+    /// 2. User config: `$XDG_CONFIG_HOME/cgx/cgx.toml` or platform equivalent
+    /// 3. Directory hierarchy: All `cgx.toml` files from filesystem root to current directory
+    fn discover_config_files(cwd: &Path, args: &CliArgs) -> Result<Vec<PathBuf>> {
+        let mut config_files = Vec::new();
+
+        let strategy = Self::get_user_dirs()?;
+
+        #[cfg(unix)]
+        {
+            let system_config = PathBuf::from("/etc/cgx.toml");
+            if system_config.exists() {
+                config_files.push(system_config);
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            if let Some(program_data) = std::env::var_os("ProgramData") {
+                let system_config = PathBuf::from(program_data).join("cgx").join("cgx.toml");
+                if system_config.exists() {
+                    config_files.push(system_config);
+                }
+            }
+        }
+
+        let user_config = strategy.config_dir().join("cgx.toml");
+        if user_config.exists() {
+            config_files.push(user_config);
+        }
+
+        // If the user explicitly specified a config file, then use that one as the leaf and walk
+        // up the filesystem hierarchy from there to root, if not default to looking in the current
+        // directory
+        if let Some(config_path) = &args.config_file {
+            // Read only this config file, and NOTHING else
+            config_files.push(config_path.clone());
+
+            return Ok(config_files);
+        };
+
+        let mut ancestors: Vec<PathBuf> = cwd.ancestors().map(|p| p.to_path_buf()).collect();
+        ancestors.reverse();
+
+        for ancestor in ancestors {
+            let config_file = ancestor.join("cgx.toml");
+            if config_file.exists() {
+                config_files.push(config_file);
+            }
+        }
+
+        Ok(config_files)
+    }
+
+    fn get_user_dirs() -> Result<impl AppStrategy> {
+        choose_app_strategy(AppStrategyArgs {
+            top_level_domain: "org".to_string(),
+            author: "anelson".to_string(),
+            app_name: "cgx".to_string(),
+        })
+        .context(crate::error::EtceteraSnafu)
     }
 }
 
@@ -511,5 +528,254 @@ mod tests {
 
         let aliases = config.aliases.unwrap();
         assert_eq!(aliases.len(), 2);
+    }
+
+    /// Test the config loading logic that traverses up a directory hierarchy looking for config
+    /// files.
+    ///
+    /// `testdata/configs` contains test config files constructed specificially to facilitate these
+    /// tests
+    mod hierarchy_tests {
+        use super::*;
+        use assert_matches::assert_matches;
+
+        /// Test loading config from a 3-level hierarchy (root → work → project1).
+        ///
+        /// Verifies that config files are merged in order of precedence, with closer files
+        /// overriding values from parent directories. The `resolve_cache_timeout` should be 3m
+        /// (from project1), tools should include entries from all 3 levels (5 total), and aliases
+        /// should show the `dummytool` override from project1.
+        #[test]
+        fn test_config_hierarchy_project1() {
+            let test_data = crate::testdata::config_test_data();
+            let project1_dir = test_data.join("work").join("project1");
+
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let config = Config::load_from_dir(&project1_dir, &args).unwrap();
+
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(3 * 60));
+
+            assert!(config.tools.contains_key("ripgrep"));
+            assert!(config.tools.contains_key("root_tool"));
+            assert!(config.tools.contains_key("taplo-cli"));
+            assert!(config.tools.contains_key("work_tool"));
+            assert!(config.tools.contains_key("project1_tool"));
+            assert_eq!(config.tools.len(), 5);
+
+            assert_eq!(config.aliases.get("dummytool"), Some(&"project1".to_string()));
+            assert_eq!(config.aliases.get("rg"), Some(&"ripgrep".to_string()));
+            assert_eq!(config.aliases.get("taplo"), Some(&"taplo-cli".to_string()));
+            assert_eq!(config.aliases.len(), 3);
+        }
+
+        /// Test loading config from a parallel 3-level hierarchy (root → work → project2).
+        ///
+        /// Similar to project1, but verifies that sibling project directories maintain
+        /// independent configurations. The `resolve_cache_timeout` should be 5m (from project2),
+        /// tools should include project2_tool instead of project1_tool (5 total), and the
+        /// `dummytool` alias should override to "project2".
+        #[test]
+        fn test_config_hierarchy_project2() {
+            let test_data = crate::testdata::config_test_data();
+            let project2_dir = test_data.join("work").join("project2");
+
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let config = Config::load_from_dir(&project2_dir, &args).unwrap();
+
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(5 * 60));
+
+            assert!(config.tools.contains_key("ripgrep"));
+            assert!(config.tools.contains_key("root_tool"));
+            assert!(config.tools.contains_key("taplo-cli"));
+            assert!(config.tools.contains_key("work_tool"));
+            assert!(config.tools.contains_key("project2_tool"));
+            assert_eq!(config.tools.len(), 5);
+
+            assert_eq!(config.aliases.get("dummytool"), Some(&"project2".to_string()));
+            assert_eq!(config.aliases.get("rg"), Some(&"ripgrep".to_string()));
+            assert_eq!(config.aliases.get("taplo"), Some(&"taplo-cli".to_string()));
+            assert_eq!(config.aliases.len(), 3);
+        }
+
+        /// Test loading config from a 2-level hierarchy (root → work).
+        ///
+        /// Verifies config merging at an intermediate level in the hierarchy. The
+        /// `resolve_cache_timeout` should be 2m (from work), tools should include entries from
+        /// both root and work (4 total), and the `dummytool` alias should override to "work".
+        #[test]
+        fn test_config_hierarchy_work() {
+            let test_data = crate::testdata::config_test_data();
+            let work_dir = test_data.join("work");
+
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let config = Config::load_from_dir(&work_dir, &args).unwrap();
+
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(2 * 60));
+
+            assert!(config.tools.contains_key("ripgrep"));
+            assert!(config.tools.contains_key("root_tool"));
+            assert!(config.tools.contains_key("taplo-cli"));
+            assert!(config.tools.contains_key("work_tool"));
+            assert_eq!(config.tools.len(), 4);
+
+            assert_eq!(config.aliases.get("dummytool"), Some(&"work".to_string()));
+            assert_eq!(config.aliases.get("rg"), Some(&"ripgrep".to_string()));
+            assert_eq!(config.aliases.get("taplo"), Some(&"taplo-cli".to_string()));
+            assert_eq!(config.aliases.len(), 3);
+        }
+
+        /// Test loading config from the root level only.
+        ///
+        /// Establishes the baseline configuration from the root config file. The
+        /// `resolve_cache_timeout` should be 1m (from root), and only root-level tools and aliases
+        /// should be present (3 tools, 3 aliases including dummytool="root").
+        #[test]
+        fn test_config_hierarchy_root() {
+            let test_data = crate::testdata::config_test_data();
+
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let config = Config::load_from_dir(&test_data, &args).unwrap();
+
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(1 * 60));
+
+            assert!(config.tools.contains_key("ripgrep"));
+            assert!(config.tools.contains_key("root_tool"));
+            assert!(config.tools.contains_key("taplo-cli"));
+            assert_eq!(config.tools.len(), 3);
+
+            assert_eq!(config.aliases.get("dummytool"), Some(&"root".to_string()));
+            assert_eq!(config.aliases.get("rg"), Some(&"ripgrep".to_string()));
+            assert_eq!(config.aliases.get("taplo"), Some(&"taplo-cli".to_string()));
+            assert_eq!(config.aliases.len(), 3);
+        }
+
+        /// Test that specifying `--config-file` bypasses hierarchy traversal.
+        ///
+        /// When an explicit config file is provided via CLI, ONLY that file is read without
+        /// walking up the directory tree. This test uses a non-standard filename to verify
+        /// it's the explicit path (not discovery) that loads the config. Should have only 1 tool
+        /// and 1 alias from the specified file, with timeout=6m.
+        #[test]
+        fn test_explicit_config_file() {
+            let test_data = crate::testdata::config_test_data();
+            let explicit_config = test_data
+                .join("work")
+                .join("project1")
+                .join("not_called_cgx.toml");
+
+            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+            args.config_file = Some(explicit_config);
+
+            let config = Config::load(&args).unwrap();
+
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(6 * 60));
+
+            assert!(config.tools.contains_key("project1_tool"));
+            assert_eq!(config.tools.len(), 1);
+
+            assert_eq!(
+                config.aliases.get("dummytool"),
+                Some(&"not_called_cgx_project1".to_string())
+            );
+            assert_eq!(config.aliases.len(), 1);
+        }
+
+        /// Test that detailed tool configurations are preserved during hierarchy merging.
+        ///
+        /// Verifies that tools specified with detailed configs (version, features, etc.) maintain
+        /// their structure when merged across the hierarchy. The taplo-cli tool from root should
+        /// retain its version="1.11.0" and features=["schema"] specification.
+        #[test]
+        fn test_tools_detailed_config_preserved() {
+            let test_data = crate::testdata::config_test_data();
+
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let config = Config::load_from_dir(&test_data, &args).unwrap();
+
+            let taplo_tool = config.tools.get("taplo-cli").unwrap();
+            assert_matches!(
+                taplo_tool,
+                ToolConfig::Detailed {
+                    version: Some(v),
+                    features: Some(f),
+                    ..
+                } if v == "1.11.0" && f == &vec!["schema".to_string()]
+            );
+        }
+
+        /// Test that CLI arguments have the highest precedence over config files.
+        ///
+        /// Command-line flags should override any values set in config files, regardless of
+        /// where those config files appear in the hierarchy. This verifies that --offline,
+        /// --locked, and +toolchain flags take precedence over the merged config.
+        #[test]
+        fn test_cli_args_override_config_files() {
+            let test_data = crate::testdata::config_test_data();
+            let project1_dir = test_data.join("work").join("project1");
+
+            let args = CliArgs::parse_from_test_args(["+stable", "--offline", "--locked", "test-crate"]);
+            let config = Config::load_from_dir(&project1_dir, &args).unwrap();
+
+            assert!(config.offline);
+            assert!(config.locked);
+            assert_eq!(config.toolchain, Some("stable".to_string()));
+        }
+    }
+
+    mod error_tests {
+        use super::*;
+        use assert_matches::assert_matches;
+
+        #[test]
+        fn test_invalid_toml_syntax() {
+            let test_data = crate::testdata::config_test_data();
+            let invalid_toml = test_data.join("invalid_toml.toml");
+
+            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+            args.config_file = Some(invalid_toml);
+
+            let result = Config::load(&args);
+            assert_matches!(result, Err(crate::error::Error::ConfigExtract { .. }));
+        }
+
+        #[test]
+        fn test_invalid_config_options_ignored() {
+            let test_data = crate::testdata::config_test_data();
+            let invalid_options = test_data.join("invalid_config_options.toml");
+
+            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+            args.config_file = Some(invalid_options);
+
+            let result = Config::load(&args);
+            result.unwrap();
+        }
+
+        #[test]
+        fn test_nonexistent_explicit_config_file() {
+            let test_data = crate::testdata::config_test_data();
+            let nonexistent = test_data.join("does_not_exist.toml");
+
+            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+            args.config_file = Some(nonexistent);
+
+            let config = Config::load(&args).unwrap();
+
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(60 * 60));
+        }
+
+        #[test]
+        fn test_no_config_files_uses_defaults() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(60 * 60));
+            assert!(!config.offline);
+            assert!(!config.locked);
+            assert_eq!(config.toolchain, None);
+            assert_eq!(config.tools.len(), 0);
+            assert_eq!(config.aliases.len(), 0);
+        }
     }
 }

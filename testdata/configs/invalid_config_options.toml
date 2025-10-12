@@ -1,1 +1,3 @@
-
+# Test case which sets config settings that cgx doesn't actually recognize
+answer      = 42
+frobnulator = "gonkolator"

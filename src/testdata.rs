@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-pub(crate) struct TestCase {
+pub(crate) struct CrateTestCase {
     /// The name of the test case, which is also the name of the directory under `testdata`.
     pub name: &'static str,
 
@@ -41,7 +41,7 @@ pub(crate) struct TestCase {
     crate_path: PathBuf,
 }
 
-impl TestCase {
+impl CrateTestCase {
     /// Get the path to the crate in the temporary directory.
     ///
     /// This is the directory containing Cargo.toml that should be used for building.
@@ -145,4 +145,15 @@ impl TestCase {
             crate_path,
         }
     }
+}
+
+/// Get the path to the test config files, used for testing various config loading scenarios.
+///
+/// Unlike the test crates, these are not copied to a temp directory, nor are they divided into
+/// logical test cases.  The config load tests operate by reading various files directoy based on
+/// what the test case calls for.
+pub(crate) fn config_test_data() -> PathBuf {
+    const TESTDATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/configs");
+
+    Path::new(TESTDATA_DIR).to_path_buf()
 }

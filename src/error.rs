@@ -198,6 +198,9 @@ pub enum Error {
     #[cfg(windows)]
     #[snafu(display("Failed to set up Windows console control handler"))]
     ConsoleHandlerFailed { source: ctrlc::Error },
+
+    #[snafu(display("Error determining home directory"))]
+    Etcetera { source: etcetera::HomeDirError },
 }
 
 impl From<crate::git::Error> for Error {

@@ -1,1 +1,3 @@
+# Test case exercising the config load behavior when the TOML file itself fails to parse as TOML
 
+This is NOT VALID TOML LOL!!

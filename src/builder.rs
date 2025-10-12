@@ -417,7 +417,7 @@ mod tests {
         Error,
         cargo::find_cargo,
         resolver::{ResolvedCrate, ResolvedSource},
-        testdata::TestCase,
+        testdata::CrateTestCase,
     };
     use assert_matches::assert_matches;
     use semver::Version;
@@ -454,7 +454,7 @@ mod tests {
 
     /// Create a fake [`DownloadedCrate`] from a [`TestCase`] for testing different source types
     fn fake_downloaded_crate(
-        tc: &TestCase,
+        tc: &CrateTestCase,
         source_type: FakeSourceType,
         package_name: Option<&str>,
     ) -> DownloadedCrate {
@@ -626,7 +626,7 @@ mod tests {
             let (builder, _temp) = test_builder();
             let cargo = find_cargo().unwrap();
 
-            for tc in TestCase::all() {
+            for tc in CrateTestCase::all() {
                 let metadata_opts = crate::cargo::CargoMetadataOptions::default();
                 let metadata = cargo.metadata(tc.path(), &metadata_opts).unwrap();
 
@@ -710,7 +710,7 @@ mod tests {
         #[test]
         fn simple_bin_no_deps_from_registry() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::simple_bin_no_deps();
+            let tc = CrateTestCase::simple_bin_no_deps();
             let krate = fake_downloaded_crate(
                 &tc,
                 FakeSourceType::Registry {
@@ -741,7 +741,7 @@ mod tests {
         #[test]
         fn default_bin_selected_automatically() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::single_crate_multiple_bins_with_default();
+            let tc = CrateTestCase::single_crate_multiple_bins_with_default();
             let krate = fake_downloaded_crate(
                 &tc,
                 FakeSourceType::Registry {
@@ -770,7 +770,7 @@ mod tests {
         #[test]
         fn explicit_bin_overrides_default() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::single_crate_multiple_bins_with_default();
+            let tc = CrateTestCase::single_crate_multiple_bins_with_default();
             let krate = fake_downloaded_crate(
                 &tc,
                 FakeSourceType::Registry {
@@ -794,7 +794,7 @@ mod tests {
         #[test]
         fn multiple_bins_without_default_fails() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::single_crate_multiple_bins();
+            let tc = CrateTestCase::single_crate_multiple_bins();
             let krate = fake_downloaded_crate(
                 &tc,
                 FakeSourceType::Registry {
@@ -827,7 +827,7 @@ mod tests {
         #[test]
         fn workspace_with_correct_package_succeeds() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::workspace_multiple_bin_crates();
+            let tc = CrateTestCase::workspace_multiple_bin_crates();
             let krate = fake_downloaded_crate(
                 &tc,
                 FakeSourceType::Git {
@@ -852,7 +852,7 @@ mod tests {
         #[test]
         fn workspace_with_wrong_package_fails() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::workspace_multiple_bin_crates();
+            let tc = CrateTestCase::workspace_multiple_bin_crates();
 
             let krate = DownloadedCrate {
                 resolved: ResolvedCrate {
@@ -884,7 +884,7 @@ mod tests {
         #[test]
         fn identical_builds_hit_cache() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -925,7 +925,7 @@ mod tests {
         #[test]
         fn different_profile_cache_miss() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -966,7 +966,7 @@ mod tests {
         #[test]
         fn different_target_cache_miss() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::simple_bin_no_deps();
+            let tc = CrateTestCase::simple_bin_no_deps();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -1011,7 +1011,7 @@ mod tests {
         #[test]
         fn locked_vs_unlocked_produces_different_cache_entries() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::stale_serde();
+            let tc = CrateTestCase::stale_serde();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -1069,7 +1069,7 @@ mod tests {
         #[test]
         fn same_locked_flag_produces_cache_hit() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::stale_serde();
+            let tc = CrateTestCase::stale_serde();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -1106,7 +1106,7 @@ mod tests {
         #[test]
         fn different_features_different_dependencies() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -1154,7 +1154,7 @@ mod tests {
         #[test]
         fn all_features_includes_all_dependencies() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
 
             let krate = fake_downloaded_crate(
                 &tc,
@@ -1191,7 +1191,7 @@ mod tests {
         #[test]
         fn local_dir_never_cached() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::simple_bin_no_deps();
+            let tc = CrateTestCase::simple_bin_no_deps();
 
             let krate = fake_downloaded_crate(&tc, FakeSourceType::LocalDir, None);
 
@@ -1215,7 +1215,7 @@ mod tests {
         #[test]
         fn registry_source_cached_with_sbom() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::simple_bin_no_deps();
+            let tc = CrateTestCase::simple_bin_no_deps();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -1256,7 +1256,7 @@ mod tests {
         #[test]
         fn git_source_cached_with_sbom() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::simple_bin_no_deps();
+            let tc = CrateTestCase::simple_bin_no_deps();
 
             let krate1 = fake_downloaded_crate(
                 &tc,
@@ -1303,7 +1303,7 @@ mod tests {
         #[test]
         fn proc_macro_marked_as_build_dep() {
             let (builder, _temp) = test_builder();
-            let tc = TestCase::proc_macro_dep();
+            let tc = CrateTestCase::proc_macro_dep();
 
             let krate = fake_downloaded_crate(
                 &tc,

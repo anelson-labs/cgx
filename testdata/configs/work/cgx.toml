@@ -1,8 +1,8 @@
 # Test config file in a hierarchy of config files used for testing the config module
-resolve_cache_timeout = "5m"
+resolve_cache_timeout = "2m"
 
 [tools]
-project2_tool = "1"
+work_tool = "1"
 
 [aliases]
-dummytool = "project2"
+dummytool = "work"

@@ -445,7 +445,7 @@ impl<R: CrateResolver> CrateResolver for CachingResolver<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testdata::TestCase;
+    use crate::testdata::CrateTestCase;
     use assert_matches::assert_matches;
     use std::time::Duration;
 
@@ -485,7 +485,7 @@ mod tests {
         #[test]
         fn single_package_auto_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::simple_bin_no_deps();
+            let testcase = CrateTestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -501,7 +501,7 @@ mod tests {
         #[test]
         fn single_package_explicit_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::simple_bin_no_deps();
+            let testcase = CrateTestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -516,7 +516,7 @@ mod tests {
         #[test]
         fn single_package_wrong_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::simple_bin_no_deps();
+            let testcase = CrateTestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -531,7 +531,7 @@ mod tests {
         #[test]
         fn single_package_version_req_match() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::simple_bin_no_deps();
+            let testcase = CrateTestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -546,7 +546,7 @@ mod tests {
         #[test]
         fn single_package_version_req_mismatch() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::simple_bin_no_deps();
+            let testcase = CrateTestCase::simple_bin_no_deps();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -576,7 +576,7 @@ mod tests {
         #[test]
         fn workspace_ambiguous_without_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::workspace_all_libs();
+            let testcase = CrateTestCase::workspace_all_libs();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -591,7 +591,7 @@ mod tests {
         #[test]
         fn workspace_with_valid_package_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::workspace_all_libs();
+            let testcase = CrateTestCase::workspace_all_libs();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -607,7 +607,7 @@ mod tests {
         #[test]
         fn workspace_with_nonexistent_package() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::workspace_all_libs();
+            let testcase = CrateTestCase::workspace_all_libs();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -622,7 +622,7 @@ mod tests {
         #[test]
         fn workspace_package_with_version() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::workspace_all_libs();
+            let testcase = CrateTestCase::workspace_all_libs();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),
@@ -638,7 +638,7 @@ mod tests {
         #[test]
         fn library_package_auto_name() {
             let (resolver, _temp_dir) = test_resolver();
-            let testcase = TestCase::simple_lib_no_deps();
+            let testcase = CrateTestCase::simple_lib_no_deps();
 
             let spec = CrateSpec::LocalDir {
                 path: testcase.path().to_path_buf(),

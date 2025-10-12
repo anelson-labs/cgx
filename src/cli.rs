@@ -139,6 +139,20 @@ pub struct CliArgs {
     #[arg(long, value_name = "WHEN")]
     pub color: Option<String>,
 
+    /// Read configuration options from the given TOML file.
+    ///
+    /// By default, cgx will look for a file in the current directory called `cgx.toml`, if not
+    /// found it will check the parent, and the grandparent, up to the root.
+    ///
+    /// It will also read a `cgx.toml` file in the user's config directory, and it will read a
+    /// system-level `cgx.toml` at `/etc/cgx.toml`, or the equivalent on other OSes.
+    ///
+    /// All config files' options are merged, with highest priority given to the file closest to
+    /// the current directory.  Specifying a config file with this option disables that logic, and
+    /// reads the config only from the specified file.
+    #[arg(long, value_name = "FILE")]
+    pub config_file: Option<PathBuf>,
+
     /// Build the binary but do not execute it; print its path to stdout instead.
     ///
     /// Performs all normal operations (resolve, download, build) but instead of executing

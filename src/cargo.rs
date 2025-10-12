@@ -453,7 +453,7 @@ fn find_executable(name: &str, env_var: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{builder::BuildTarget, testdata::TestCase};
+    use crate::{builder::BuildTarget, testdata::CrateTestCase};
 
     /// Get the path to the cgx project root directory.
     fn cgx_project_root() -> PathBuf {
@@ -551,7 +551,7 @@ mod tests {
 
         let cargo = find_cargo().unwrap();
 
-        for testcase in TestCase::all() {
+        for testcase in CrateTestCase::all() {
             let result = cargo.metadata(testcase.path(), &CargoMetadataOptions::default());
 
             assert!(

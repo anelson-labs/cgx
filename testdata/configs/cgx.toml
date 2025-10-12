@@ -1,0 +1,17 @@
+# Root config file in a hierarchy of config files used for testing the config module
+
+resolve_cache_timeout = "1m"
+
+[tools]
+# This is not a very useful entry, as it matches what is already the default behavior when `cgx` is invoked with
+# a tool that doesn't have a specific version
+ripgrep   = "*"
+root_tool = "1"
+taplo-cli = { version = "1.11.0", features = ["schema"] }
+
+# Not all crates have intituive names.  You can specify aliases here, to alias a more familiar name.
+# Note that by doing this, actual crates with the aliased name become inaccessible
+[aliases]
+dummytool = "root"
+rg        = "ripgrep"
+taplo     = "taplo-cli"
