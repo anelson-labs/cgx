@@ -7,6 +7,7 @@ use crate::{
     error,
     resolver::ResolvedSource,
 };
+use cargo_metadata::Target;
 use snafu::ResultExt;
 use std::{borrow::Cow, path::PathBuf, sync::Arc};
 
@@ -77,6 +78,21 @@ pub(crate) struct BuildOptions {
 }
 
 pub(crate) trait CrateBuilder {
+    /// List the targets in the given crate that can be build using [`Self::build`].
+    ///
+    /// [`Self::build`] can run any bin or example target in the crate.
+    ///
+    /// Returns a tuple of:
+    /// - The default target, if any (i.e., the one that would be built if no explicit target is
+    ///   specified)
+    /// - A list of all binary targets
+    /// - A list of all example targets
+    fn list_targets(
+        &self,
+        krate: &DownloadedCrate,
+        options: &BuildOptions,
+    ) -> Result<(Option<Target>, Vec<Target>, Vec<Target>)>;
+
     /// Produce a compiled binary from the given crate, using the specified build options.
     ///
     /// Compiled crates are also cached, so this may or may not actually compile anything,
@@ -106,6 +122,18 @@ struct RealCrateBuilder {
 }
 
 impl CrateBuilder for RealCrateBuilder {
+    fn list_targets(
+        &self,
+        krate: &DownloadedCrate,
+        options: &BuildOptions,
+    ) -> Result<(Option<Target>, Vec<Target>, Vec<Target>)> {
+        let metadata = self
+            .cargo_runner
+            .metadata(&krate.crate_path, &CargoMetadataOptions::from(options))?;
+
+        Self::list_targets_internal(krate, &metadata)
+    }
+
     fn build(&self, krate: &DownloadedCrate, options: &BuildOptions) -> Result<PathBuf> {
         let metadata = self
             .cargo_runner
@@ -141,18 +169,14 @@ impl CrateBuilder for RealCrateBuilder {
 }
 
 impl RealCrateBuilder {
-    /// Resolve [`BuildTarget`] to an actual binary name before building or caching.
+    /// List the targets in the given crate that can be build using [`Self::build`].
     ///
-    /// This not only validates that, if an explicit target was specified, that it actually exists,
-    /// but also resolves the `DefaultBin` case to a specific binary name.
-    ///
-    /// Returns an explicit [`BuildTarget`] guaranteed not to be `DefaultBin`, or an error if
-    /// resolution fails.
-    fn resolve_binary_target(
+    /// Unlike the public [`CrateBuilder::list_targets`], this internal version takes the cargo
+    /// metadata as an argument, allowing it to be reused and avoid redundant metadata queries.
+    fn list_targets_internal(
         krate: &DownloadedCrate,
-        options: &BuildOptions,
         metadata: &Metadata,
-    ) -> Result<BuildTarget> {
+    ) -> Result<(Option<Target>, Vec<Target>, Vec<Target>)> {
         // Find the crate package in metadata
         let package = metadata
             .packages
@@ -180,6 +204,7 @@ impl RealCrateBuilder {
                     .iter()
                     .any(|k| matches!(k, cargo_metadata::TargetKind::Bin))
             })
+            .cloned()
             .collect();
         let example_targets: Vec<_> = package
             .targets
@@ -189,12 +214,38 @@ impl RealCrateBuilder {
                     .iter()
                     .any(|k| matches!(k, cargo_metadata::TargetKind::Example))
             })
+            .cloned()
             .collect();
+
+        // If an explicit bin was specified in `default_run`, use that as the default target
+        let default = package.default_run.as_ref().and_then(|default_run| {
+            bin_targets
+                .iter()
+                .find(|t| t.name == default_run.as_str())
+                .cloned()
+        });
+
+        Ok((default, bin_targets, example_targets))
+    }
+
+    /// Resolve [`BuildTarget`] to an actual binary name before building or caching.
+    ///
+    /// This not only validates that, if an explicit target was specified, that it actually exists,
+    /// but also resolves the `DefaultBin` case to a specific binary name.
+    ///
+    /// Returns an explicit [`BuildTarget`] guaranteed not to be `DefaultBin`, or an error if
+    /// resolution fails.
+    fn resolve_binary_target(
+        krate: &DownloadedCrate,
+        options: &BuildOptions,
+        metadata: &Metadata,
+    ) -> Result<BuildTarget> {
+        let (default, bins, examples) = Self::list_targets_internal(krate, metadata)?;
 
         // If no explicit target was specified but the crate package has `default_run`, use that
         let build_target = if matches!(options.build_target, BuildTarget::DefaultBin) {
-            if let Some(ref default_run) = package.default_run {
-                BuildTarget::Bin(default_run.to_string())
+            if let Some(default) = default {
+                BuildTarget::Bin(default.name.clone())
             } else {
                 BuildTarget::DefaultBin
             }
@@ -214,7 +265,7 @@ impl RealCrateBuilder {
         match build_target {
             BuildTarget::DefaultBin => {
                 // No explicit target, no default_run - must have exactly one binary
-                match bin_targets.len() {
+                match bins.len() {
                     0 => {
                         // No binary targets - this will fail later when cargo tries to build
                         error::NoPackageBinariesSnafu {
@@ -224,13 +275,13 @@ impl RealCrateBuilder {
                     }
                     1 => {
                         // Exactly one binary, use it
-                        Ok(BuildTarget::Bin(bin_targets[0].name.clone()))
+                        Ok(BuildTarget::Bin(bins[0].name.clone()))
                     }
                     _ => {
                         // Multiple binaries - ambiguous
                         error::AmbiguousBinaryTargetSnafu {
-                            package: package.name.to_string(),
-                            available: bin_targets.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+                            package: krate.resolved.name.clone(),
+                            available: bins.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
                         }
                         .fail()
                     }
@@ -238,28 +289,28 @@ impl RealCrateBuilder {
             }
             BuildTarget::Bin(ref name) => {
                 // Explicit binary target - verify it exists
-                if bin_targets.iter().any(|t| t.name == *name) {
+                if bins.iter().any(|t| t.name == *name) {
                     Ok(build_target)
                 } else {
                     error::RunnableTargetNotFoundSnafu {
                         kind: "binary",
-                        package: package.name.as_ref().to_string(),
+                        package: krate.resolved.name.clone(),
                         target: name.clone(),
-                        available: bin_targets.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+                        available: bins.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
                     }
                     .fail()
                 }
             }
             BuildTarget::Example(ref name) => {
                 // Explicit example target - verify it exists
-                if example_targets.iter().any(|t| t.name == *name) {
+                if examples.iter().any(|t| t.name == *name) {
                     Ok(build_target)
                 } else {
                     error::RunnableTargetNotFoundSnafu {
                         kind: "example",
-                        package: package.name.as_ref().to_string(),
+                        package: krate.resolved.name.clone(),
                         target: name.clone(),
-                        available: bin_targets.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+                        available: bins.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
                     }
                     .fail()
                 }
@@ -406,7 +457,7 @@ mod tests {
         LocalDir,
     }
 
-    /// Create a fake `DownloadedCrate` from a `TestCase` for testing different source types
+    /// Create a fake [`DownloadedCrate`] from a [`TestCase`] for testing different source types
     fn fake_downloaded_crate(
         tc: &TestCase,
         source_type: FakeSourceType,
@@ -565,15 +616,6 @@ mod tests {
         );
     }
 
-    /// Get the expected binary name for a given base name, adding platform-specific extensions.
-    fn expected_binary_name(base_name: &str) -> String {
-        #[cfg(windows)]
-        return format!("{}.exe", base_name);
-
-        #[cfg(not(windows))]
-        return base_name.to_string();
-    }
-
     mod smoke_tests {
         use super::*;
 
@@ -634,7 +676,7 @@ mod tests {
                             })
                             .collect();
 
-                        let expected_base_name = if bin_targets.len() == 1 {
+                        let expected_name = if bin_targets.len() == 1 {
                             // Single binary - use its name
                             bin_targets[0].name.as_str()
                         } else if let Some(ref default_run) = pkg.default_run {
@@ -648,8 +690,6 @@ mod tests {
                                 tc.name, pkg.name
                             );
                         };
-
-                        let expected_name = expected_binary_name(expected_base_name);
 
                         assert_eq!(
                             binary_name, expected_name,
@@ -685,7 +725,7 @@ mod tests {
             assert!(binary.starts_with(&builder.config.bin_dir));
 
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary_name, "simple-bin-no-deps");
         }
     }
 
@@ -714,8 +754,7 @@ mod tests {
             assert!(binary.exists());
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
             assert_eq!(
-                binary_name,
-                expected_binary_name("bin1"),
+                binary_name, "bin1",
                 "Should build bin1 or the crate's default binary, got: {}",
                 binary_name
             );
@@ -742,7 +781,7 @@ mod tests {
             let binary = builder.build(&krate, &options).unwrap();
             assert!(binary.exists());
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, expected_binary_name("bin2"));
+            assert_eq!(binary_name, "bin2");
         }
 
         #[test]
@@ -800,7 +839,7 @@ mod tests {
             assert!(binary.exists());
 
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, expected_binary_name("bin1"));
+            assert_eq!(binary_name, "bin1");
         }
 
         #[test]
@@ -854,7 +893,7 @@ mod tests {
 
             let binary1 = builder.build(&krate1, &options).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("timestamp"));
+            assert_eq!(binary1_name, "timestamp");
             let output1 = run_timestamp_binary(&binary1);
 
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -869,7 +908,7 @@ mod tests {
 
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("timestamp"));
+            assert_eq!(binary2_name, "timestamp");
             let output2 = run_timestamp_binary(&binary2);
 
             assert_cache_hit_by_timestamp(&output1, &output2);
@@ -894,7 +933,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("timestamp"));
+            assert_eq!(binary1_name, "timestamp");
             let output1 = run_timestamp_binary(&binary1);
 
             let krate2 = fake_downloaded_crate(
@@ -910,7 +949,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("timestamp"));
+            assert_eq!(binary2_name, "timestamp");
             let output2 = run_timestamp_binary(&binary2);
 
             assert_cache_miss_by_timestamp(&output1, &output2);
@@ -936,7 +975,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary1_name, "simple-bin-no-deps");
 
             let krate2 = fake_downloaded_crate(
                 &tc,
@@ -952,7 +991,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary2_name, "simple-bin-no-deps");
 
             assert_cache_miss(&binary1, &binary2);
         }
@@ -981,7 +1020,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("stale-serde"));
+            assert_eq!(binary1_name, "stale-serde");
             let sbom1 = read_sbom_for_binary(&binary1);
 
             assert_eq!(
@@ -1006,7 +1045,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("stale-serde"));
+            assert_eq!(binary2_name, "stale-serde");
             let sbom2 = read_sbom_for_binary(&binary2);
 
             let version = get_sbom_component_version(&sbom2, "serde").unwrap();
@@ -1040,7 +1079,7 @@ mod tests {
 
             let binary1 = builder.build(&krate1, &options).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("stale-serde"));
+            assert_eq!(binary1_name, "stale-serde");
 
             let krate2 = fake_downloaded_crate(
                 &tc,
@@ -1052,7 +1091,7 @@ mod tests {
 
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("stale-serde"));
+            assert_eq!(binary2_name, "stale-serde");
 
             assert_cache_hit(&binary1, &binary2);
         }
@@ -1075,7 +1114,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("timestamp"));
+            assert_eq!(binary1_name, "timestamp");
             let sbom1 = read_sbom_for_binary(&binary1);
             let output1 = run_timestamp_binary(&binary1);
 
@@ -1094,7 +1133,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("timestamp"));
+            assert_eq!(binary2_name, "timestamp");
             let sbom2 = read_sbom_for_binary(&binary2);
             let output2 = run_timestamp_binary(&binary2);
 
@@ -1125,7 +1164,7 @@ mod tests {
 
             let binary = builder.build(&krate, &options).unwrap();
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, expected_binary_name("timestamp"));
+            assert_eq!(binary_name, "timestamp");
             let output = run_timestamp_binary(&binary);
 
             assert!(
@@ -1157,16 +1196,10 @@ mod tests {
             let binary = builder.build(&krate, &options).unwrap();
 
             assert!(!binary.starts_with(&builder.config.bin_dir));
-            if !binary.starts_with(tc.path()) {
-                panic!(
-                    "Binary path does not start with expected testcase path.\n  binary: {}\n  tc.path(): {}",
-                    binary.display(),
-                    tc.path().display()
-                );
-            }
+            assert!(binary.starts_with(tc.path()));
 
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary_name, "simple-bin-no-deps");
 
             let sbom_path = read_sbom_for_binary(&binary);
             assert!(!sbom_path.exists());
@@ -1194,7 +1227,7 @@ mod tests {
             assert!(binary1.starts_with(&builder.config.bin_dir));
 
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary1_name, "simple-bin-no-deps");
 
             let sbom_path = read_sbom_for_binary(&binary1);
             assert!(sbom_path.exists());
@@ -1208,7 +1241,7 @@ mod tests {
             );
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary2_name, "simple-bin-no-deps");
 
             assert_cache_hit(&binary1, &binary2);
         }
@@ -1236,7 +1269,7 @@ mod tests {
             assert!(binary1.starts_with(&builder.config.bin_dir));
 
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary1_name, "simple-bin-no-deps");
 
             let sbom_path = read_sbom_for_binary(&binary1);
             assert!(sbom_path.exists());
@@ -1251,7 +1284,7 @@ mod tests {
             );
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, expected_binary_name("simple-bin-no-deps"));
+            assert_eq!(binary2_name, "simple-bin-no-deps");
 
             assert_cache_hit(&binary1, &binary2);
         }
@@ -1279,7 +1312,7 @@ mod tests {
 
             let binary = builder.build(&krate, &options).unwrap();
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, expected_binary_name("proc-macro-dep"));
+            assert_eq!(binary_name, "proc-macro-dep");
 
             let sbom_path = read_sbom_for_binary(&binary);
 

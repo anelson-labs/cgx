@@ -47,7 +47,7 @@ impl Cgx {
     pub fn new_from_cli_args(args: &CliArgs) -> Result<Self> {
         let config = Config::load(args)?;
 
-        println!("Using config: {:#?}", config);
+        eprintln!("Using config: {:#?}", config);
 
         let cache = cache::Cache::new(config.clone());
         let git_client = git::GitClient::new(cache.clone());
@@ -85,7 +85,7 @@ pub fn cgx_main() -> Result<()> {
     let args = CliArgs::parse_from_cli_args();
     if let Some(version_arg) = &args.version {
         if version_arg.is_empty() {
-            println!("cgx {}", env!("CARGO_PKG_VERSION"));
+            eprintln!("cgx {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
     }
@@ -95,10 +95,10 @@ pub fn cgx_main() -> Result<()> {
     let crate_spec = args.parse_crate_spec()?;
     let build_options = args.parse_build_options()?;
 
-    println!("Got crate spec:");
+    eprintln!("Got crate spec:");
     match &crate_spec {
         CrateSpec::CratesIo { name, version } => {
-            println!(
+            eprintln!(
                 "Crates.io crate: {} {}",
                 name,
                 version
@@ -111,7 +111,7 @@ pub fn cgx_main() -> Result<()> {
             name,
             version,
         } => {
-            println!(
+            eprintln!(
                 "Registry crate: {} {} from {:?}",
                 name,
                 version
@@ -126,7 +126,7 @@ pub fn cgx_main() -> Result<()> {
             name,
             version,
         } => {
-            println!(
+            eprintln!(
                 "Git crate: {} {} from {} ({:?})",
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
@@ -142,7 +142,7 @@ pub fn cgx_main() -> Result<()> {
             name,
             version,
         } => {
-            println!(
+            eprintln!(
                 "Forge crate: {} {} from {:?} ({:?})",
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
@@ -153,7 +153,7 @@ pub fn cgx_main() -> Result<()> {
             );
         }
         CrateSpec::LocalDir { path, name, version } => {
-            println!(
+            eprintln!(
                 "Local directory crate: {} {} from {}",
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
@@ -164,23 +164,60 @@ pub fn cgx_main() -> Result<()> {
         }
     }
 
-    println!("Resolving crate...");
+    eprintln!("Resolving crate...");
     let resolved_crate = cgx.resolver.resolve(&crate_spec)?;
 
-    println!(
+    eprintln!(
         "Resolved crate {}@{}; proceeding to download",
         resolved_crate.name, resolved_crate.version
     );
 
     let downloaded_crate = cgx.downloader.download(resolved_crate)?;
 
-    println!("Downloaded crate to cache: {:#?}", downloaded_crate);
+    eprintln!("Downloaded crate to cache: {:#?}", downloaded_crate);
 
-    println!("Building crate...");
+    if args.list_targets {
+        let (default, bins, examples) = cgx.builder.list_targets(&downloaded_crate, &build_options)?;
+
+        // Ensure there are executable targets
+        if bins.is_empty() && examples.is_empty() {
+            return error::NoPackageBinariesSnafu {
+                krate: downloaded_crate.resolved.name.clone(),
+            }
+            .fail();
+        }
+
+        println!(
+            "default_run: {}",
+            default
+                .map(|target| target.name)
+                .as_deref()
+                .unwrap_or("<not set>")
+        );
+        // Print bins with default indication
+        for bin in bins {
+            println!("bin: {}", bin.name);
+        }
+
+        // Print examples
+        for example in examples {
+            println!("example: {}", example.name);
+        }
+
+        return Ok(());
+    }
+
+    eprintln!("Building crate...");
 
     let bin_path = cgx.builder.build(&downloaded_crate, &build_options)?;
 
-    println!("Built crate binary at: {}", bin_path.display());
+    eprintln!("Built crate binary at: {}", bin_path.display());
+
+    if args.no_exec {
+        // Print path to stdout for scripting (e.g., binary=$(cgx --no-exec tool))
+        println!("{}", bin_path.display());
+        return Ok(());
+    }
 
     // Extract arguments to pass to the binary
     let binary_args = args.get_binary_args();

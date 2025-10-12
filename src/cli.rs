@@ -138,6 +138,31 @@ pub struct CliArgs {
     #[arg(long, value_name = "WHEN")]
     pub color: Option<String>,
 
+    /// Build the binary but do not execute it; print its path to stdout instead.
+    ///
+    /// Performs all normal operations (resolve, download, build) but instead of executing
+    /// the binary at the end, prints its absolute path to stdout and exits with code 0.
+    /// All diagnostic output goes to stderr, making stdout clean for scripting.
+    ///
+    /// Useful for testing, scripting (e.g., `tool=$(cgx --no-exec ripgrep)`), or obtaining
+    /// a binary to run through debuggers/profilers.
+    #[arg(long)]
+    pub no_exec: bool,
+
+    /// List the crate's executable targets (bins and examples) without building or executing.
+    ///
+    /// Performs resolve and download operations, then inspects the crate's Cargo.toml
+    /// metadata to list all binary and example targets. Indicates which binary is the
+    /// default (if specified via default-run field).
+    ///
+    /// This can be useful for discovering what targets are available in a crate, or in the
+    /// (somewhat rare) case that a crate has multiple binaries and you need to know what they are
+    /// called in order to select one with `--bin`.
+    ///
+    /// Returns an error if the crate contains no executable targets (is library-only).
+    #[arg(long)]
+    pub list_targets: bool,
+
     /// The crate to run (optionally with @VERSION suffix).
     ///
     /// This is optional when using `--path`, `--git`, `--github`, or `--gitlab`, as the crate
