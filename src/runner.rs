@@ -10,7 +10,11 @@
 //! The `run()` function never returns on success - it either replaces the process (Unix)
 //! or exits with the child's exit code (Windows/other).
 
+#[cfg(windows)]
+use crate::error;
 use crate::{Error, Result};
+#[cfg(windows)]
+use snafu::ResultExt;
 use std::{ffi::OsString, path::Path, process::Command};
 
 /// Run a binary, replacing or waiting for it depending on platform.
@@ -92,7 +96,7 @@ fn spawn_and_wait_windows(bin_path: &Path, args: &[OsString]) -> Result<()> {
         // Do nothing - just prevent parent from terminating.
         // Child receives console control events independently.
     })
-    .map_err(|_| Error::ConsoleHandlerFailed)?;
+    .context(error::ConsoleHandlerFailedSnafu)?;
 
     // Spawn the child process
     let mut child = Command::new(bin_path)
@@ -107,7 +111,9 @@ fn spawn_and_wait_windows(bin_path: &Path, args: &[OsString]) -> Result<()> {
     let status = child.wait().map_err(|source| Error::WaitFailed { source })?;
 
     // Exit with the child's exit code (never returns)
+    // This is intentional - the function contract specifies it never returns on success
     let exit_code = status.code().unwrap_or(1);
+    #[allow(clippy::exit)]
     std::process::exit(exit_code)
 }
 
@@ -131,7 +137,9 @@ fn spawn_and_wait_fallback(bin_path: &Path, args: &[OsString]) -> Result<()> {
     let status = child.wait().map_err(|source| Error::WaitFailed { source })?;
 
     // Exit with the child's exit code (never returns)
+    // This is intentional - the function contract specifies it never returns on success
     let exit_code = status.code().unwrap_or(1);
+    #[allow(clippy::exit)]
     std::process::exit(exit_code)
 }
 

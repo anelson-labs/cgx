@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use snafu::prelude::*;
+use std::path::PathBuf;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
@@ -188,7 +187,7 @@ pub enum Error {
 
     #[cfg(windows)]
     #[snafu(display("Failed to set up Windows console control handler"))]
-    ConsoleHandlerFailed,
+    ConsoleHandlerFailed { source: ctrlc::Error },
 }
 
 impl From<crate::git::Error> for Error {
