@@ -1,6 +1,7 @@
 use crate::{
     Result,
     builder::{BuildOptions, BuildTarget},
+    cargo::CargoVerbosity,
     cratespec::{CrateSpec, Forge, RegistrySource},
     error,
     git::GitSelector,
@@ -429,6 +430,7 @@ impl CliArgs {
             ignore_rust_version: self.ignore_rust_version,
             build_target,
             toolchain: self.toolchain.clone(),
+            cargo_verbosity: CargoVerbosity::from_count(self.verbose),
         })
     }
 

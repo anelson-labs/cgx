@@ -1,7 +1,7 @@
 use crate::{
     Result,
     cache::Cache,
-    cargo::{CargoMetadataOptions, CargoRunner, Metadata},
+    cargo::{CargoMetadataOptions, CargoRunner, CargoVerbosity, Metadata},
     config::Config,
     downloader::DownloadedCrate,
     error,
@@ -75,6 +75,11 @@ pub(crate) struct BuildOptions {
     /// When set, cargo will be invoked with `+{toolchain}` prefix, allowing rustup to
     /// select the appropriate toolchain.
     pub toolchain: Option<String>,
+
+    /// Verbosity level for cargo build output.
+    ///
+    /// Controls the `-v` flags passed to cargo build commands.
+    pub cargo_verbosity: CargoVerbosity,
 }
 
 pub(crate) trait CrateBuilder {
@@ -419,6 +424,7 @@ mod tests {
     use std::{fs, path::Path};
 
     fn test_builder() -> (RealCrateBuilder, tempfile::TempDir) {
+        crate::logging::init_test_logging();
         use std::time::Duration;
 
         let temp_dir = tempfile::tempdir().unwrap();

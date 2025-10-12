@@ -309,6 +309,8 @@ mod tests {
     ///
     /// Returns the downloader and the `TempDir` which must be kept alive for the test duration.
     fn test_downloader() -> (DefaultCrateDownloader, tempfile::TempDir) {
+        crate::logging::init_test_logging();
+
         let temp_dir = tempfile::tempdir().unwrap();
         let config = Config {
             config_dir: temp_dir.path().join("config"),
@@ -336,6 +338,8 @@ mod tests {
     }
 
     fn test_cargo_runner() -> impl CargoRunner {
+        crate::logging::init_test_logging();
+
         crate::cargo::find_cargo().unwrap()
     }
 

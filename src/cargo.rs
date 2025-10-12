@@ -11,6 +11,52 @@ use std::{
 
 pub use cargo_metadata::Metadata;
 
+/// Verbosity level for cargo build operations.
+///
+/// Maps to cargo's `-v` flags for controlling build output verbosity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) enum CargoVerbosity {
+    /// Normal cargo output (no verbosity flags).
+    #[default]
+    Normal,
+
+    /// Verbose output (corresponds to `-v`).
+    Verbose,
+
+    /// Very verbose output (corresponds to `-vv`).
+    VeryVerbose,
+
+    /// Extremely verbose output including build.rs output (corresponds to `-vvv`).
+    ExtremelyVerbose,
+}
+
+impl CargoVerbosity {
+    /// Construct a [`CargoVerbosity`] from a verbosity counter.
+    ///
+    /// The counter typically comes from CLI arguments where `-v` can be repeated.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - Number of times `-v` was specified (0-3+)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let normal = CargoVerbosity::from_count(0);
+    /// let verbose = CargoVerbosity::from_count(1);
+    /// let very_verbose = CargoVerbosity::from_count(2);
+    /// let extremely_verbose = CargoVerbosity::from_count(3);
+    /// ```
+    pub(crate) fn from_count(count: u8) -> Self {
+        match count {
+            0 => Self::Normal,
+            1 => Self::Verbose,
+            2 => Self::VeryVerbose,
+            _ => Self::ExtremelyVerbose,
+        }
+    }
+}
+
 /// Options for controlling cargo metadata invocation.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CargoMetadataOptions {
@@ -303,6 +349,20 @@ impl CargoRunner for RealCargoRunner {
             cmd.arg("--ignore-rust-version");
         }
 
+        // Verbosity flags
+        match options.cargo_verbosity {
+            CargoVerbosity::Normal => {}
+            CargoVerbosity::Verbose => {
+                cmd.arg("-v");
+            }
+            CargoVerbosity::VeryVerbose => {
+                cmd.arg("-vv");
+            }
+            CargoVerbosity::ExtremelyVerbose => {
+                cmd.arg("-vvv");
+            }
+        }
+
         // Execute the command
         let output = cmd.output().context(crate::error::CommandExecutionSnafu)?;
 
@@ -402,6 +462,8 @@ mod tests {
 
     #[test]
     fn find_cargo_succeeds() {
+        crate::logging::init_test_logging();
+
         // This test verifies that we can locate cargo on the system.
         // This should always succeed since cargo is required to run the tests.
         let _cargo = find_cargo().unwrap();
@@ -409,6 +471,8 @@ mod tests {
 
     #[test]
     fn metadata_reads_cgx_crate() {
+        crate::logging::init_test_logging();
+
         let cargo = find_cargo().unwrap();
         let cgx_root = cgx_project_root();
 
@@ -444,6 +508,8 @@ mod tests {
 
     #[test]
     fn build_compiles_cgx_in_tempdir() {
+        crate::logging::init_test_logging();
+
         let cargo = find_cargo().unwrap();
         let cgx_root = cgx_project_root();
         let temp_dir = tempfile::tempdir().unwrap();
@@ -481,6 +547,8 @@ mod tests {
 
     #[test]
     fn metadata_loads_all_testcases() {
+        crate::logging::init_test_logging();
+
         let cargo = find_cargo().unwrap();
 
         for testcase in TestCase::all() {

@@ -453,6 +453,8 @@ mod tests {
     ///
     /// Returns the resolver and the `TempDir` which must be kept alive for the test duration.
     fn test_resolver() -> (CachingResolver<DefaultCrateResolver>, tempfile::TempDir) {
+        crate::logging::init_test_logging();
+
         let temp_dir = tempfile::tempdir().unwrap();
         let config = Config {
             config_dir: temp_dir.path().join("config"),

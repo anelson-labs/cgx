@@ -8,6 +8,7 @@ mod downloader;
 mod error;
 mod git;
 mod helpers;
+mod logging;
 mod resolver;
 mod runner;
 mod sbom;
@@ -47,7 +48,7 @@ impl Cgx {
     pub fn new_from_cli_args(args: &CliArgs) -> Result<Self> {
         let config = Config::load(args)?;
 
-        eprintln!("Using config: {:#?}", config);
+        tracing::debug!("Using config: {:#?}", config);
 
         let cache = cache::Cache::new(config.clone());
         let git_client = git::GitClient::new(cache.clone());
@@ -83,6 +84,10 @@ impl Cgx {
 #[snafu::report]
 pub fn cgx_main() -> Result<()> {
     let args = CliArgs::parse_from_cli_args();
+
+    // Initialize tracing early, before any other operations
+    logging::init(&args);
+
     if let Some(version_arg) = &args.version {
         if version_arg.is_empty() {
             let version = env!("CARGO_PKG_VERSION");
@@ -109,10 +114,10 @@ pub fn cgx_main() -> Result<()> {
     let crate_spec = args.parse_crate_spec()?;
     let build_options = args.parse_build_options()?;
 
-    eprintln!("Got crate spec:");
+    tracing::debug!("Got crate spec:");
     match &crate_spec {
         CrateSpec::CratesIo { name, version } => {
-            eprintln!(
+            tracing::debug!(
                 "Crates.io crate: {} {}",
                 name,
                 version
@@ -125,7 +130,7 @@ pub fn cgx_main() -> Result<()> {
             name,
             version,
         } => {
-            eprintln!(
+            tracing::debug!(
                 "Registry crate: {} {} from {:?}",
                 name,
                 version
@@ -140,7 +145,7 @@ pub fn cgx_main() -> Result<()> {
             name,
             version,
         } => {
-            eprintln!(
+            tracing::debug!(
                 "Git crate: {} {} from {} ({:?})",
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
@@ -156,7 +161,7 @@ pub fn cgx_main() -> Result<()> {
             name,
             version,
         } => {
-            eprintln!(
+            tracing::debug!(
                 "Forge crate: {} {} from {:?} ({:?})",
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
@@ -167,7 +172,7 @@ pub fn cgx_main() -> Result<()> {
             );
         }
         CrateSpec::LocalDir { path, name, version } => {
-            eprintln!(
+            tracing::debug!(
                 "Local directory crate: {} {} from {}",
                 name.as_deref().unwrap_or("<unspecified>"),
                 version
@@ -178,17 +183,18 @@ pub fn cgx_main() -> Result<()> {
         }
     }
 
-    eprintln!("Resolving crate...");
+    tracing::info!("Resolving crate...");
     let resolved_crate = cgx.resolver.resolve(&crate_spec)?;
 
-    eprintln!(
+    tracing::info!(
         "Resolved crate {}@{}; proceeding to download",
-        resolved_crate.name, resolved_crate.version
+        resolved_crate.name,
+        resolved_crate.version
     );
 
     let downloaded_crate = cgx.downloader.download(resolved_crate)?;
 
-    eprintln!("Downloaded crate to cache: {:#?}", downloaded_crate);
+    tracing::debug!("Downloaded crate to cache: {:#?}", downloaded_crate);
 
     if args.list_targets {
         let (default, bins, examples) = cgx.builder.list_targets(&downloaded_crate, &build_options)?;
@@ -221,11 +227,11 @@ pub fn cgx_main() -> Result<()> {
         return Ok(());
     }
 
-    eprintln!("Building crate...");
+    tracing::info!("Building crate...");
 
     let bin_path = cgx.builder.build(&downloaded_crate, &build_options)?;
 
-    eprintln!("Built crate binary at: {}", bin_path.display());
+    tracing::info!("Built crate binary at: {}", bin_path.display());
 
     if args.no_exec {
         // Print path to stdout for scripting (e.g., binary=$(cgx --no-exec tool))

@@ -571,6 +571,8 @@ mod tests {
     }
 
     fn test_cache_with_timeout(timeout: Duration) -> (Cache, TempDir) {
+        crate::logging::init_test_logging();
+
         let temp_dir = tempfile::tempdir().unwrap();
         let config = Config {
             config_dir: temp_dir.path().join("config"),
