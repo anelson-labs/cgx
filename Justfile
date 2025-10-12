@@ -1,30 +1,36 @@
 # Run all of the tests in all of the crates
 test:
-	@cargo test --all-features --workspace
+    @cargo test --all-features --workspace
 
 # Format the entire project with beautifiers
 fmt:
-	cargo +nightly fmt -- --config-path rustfmt-nightly.toml
-	cargo fmt
-	taplo fmt
+    # (Ab)use nightly rustfmt features to correct some annoying rustfmt issues,
+    # and then run the stable rustfmt after that which will apply the standard rust formatting.
+    #
+    # This isn't as ridiculous or wasteful as it sounds.  The nightly fmt fails on overflow lines which helps
+    # catch cases when lines are too long to format, and does some other formatting that the stable rustfmt doesn't to.
+    # Once these are done, running stable rustfmt doesn't undo them
+    cargo +nightly fmt -- --config-path rustfmt-nightly.toml
+    cargo fmt
+    taplo fmt
 
 # Verify that the code is properly formatted, but unlike `fmt` instead of applying formatting changes,
 # fails with an error if files are not properly formatted.
 #
 # This is mainly useful for CI and precommit checks
 fmtcheck:
-	cargo +nightly fmt -- --config-path rustfmt-nightly.toml --check
-	cargo fmt --check
-	taplo fmt --check
+    # NOTE: We can't use the dual fmt config hack here.  We expect the code to pass a stable rustfmt check.
+    cargo fmt --check
+    taplo fmt --check
 
 # Do a Rust "vibe check" (*cringe*) on the codebase
 # This is helpful for humans but it's mainly intended to provide a deterministic way for coding agents
 # to get feedback on their almost certainly shitty changes before wasting a human's time with their garbage code.
 vibecheck:
-	cargo check --all-targets --workspace
-	cargo check --all-targets --all-features --workspace
-	cargo clippy --all-targets --all-features -- -D warnings
-	cargo doc --workspace --no-deps --document-private-items
+    cargo check --all-targets --workspace
+    cargo check --all-targets --all-features --workspace
+    cargo clippy --all-targets --all-features -- -D warnings
+    cargo doc --workspace --no-deps --document-private-items
 
 # Check dependencies, looking for security vulns, unused dependencies, and duplicates
 depcheck:
