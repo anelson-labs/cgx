@@ -59,4 +59,3 @@ pub(crate) fn copy_source_tree(src: &Path, dst: &Path) -> Result<()> {
 
     Ok(())
 }
-
