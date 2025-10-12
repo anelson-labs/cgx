@@ -118,6 +118,11 @@ jobs:
         with:
           key: ${{ matrix.name }}
 
+      # Run a vibecheck on each platform to ensure that platform-specific
+      # code is also linted
+      - name: Run vibecheck
+        run: just vibecheck
+
       - name: Build
         env:
           TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
@@ -159,6 +164,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.name }}
+
+      # Run a vibecheck on each platform to ensure that platform-specific
+      # code is also linted
+      - name: Run vibecheck
+        run: just vibecheck
 
       - name: Build
         run: cargo build --workspace
