@@ -518,6 +518,13 @@ mod tests {
         binary_path.parent().unwrap().join("sbom.cyclonedx.json")
     }
 
+    /// Get the expected binary name for the current platform.
+    ///
+    /// On Windows, appends ".exe" extension. On Unix, returns the name unchanged.
+    fn expected_bin_name(base_name: &str) -> String {
+        format!("{}{}", base_name, std::env::consts::EXE_SUFFIX)
+    }
+
     /// Assert that two builds resulted in a cache hit (same path, same mtime)
     fn assert_cache_hit(path1: &Path, path2: &Path) {
         assert_eq!(
@@ -698,9 +705,13 @@ mod tests {
                         };
 
                         assert_eq!(
-                            binary_name, expected_name,
+                            binary_name,
+                            expected_bin_name(expected_name),
                             "Wrong binary name for {}/{}: expected '{}', got '{}'",
-                            tc.name, pkg.name, expected_name, binary_name
+                            tc.name,
+                            pkg.name,
+                            expected_name,
+                            binary_name
                         );
                     }
                 }
@@ -731,7 +742,7 @@ mod tests {
             assert!(binary.starts_with(&builder.config.bin_dir));
 
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, "simple-bin-no-deps");
+            assert_eq!(binary_name, expected_bin_name("simple-bin-no-deps"));
         }
     }
 
@@ -760,7 +771,8 @@ mod tests {
             assert!(binary.exists());
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
             assert_eq!(
-                binary_name, "bin1",
+                binary_name,
+                expected_bin_name("bin1"),
                 "Should build bin1 or the crate's default binary, got: {}",
                 binary_name
             );
@@ -787,7 +799,7 @@ mod tests {
             let binary = builder.build(&krate, &options).unwrap();
             assert!(binary.exists());
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, "bin2");
+            assert_eq!(binary_name, expected_bin_name("bin2"));
         }
 
         #[test]
@@ -845,7 +857,7 @@ mod tests {
             assert!(binary.exists());
 
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, "bin1");
+            assert_eq!(binary_name, expected_bin_name("bin1"));
         }
 
         #[test]
@@ -899,7 +911,7 @@ mod tests {
 
             let binary1 = builder.build(&krate1, &options).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "timestamp");
+            assert_eq!(binary1_name, expected_bin_name("timestamp"));
             let output1 = run_timestamp_binary(&binary1);
 
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -914,7 +926,7 @@ mod tests {
 
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "timestamp");
+            assert_eq!(binary2_name, expected_bin_name("timestamp"));
             let output2 = run_timestamp_binary(&binary2);
 
             assert_cache_hit_by_timestamp(&output1, &output2);
@@ -939,7 +951,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "timestamp");
+            assert_eq!(binary1_name, expected_bin_name("timestamp"));
             let output1 = run_timestamp_binary(&binary1);
 
             let krate2 = fake_downloaded_crate(
@@ -955,7 +967,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "timestamp");
+            assert_eq!(binary2_name, expected_bin_name("timestamp"));
             let output2 = run_timestamp_binary(&binary2);
 
             assert_cache_miss_by_timestamp(&output1, &output2);
@@ -981,7 +993,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "simple-bin-no-deps");
+            assert_eq!(binary1_name, expected_bin_name("simple-bin-no-deps"));
 
             let krate2 = fake_downloaded_crate(
                 &tc,
@@ -997,7 +1009,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "simple-bin-no-deps");
+            assert_eq!(binary2_name, expected_bin_name("simple-bin-no-deps"));
 
             assert_cache_miss(&binary1, &binary2);
         }
@@ -1026,7 +1038,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "stale-serde");
+            assert_eq!(binary1_name, expected_bin_name("stale-serde"));
             let sbom1 = read_sbom_for_binary(&binary1);
 
             assert_eq!(
@@ -1051,7 +1063,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "stale-serde");
+            assert_eq!(binary2_name, expected_bin_name("stale-serde"));
             let sbom2 = read_sbom_for_binary(&binary2);
 
             let version = get_sbom_component_version(&sbom2, "serde").unwrap();
@@ -1085,7 +1097,7 @@ mod tests {
 
             let binary1 = builder.build(&krate1, &options).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "stale-serde");
+            assert_eq!(binary1_name, expected_bin_name("stale-serde"));
 
             let krate2 = fake_downloaded_crate(
                 &tc,
@@ -1097,7 +1109,7 @@ mod tests {
 
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "stale-serde");
+            assert_eq!(binary2_name, expected_bin_name("stale-serde"));
 
             assert_cache_hit(&binary1, &binary2);
         }
@@ -1120,7 +1132,7 @@ mod tests {
             };
             let binary1 = builder.build(&krate1, &options1).unwrap();
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "timestamp");
+            assert_eq!(binary1_name, expected_bin_name("timestamp"));
             let sbom1 = read_sbom_for_binary(&binary1);
             let output1 = run_timestamp_binary(&binary1);
 
@@ -1139,7 +1151,7 @@ mod tests {
             };
             let binary2 = builder.build(&krate2, &options2).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "timestamp");
+            assert_eq!(binary2_name, expected_bin_name("timestamp"));
             let sbom2 = read_sbom_for_binary(&binary2);
             let output2 = run_timestamp_binary(&binary2);
 
@@ -1170,7 +1182,7 @@ mod tests {
 
             let binary = builder.build(&krate, &options).unwrap();
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, "timestamp");
+            assert_eq!(binary_name, expected_bin_name("timestamp"));
             let output = run_timestamp_binary(&binary);
 
             assert!(
@@ -1205,7 +1217,7 @@ mod tests {
             assert!(binary.starts_with(tc.path()));
 
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, "simple-bin-no-deps");
+            assert_eq!(binary_name, expected_bin_name("simple-bin-no-deps"));
 
             let sbom_path = read_sbom_for_binary(&binary);
             assert!(!sbom_path.exists());
@@ -1233,7 +1245,7 @@ mod tests {
             assert!(binary1.starts_with(&builder.config.bin_dir));
 
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "simple-bin-no-deps");
+            assert_eq!(binary1_name, expected_bin_name("simple-bin-no-deps"));
 
             let sbom_path = read_sbom_for_binary(&binary1);
             assert!(sbom_path.exists());
@@ -1247,7 +1259,7 @@ mod tests {
             );
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "simple-bin-no-deps");
+            assert_eq!(binary2_name, expected_bin_name("simple-bin-no-deps"));
 
             assert_cache_hit(&binary1, &binary2);
         }
@@ -1275,7 +1287,7 @@ mod tests {
             assert!(binary1.starts_with(&builder.config.bin_dir));
 
             let binary1_name = binary1.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary1_name, "simple-bin-no-deps");
+            assert_eq!(binary1_name, expected_bin_name("simple-bin-no-deps"));
 
             let sbom_path = read_sbom_for_binary(&binary1);
             assert!(sbom_path.exists());
@@ -1290,7 +1302,7 @@ mod tests {
             );
             let binary2 = builder.build(&krate2, &options).unwrap();
             let binary2_name = binary2.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary2_name, "simple-bin-no-deps");
+            assert_eq!(binary2_name, expected_bin_name("simple-bin-no-deps"));
 
             assert_cache_hit(&binary1, &binary2);
         }
@@ -1318,7 +1330,7 @@ mod tests {
 
             let binary = builder.build(&krate, &options).unwrap();
             let binary_name = binary.file_name().unwrap().to_str().unwrap();
-            assert_eq!(binary_name, "proc-macro-dep");
+            assert_eq!(binary_name, expected_bin_name("proc-macro-dep"));
 
             let sbom_path = read_sbom_for_binary(&binary);
 
