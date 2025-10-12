@@ -1,13 +1,23 @@
-use std::io::IsTerminal;
+use std::{io::IsTerminal, sync::OnceLock};
 use tracing::Level;
+use tracing_subscriber::reload;
 
-use crate::CliArgs;
+use crate::{CliArgs, Config};
 
 /// Default tracing filter expression for INFO level logging.
 ///
 /// This will be expanded in the future to tune per-crate log levels, as some crates are very
 /// quiet at DEBUG while others spam excessively at INFO.
 const DEFAULT_TRACING_FILTER: &str = "info";
+
+/// Handle for reloading the tracing filter at runtime.
+///
+/// This allows us to update the log level after loading configuration from files,
+/// while still having logging available during the config loading process itself.
+type ReloadHandle = reload::Handle<tracing_subscriber::EnvFilter, tracing_subscriber::Registry>;
+
+/// Global storage for the reload handle, initialized once during [`init`].
+static RELOAD_HANDLE: OnceLock<ReloadHandle> = OnceLock::new();
 
 /// Initialize tracing/logging based on the contents of the parsed CLI args.
 ///
@@ -59,6 +69,13 @@ pub(crate) fn init(args: &CliArgs) {
             }
         });
 
+    // Wrap the filter in a reload layer so we can update it later based on config
+    let (filter, reload_handle) = reload::Layer::new(filter);
+
+    // Store the reload handle for later use by apply_config()
+    // Ignore the error if already set (e.g., in tests that call init multiple times)
+    let _ = RELOAD_HANDLE.set(reload_handle);
+
     // Check if we're outputting to a TTY for color support
     let use_ansi = std::io::stderr().is_terminal();
 
@@ -86,6 +103,76 @@ pub(crate) fn init(args: &CliArgs) {
                     .with_ansi(use_ansi),
             )
             .init();
+    }
+}
+
+/// Apply logging configuration from the config file if appropriate.
+///
+/// This function should be called after [`Config::load`] to apply any log level settings from
+/// the config file. It respects the following priority order:
+/// 1. `CGX_LOG` environment variable (highest priority, checked at init time)
+/// 2. `RUST_LOG` environment variable (checked at init time)
+/// 3. CLI `-v` flags (if user specified verbosity, don't override)
+/// 4. `Config.log_level` field (applied by this function)
+/// 5. Hard-coded defaults (lowest priority, set at init time)
+///
+/// # Arguments
+///
+/// * `config` - The loaded configuration containing the optional `log_level` field
+/// * `args` - The CLI arguments to check if user explicitly set verbosity
+///
+/// # Log Level Format
+///
+/// The `config.log_level` field should be a valid tracing filter string, such as:
+/// - `"trace"` - Most verbose, includes all events
+/// - `"debug"` - Debug and above
+/// - `"info"` - Info and above (default)
+/// - `"warn"` - Warnings and errors only
+/// - `"error"` - Errors only
+///
+/// More complex filter syntax is also supported (e.g., `"cgx=debug,info"`).
+pub(crate) fn apply_config(config: &Config, args: &CliArgs) {
+    use tracing_subscriber::EnvFilter;
+
+    // Don't override if user explicitly set verbosity via CLI
+    if args.verbose > 0 {
+        tracing::debug!("Not applying config log_level: CLI verbosity flag takes precedence");
+        return;
+    }
+
+    // Don't override if environment variables are set (they have higher priority)
+    if std::env::var("CGX_LOG").is_ok() || std::env::var("RUST_LOG").is_ok() {
+        tracing::debug!("Not applying config log_level: environment variable takes precedence");
+        return;
+    }
+
+    // Check if config specifies a log level
+    let Some(ref log_level) = config.log_level else {
+        tracing::debug!("No log_level specified in config");
+        return;
+    };
+
+    // Parse the log level from config
+    let new_filter = match EnvFilter::try_new(log_level) {
+        Ok(filter) => filter,
+        Err(e) => {
+            tracing::warn!("Invalid log_level in config file: {}: {}", log_level, e);
+            return;
+        }
+    };
+
+    // Get the reload handle and apply the new filter
+    if let Some(handle) = RELOAD_HANDLE.get() {
+        match handle.reload(new_filter) {
+            Ok(()) => {
+                tracing::info!("Applied log level from config: {}", log_level);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to reload log filter: {}", e);
+            }
+        }
+    } else {
+        tracing::warn!("Reload handle not initialized; cannot apply config log level");
     }
 }
 

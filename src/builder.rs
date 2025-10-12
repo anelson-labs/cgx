@@ -2,6 +2,7 @@ use crate::{
     Result,
     cache::Cache,
     cargo::{CargoMetadataOptions, CargoRunner, CargoVerbosity, Metadata},
+    cli::CliArgs,
     config::Config,
     downloader::DownloadedCrate,
     error,
@@ -80,6 +81,69 @@ pub(crate) struct BuildOptions {
     ///
     /// Controls the `-v` flags passed to cargo build commands.
     pub cargo_verbosity: CargoVerbosity,
+}
+
+impl BuildOptions {
+    /// Load build options from config and CLI args, with proper precedence.
+    pub(crate) fn load(config: &Config, args: &CliArgs) -> Result<Self> {
+        // Parse features from CLI string (space or comma separated)
+        let features = if let Some(features_str) = &args.features {
+            Self::parse_features(features_str)
+        } else {
+            Vec::new()
+        };
+
+        // Profile: CLI --debug maps to "dev", otherwise use explicit --profile value
+        let profile = if args.debug {
+            Some("dev".to_string())
+        } else {
+            args.profile.clone()
+        };
+
+        // Build target: --bin, --example, or default
+        let build_target = match (&args.bin, &args.example) {
+            (Some(_), Some(_)) => {
+                unreachable!("BUG: clap should enforce mutual exclusivity");
+            }
+            (Some(bin_name), None) => BuildTarget::Bin(bin_name.clone()),
+            (None, Some(example_name)) => BuildTarget::Example(example_name.clone()),
+            (None, None) => BuildTarget::default(),
+        };
+
+        // Locked/offline: --frozen implies both, otherwise CLI args override config
+        // Priority: CLI explicit flags > --frozen > config > false
+        let locked = args.locked || args.frozen || config.locked;
+        let offline = args.offline || args.frozen || config.offline;
+
+        // Toolchain: CLI args take precedence over config
+        let toolchain = args.toolchain.clone().or_else(|| config.toolchain.clone());
+
+        Ok(BuildOptions {
+            features,
+            all_features: args.all_features,
+            no_default_features: args.no_default_features,
+            profile,
+            target: args.target.clone(),
+            locked,
+            offline,
+            jobs: args.jobs,
+            ignore_rust_version: args.ignore_rust_version,
+            build_target,
+            toolchain,
+            cargo_verbosity: CargoVerbosity::from_count(args.verbose),
+        })
+    }
+
+    /// Parse a feature string into a vector of feature names.
+    ///
+    /// Handles both comma-separated and space-separated features.
+    fn parse_features(features_str: &str) -> Vec<String> {
+        features_str
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
+    }
 }
 
 pub(crate) trait CrateBuilder {
@@ -1340,6 +1404,405 @@ mod tests {
                 assert!(has_build_kind, "proc-macro should be marked as build dependency");
             } else {
                 panic!("proc-macro should have dependency_kind property");
+            }
+        }
+    }
+
+    mod build_options {
+        use super::*;
+
+        mod features_parsing {
+            use super::*;
+
+            /// Test that an empty features string produces an empty vec.
+            #[test]
+            fn empty_features_string() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--features", ""]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.features.is_empty());
+            }
+
+            /// Test parsing a single feature.
+            #[test]
+            fn single_feature() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.features, vec!["feat1"]);
+            }
+
+            /// Test parsing comma-separated features.
+            #[test]
+            fn comma_separated_features() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1,feat2"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.features, vec!["feat1", "feat2"]);
+            }
+
+            /// Test parsing space-separated features.
+            #[test]
+            fn space_separated_features() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1 feat2"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.features, vec!["feat1", "feat2"]);
+            }
+
+            /// Test parsing features with mixed separators (commas and spaces).
+            #[test]
+            fn mixed_separator_features() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1, feat2 feat3"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.features, vec!["feat1", "feat2", "feat3"]);
+            }
+
+            /// Test that leading and trailing whitespace is handled correctly.
+            #[test]
+            fn whitespace_handling() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--features", " feat1 , feat2 "]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.features, vec!["feat1", "feat2"]);
+            }
+
+            /// Test that when no features flag is provided, features vec is empty.
+            #[test]
+            fn no_features_flag() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.features.is_empty());
+            }
+        }
+
+        mod profile_selection {
+            use super::*;
+
+            /// Test that `--debug` flag maps to "dev" profile.
+            #[test]
+            fn debug_flag_maps_to_dev() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--debug"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.profile, Some("dev".to_string()));
+            }
+
+            /// Test that `--profile` flag sets the profile explicitly.
+            #[test]
+            fn explicit_profile() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--profile", "custom"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.profile, Some("custom".to_string()));
+            }
+
+            /// Test that when neither flag is provided, profile is None.
+            #[test]
+            fn no_profile_specified() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.profile, None);
+            }
+        }
+
+        mod build_target_selection {
+            use super::*;
+
+            /// Test that no flags produces [`BuildTarget::DefaultBin`].
+            #[test]
+            fn default_bin_when_no_flags() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.build_target, BuildTarget::DefaultBin);
+            }
+
+            /// Test that `--bin` flag produces [`BuildTarget::Bin`].
+            #[test]
+            fn explicit_bin() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--bin", "foo"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.build_target, BuildTarget::Bin("foo".to_string()));
+            }
+
+            /// Test that `--example` flag produces [`BuildTarget::Example`].
+            #[test]
+            fn explicit_example() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--example", "bar"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.build_target, BuildTarget::Example("bar".to_string()));
+            }
+        }
+
+        mod locked_offline_precedence {
+            use super::*;
+
+            /// Test that with no config and no CLI flags, both locked and offline are false.
+            #[test]
+            fn no_config_no_cli() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(!options.locked);
+                assert!(!options.offline);
+            }
+
+            /// Test that config.locked=true sets locked when no CLI flag is provided.
+            #[test]
+            fn config_locked_true() {
+                let config = Config {
+                    locked: true,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+                assert!(!options.offline);
+            }
+
+            /// Test that config.offline=true sets offline when no CLI flag is provided.
+            #[test]
+            fn config_offline_true() {
+                let config = Config {
+                    offline: true,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(!options.locked);
+                assert!(options.offline);
+            }
+
+            /// Test that config can set both locked and offline.
+            #[test]
+            fn config_both_true() {
+                let config = Config {
+                    locked: true,
+                    offline: true,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+                assert!(options.offline);
+            }
+
+            /// Test that CLI `--locked` flag overrides config.
+            #[test]
+            fn cli_locked_overrides_config() {
+                let config = Config {
+                    locked: false,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool", "--locked"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+                assert!(!options.offline);
+            }
+
+            /// Test that CLI `--offline` flag overrides config.
+            #[test]
+            fn cli_offline_overrides_config() {
+                let config = Config {
+                    offline: false,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool", "--offline"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(!options.locked);
+                assert!(options.offline);
+            }
+
+            /// Test that CLI `--frozen` flag sets both locked and offline.
+            #[test]
+            fn cli_frozen_sets_both() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+                assert!(options.offline);
+            }
+
+            /// Test that `--frozen` overrides config.locked=false.
+            #[test]
+            fn frozen_overrides_config_locked_false() {
+                let config = Config {
+                    locked: false,
+                    offline: false,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+                assert!(options.offline);
+            }
+
+            /// Test that `--frozen` overrides config.offline=false.
+            #[test]
+            fn frozen_overrides_config_offline_false() {
+                let config = Config {
+                    offline: false,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+                assert!(options.offline);
+            }
+
+            /// Test that `--frozen` still works when config already has values set.
+            #[test]
+            fn frozen_with_config_values_set() {
+                let config = Config {
+                    locked: true,
+                    offline: true,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+                assert!(options.offline);
+            }
+        }
+
+        mod toolchain_precedence {
+            use super::*;
+
+            /// Test that with no config and no CLI flag, toolchain is None.
+            #[test]
+            fn no_config_no_cli() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.toolchain, None);
+            }
+
+            /// Test that config.toolchain is used when no CLI flag is provided.
+            #[test]
+            fn config_toolchain_used() {
+                let config = Config {
+                    toolchain: Some("stable".to_string()),
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.toolchain, Some("stable".to_string()));
+            }
+
+            /// Test that CLI `+toolchain` syntax overrides config.
+            #[test]
+            fn cli_toolchain_overrides_config() {
+                let config = Config {
+                    toolchain: Some("stable".to_string()),
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["+nightly", "tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.toolchain, Some("nightly".to_string()));
+            }
+        }
+
+        mod direct_passthrough {
+            use super::*;
+
+            /// Test that `--all-features` flag is passed through.
+            #[test]
+            fn all_features() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--all-features"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.all_features);
+            }
+
+            /// Test that `--no-default-features` flag is passed through.
+            #[test]
+            fn no_default_features() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--no-default-features"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.no_default_features);
+            }
+
+            /// Test that `--target` flag is passed through.
+            #[test]
+            fn target() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--target", "x86_64-unknown-linux-gnu"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.target, Some("x86_64-unknown-linux-gnu".to_string()));
+            }
+
+            /// Test that `--jobs` flag is passed through.
+            #[test]
+            fn jobs() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--jobs", "4"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert_eq!(options.jobs, Some(4));
+            }
+
+            /// Test that `--ignore-rust-version` flag is passed through.
+            #[test]
+            fn ignore_rust_version() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["tool", "--ignore-rust-version"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.ignore_rust_version);
+            }
+
+            /// Test that `-v` flags are converted to [`CargoVerbosity`].
+            #[test]
+            fn cargo_verbosity() {
+                let config = Config::default();
+
+                let args = CliArgs::parse_from_test_args(["tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+                assert_eq!(options.cargo_verbosity, CargoVerbosity::Normal);
+
+                let args = CliArgs::parse_from_test_args(["tool", "-v"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+                assert_eq!(options.cargo_verbosity, CargoVerbosity::Verbose);
+
+                let args = CliArgs::parse_from_test_args(["tool", "-vv"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+                assert_eq!(options.cargo_verbosity, CargoVerbosity::VeryVerbose);
             }
         }
     }

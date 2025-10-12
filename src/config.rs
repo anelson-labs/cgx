@@ -149,19 +149,15 @@ pub struct Config {
 
     pub offline: bool,
 
-    #[allow(dead_code)]
     pub locked: bool,
 
     /// Rust toolchain to use for building (e.g., "nightly", "1.70.0", "stable")
-    #[allow(dead_code)]
     pub toolchain: Option<String>,
 
     /// Logging verbosity level (e.g., "info", "debug", "trace")
-    #[allow(dead_code)]
     pub log_level: Option<String>,
 
     /// Default registry to use instead of crates.io when no registry is explicitly specified
-    #[allow(dead_code)]
     pub default_registry: Option<String>,
 
     /// List of sources to check for pre-built binaries before building from source.
@@ -174,14 +170,12 @@ pub struct Config {
     ///
     /// Tools listed here will use the specified version/source instead of being resolved
     /// dynamically. This allows pinning critical tools to specific versions.
-    #[allow(dead_code)]
     pub tools: HashMap<String, ToolConfig>,
 
     /// Tool name aliases.
     ///
     /// Maps convenient names to actual crate names. For example, `rg` -> `ripgrep`.
     /// Note that aliases shadow actual crate names, so aliased crates become inaccessible.
-    #[allow(dead_code)]
     pub aliases: HashMap<String, String>,
 }
 
@@ -572,7 +566,7 @@ mod tests {
         ///
         /// Similar to project1, but verifies that sibling project directories maintain
         /// independent configurations. The `resolve_cache_timeout` should be 5m (from project2),
-        /// tools should include project2_tool instead of project1_tool (5 total), and the
+        /// tools should include `project2_tool` instead of `project1_tool` (5 total), and the
         /// `dummytool` alias should override to "project2".
         #[test]
         fn test_config_hierarchy_project2() {
@@ -636,7 +630,7 @@ mod tests {
             let args = CliArgs::parse_from_test_args(["test-crate"]);
             let config = Config::load_from_dir(&test_data, &args).unwrap();
 
-            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(1 * 60));
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(60));
 
             assert!(config.tools.contains_key("ripgrep"));
             assert!(config.tools.contains_key("root_tool"));

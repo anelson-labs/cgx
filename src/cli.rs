@@ -1,13 +1,4 @@
-use crate::{
-    Result,
-    builder::{BuildOptions, BuildTarget},
-    cargo::CargoVerbosity,
-    cratespec::{CrateSpec, Forge, RegistrySource},
-    error,
-    git::GitSelector,
-};
 use clap::Parser;
-use snafu::{OptionExt, ResultExt};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Parser)]
@@ -272,250 +263,18 @@ impl CliArgs {
             (None, args)
         }
     }
-
-    /// Attempt to parse a crate spec from the parameters provided by the user.
-    ///
-    /// This function uses the provided args to help interpret the string.
-    /// Absent any other clues, the string is assumed to be a crate name on Crates.io.
-    ///
-    /// Upon successful return, there's no guarantee that the crate spec is valid or exists,
-    /// just that it was unambiguously parsed into a spec.
-    pub(crate) fn parse_crate_spec(&self) -> Result<CrateSpec> {
-        let (name, at_version) = if let Some(crate_spec) = &self.crate_spec {
-            if crate_spec == "cargo" && !self.args.is_empty() {
-                let subcommand = &self.args[0];
-                let (subcommand_name, subcommand_version) = Self::parse_crate_name_and_version(subcommand)?;
-                let cargo_crate_name = format!("cargo-{}", subcommand_name);
-                (Some(cargo_crate_name), subcommand_version)
-            } else {
-                let (n, v) = Self::parse_crate_name_and_version(crate_spec)?;
-                (Some(n), v)
-            }
-        } else {
-            (None, None)
-        };
-
-        let flag_version = self
-            .version
-            .as_ref()
-            .filter(|v| !v.is_empty())
-            .map(|s| s.as_str());
-
-        let version = match (at_version.as_deref(), flag_version) {
-            (Some(at_ver), Some(flag_ver)) => {
-                if at_ver != flag_ver {
-                    return error::ConflictingVersionsSnafu {
-                        at_version: at_ver,
-                        flag_version: flag_ver,
-                    }
-                    .fail();
-                }
-                Some(
-                    semver::VersionReq::parse(at_ver)
-                        .with_context(|_| error::InvalidVersionReqSnafu { version: at_ver })?,
-                )
-            }
-            (Some(at_ver), None) => Some(
-                semver::VersionReq::parse(at_ver)
-                    .with_context(|_| error::InvalidVersionReqSnafu { version: at_ver })?,
-            ),
-            (None, Some(flag_ver)) => Some(
-                semver::VersionReq::parse(flag_ver)
-                    .with_context(|_| error::InvalidVersionReqSnafu { version: flag_ver })?,
-            ),
-            (None, None) => None,
-        };
-
-        let git_selector = match (&self.branch, &self.tag, &self.rev) {
-            (Some(branch), None, None) => GitSelector::Branch(branch.clone()),
-            (None, Some(tag), None) => GitSelector::Tag(tag.clone()),
-            (None, None, Some(rev)) => GitSelector::Commit(rev.clone()),
-            (None, None, None) => GitSelector::DefaultBranch,
-            _ => unreachable!("BUG: clap should enforce mutual exclusivity"),
-        };
-
-        let is_git_source = self.git.is_some() || self.github.is_some() || self.gitlab.is_some();
-
-        if !matches!(git_selector, GitSelector::DefaultBranch) && !is_git_source {
-            return error::GitSelectorWithoutGitSourceSnafu.fail();
-        }
-
-        if let Some(git_url) = &self.git {
-            if let Some(forge) = Forge::try_parse_from_url(git_url) {
-                Ok(CrateSpec::Forge {
-                    forge,
-                    selector: git_selector.clone(),
-                    name,
-                    version,
-                })
-            } else {
-                Ok(CrateSpec::Git {
-                    repo: git_url.clone(),
-                    selector: git_selector.clone(),
-                    name,
-                    version,
-                })
-            }
-        } else if let Some(registry) = &self.registry {
-            let name = name.context(error::MissingCrateParameterSnafu)?;
-            Ok(CrateSpec::Registry {
-                source: RegistrySource::Named(registry.clone()),
-                name,
-                version,
-            })
-        } else if let Some(index_str) = &self.index {
-            let name = name.context(error::MissingCrateParameterSnafu)?;
-            let index_url =
-                url::Url::parse(index_str).with_context(|_| error::InvalidUrlSnafu { url: index_str })?;
-            Ok(CrateSpec::Registry {
-                source: RegistrySource::IndexUrl(index_url),
-                name,
-                version,
-            })
-        } else if let Some(path) = &self.path {
-            Ok(CrateSpec::LocalDir {
-                path: path.clone(),
-                name,
-                version,
-            })
-        } else if let Some(github_repo) = &self.github {
-            let (owner, repo) = Self::parse_owner_repo(github_repo)?;
-            let custom_url = if let Some(url_str) = &self.github_url {
-                Some(url::Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
-            } else {
-                None
-            };
-            Ok(CrateSpec::Forge {
-                forge: Forge::GitHub {
-                    custom_url,
-                    owner,
-                    repo,
-                },
-                selector: git_selector.clone(),
-                name,
-                version,
-            })
-        } else if let Some(gitlab_repo) = &self.gitlab {
-            let (owner, repo) = Self::parse_owner_repo(gitlab_repo)?;
-            let custom_url = if let Some(url_str) = &self.gitlab_url {
-                Some(url::Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
-            } else {
-                None
-            };
-            Ok(CrateSpec::Forge {
-                forge: Forge::GitLab {
-                    custom_url,
-                    owner,
-                    repo,
-                },
-                selector: git_selector.clone(),
-                name,
-                version,
-            })
-        } else {
-            let name = name.context(error::MissingCrateParameterSnafu)?;
-            Ok(CrateSpec::CratesIo { name, version })
-        }
-    }
-
-    /// Parse build options from the CLI arguments.
-    ///
-    /// This extracts build-related flags and converts them into a [`BuildOptions`] struct
-    /// that can be used to configure how cargo builds the crate.
-    pub(crate) fn parse_build_options(&self) -> Result<BuildOptions> {
-        let features = if let Some(features_str) = &self.features {
-            Self::parse_features(features_str)
-        } else {
-            Vec::new()
-        };
-
-        let profile = if self.debug {
-            Some("dev".to_string())
-        } else {
-            self.profile.clone()
-        };
-
-        let build_target = match (&self.bin, &self.example) {
-            (Some(_), Some(_)) => {
-                unreachable!("BUG: clap should enforce mutual exclusivity");
-            }
-            (Some(bin_name), None) => BuildTarget::Bin(bin_name.clone()),
-            (None, Some(example_name)) => BuildTarget::Example(example_name.clone()),
-            (None, None) => BuildTarget::default(),
-        };
-
-        let locked = self.locked || self.frozen;
-        let offline = self.offline || self.frozen;
-
-        Ok(BuildOptions {
-            features,
-            all_features: self.all_features,
-            no_default_features: self.no_default_features,
-            profile,
-            target: self.target.clone(),
-            locked,
-            offline,
-            jobs: self.jobs,
-            ignore_rust_version: self.ignore_rust_version,
-            build_target,
-            toolchain: self.toolchain.clone(),
-            cargo_verbosity: CargoVerbosity::from_count(self.verbose),
-        })
-    }
-
-    fn parse_crate_name_and_version(spec: &str) -> Result<(String, Option<String>)> {
-        if let Some((name, version)) = spec.split_once('@') {
-            Ok((name.to_string(), Some(version.to_string())))
-        } else {
-            Ok((spec.to_string(), None))
-        }
-    }
-
-    fn parse_owner_repo(repo_str: &str) -> Result<(String, String)> {
-        use crate::error::*;
-
-        if let Some((owner, repo)) = repo_str.split_once('/') {
-            if owner.is_empty() || repo.is_empty() {
-                return InvalidRepoFormatSnafu { repo: repo_str }.fail();
-            }
-            Ok((owner.to_string(), repo.to_string()))
-        } else {
-            InvalidRepoFormatSnafu { repo: repo_str }.fail()
-        }
-    }
-
-    fn parse_features(features_str: &str) -> Vec<String> {
-        features_str
-            .split(|c: char| c == ',' || c.is_whitespace())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
-    }
-
-    /// Extract the arguments that should be passed to the executed binary.
-    ///
-    /// For the special case of `cgx cargo <subcommand>`, the first argument is consumed
-    /// as part of the crate spec (to form `cargo-<subcommand>`), so we skip it.
-    /// Otherwise, all trailing args are passed to the binary.
-    pub(crate) fn get_binary_args(&self) -> Vec<std::ffi::OsString> {
-        let skip = if self.crate_spec.as_deref() == Some("cargo") && !self.args.is_empty() {
-            // Skip the first arg (the cargo subcommand name)
-            1
-        } else {
-            0
-        };
-
-        self.args
-            .iter()
-            .skip(skip)
-            .map(std::ffi::OsString::from)
-            .collect()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        Result,
+        builder::{BuildOptions, BuildTarget},
+        config::Config,
+        cratespec::{CrateSpec, Forge, RegistrySource},
+        git::GitSelector,
+    };
     use assert_matches::assert_matches;
     use clap::{CommandFactory, Parser};
 
@@ -530,7 +289,8 @@ mod tests {
             let mut full_args = vec!["cgx"];
             full_args.extend_from_slice(args);
             let cli = CliArgs::parse_from(full_args);
-            cli.parse_crate_spec()
+            let config = Config::default();
+            CrateSpec::load(&config, &cli)
         }
 
         #[test]
@@ -1034,7 +794,8 @@ mod tests {
             let mut full_args = vec!["cgx"];
             full_args.extend_from_slice(args);
             let cli = CliArgs::parse_from(full_args);
-            cli.parse_build_options()
+            let config = Config::default();
+            BuildOptions::load(&config, &cli)
         }
 
         #[test]
@@ -1239,7 +1000,8 @@ mod tests {
             let mut cli = CliArgs::parse_from(filtered);
             cli.toolchain = toolchain;
 
-            let opts = cli.parse_build_options().unwrap();
+            let config = Config::default();
+            let opts = BuildOptions::load(&config, &cli).unwrap();
             assert_eq!(opts.toolchain, Some("nightly".to_string()));
         }
 
@@ -1250,7 +1012,8 @@ mod tests {
             let mut cli = CliArgs::parse_from(filtered);
             cli.toolchain = toolchain;
 
-            let opts = cli.parse_build_options().unwrap();
+            let config = Config::default();
+            let opts = BuildOptions::load(&config, &cli).unwrap();
             assert_eq!(opts.toolchain, None);
         }
     }
