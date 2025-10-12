@@ -19,6 +19,9 @@ ignored = [
   # vergen-gix is a build dependency that places env vars that we use at compile time
   # cargo-machete seems unable to detect this, and claims that it's unused
   "vergen-gix",
+
+  # This is used in a `#[serde(with = "...")]` attribute, cargo-machete seems unable to detect this
+  "humantime-serde",
 ]
 
 # Tell `cargo-binstall` how to find our pre-built binaries
