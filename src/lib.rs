@@ -85,7 +85,21 @@ pub fn cgx_main() -> Result<()> {
     let args = CliArgs::parse_from_cli_args();
     if let Some(version_arg) = &args.version {
         if version_arg.is_empty() {
-            eprintln!("cgx {}", env!("CARGO_PKG_VERSION"));
+            let version = env!("CARGO_PKG_VERSION");
+
+            match (
+                option_env!("VERGEN_GIT_SHA"),
+                option_env!("VERGEN_GIT_COMMIT_DATE"),
+            ) {
+                (Some(sha), Some(date))
+                    if sha != "VERGEN_IDEMPOTENT_OUTPUT" && date != "VERGEN_IDEMPOTENT_OUTPUT" =>
+                {
+                    eprintln!("cgx {} ({} {})", version, sha, date);
+                }
+                _ => {
+                    eprintln!("cgx {}", version);
+                }
+            }
             return Ok(());
         }
     }
