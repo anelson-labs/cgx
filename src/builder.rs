@@ -425,19 +425,8 @@ mod tests {
 
     fn test_builder() -> (RealCrateBuilder, tempfile::TempDir) {
         crate::logging::init_test_logging();
-        use std::time::Duration;
 
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = Config {
-            config_dir: temp_dir.path().join("config"),
-            cache_dir: temp_dir.path().join("cache"),
-            bin_dir: temp_dir.path().join("bins"),
-            build_dir: temp_dir.path().join("build"),
-            resolve_cache_timeout: Duration::from_secs(3600),
-            offline: false,
-            locked: false,
-            toolchain: None,
-        };
+        let (temp_dir, config) = crate::config::create_test_env();
 
         fs::create_dir_all(&config.cache_dir).unwrap();
         fs::create_dir_all(&config.bin_dir).unwrap();

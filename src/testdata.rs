@@ -112,7 +112,7 @@ impl TestCase {
 
     /// Load a test case from the filesystem, by name
     fn load(name: &'static str) -> Self {
-        const TESTDATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
+        const TESTDATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/crates");
 
         let path = Path::new(TESTDATA_DIR).join(name);
         assert!(

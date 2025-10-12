@@ -10,7 +10,7 @@ use clap::Parser;
 use snafu::{OptionExt, ResultExt};
 use std::path::PathBuf;
 
-#[derive(Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(name = "cgx")]
 #[command(about = "Rust equivalent of uvx or npx, for use with Rust crates")]
 #[command(disable_version_flag = true)]
@@ -200,6 +200,25 @@ impl CliArgs {
         cli
     }
 
+    /// Parse the CLI args from an arbitary iterator of strings, useful for constructing
+    /// [`CLiArgs`] values for testing.
+    #[cfg(test)]
+    pub fn parse_from_test_args<I, T>(args: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        // Prepend the name of the executable, as clap will be expecting.
+        // No reason to make every test have to remember to do this
+        let args = std::iter::once(std::ffi::OsString::from("cgx")).chain(args.into_iter().map(|s| s.into()));
+        let args: Vec<String> = args.map(|s| s.to_string_lossy().to_string()).collect();
+        let (toolchain, filtered_args) = Self::extract_toolchain(&args);
+
+        let mut cli = Self::parse_from(filtered_args);
+        cli.toolchain = toolchain;
+        cli
+    }
+
     /// Extract `+toolchain` syntax from the first positional argument.
     ///
     /// This method performs pre-processing to extract cargo/rustup-style toolchain overrides
@@ -222,16 +241,12 @@ impl CliArgs {
     /// A tuple of `(Option<String>, Vec<String>)` where:
     /// - The first element is `Some(toolchain)` if `+toolchain` was found, `None` otherwise
     /// - The second element is the filtered argument list with `+toolchain` removed
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let args = vec!["cgx".to_string(), "+nightly".to_string(), "ripgrep".to_string()];
-    /// let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
-    /// assert_eq!(toolchain, Some("nightly".to_string()));
-    /// assert_eq!(filtered, vec!["cgx", "ripgrep"]);
-    /// ```
-    fn extract_toolchain(args: &[String]) -> (Option<String>, Vec<String>) {
+    fn extract_toolchain<I, T>(args: I) -> (Option<String>, Vec<String>)
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let args = args.into_iter().map(|s| s.into()).collect::<Vec<String>>();
         if args.len() > 1 && args[1].starts_with('+') && args[1].len() > 1 {
             let toolchain = args[1][1..].to_string();
 
@@ -240,7 +255,7 @@ impl CliArgs {
 
             (Some(toolchain), filtered)
         } else {
-            (None, args.to_vec())
+            (None, args)
         }
     }
 
@@ -1122,8 +1137,8 @@ mod tests {
 
         #[test]
         fn test_extract_toolchain_nightly() {
-            let args = vec!["cgx".to_string(), "+nightly".to_string(), "ripgrep".to_string()];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "+nightly", "ripgrep"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
 
             assert_eq!(toolchain, Some("nightly".to_string()));
             assert_eq!(filtered, vec!["cgx", "ripgrep"]);
@@ -1131,17 +1146,17 @@ mod tests {
 
         #[test]
         fn test_extract_toolchain_specific_version() {
-            let args = vec!["cgx".to_string(), "+1.70.0".to_string(), "ripgrep".to_string()];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "+1.70.0", "ripgrep"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
 
-            assert_eq!(toolchain, Some("1.70.0".to_string()));
+            assert_eq!(toolchain.as_deref(), Some("1.70.0"));
             assert_eq!(filtered, vec!["cgx", "ripgrep"]);
         }
 
         #[test]
         fn test_extract_toolchain_stable() {
-            let args = vec!["cgx".to_string(), "+stable".to_string(), "ripgrep".to_string()];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "+stable", "ripgrep"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
 
             assert_eq!(toolchain, Some("stable".to_string()));
             assert_eq!(filtered, vec!["cgx", "ripgrep"]);
@@ -1150,13 +1165,13 @@ mod tests {
         #[test]
         fn test_extract_toolchain_with_other_flags() {
             let args = vec![
-                "cgx".to_string(),
-                "+nightly".to_string(),
-                "--git".to_string(),
-                "https://github.com/foo/bar".to_string(),
-                "mycrate".to_string(),
+                "cgx",
+                "+nightly",
+                "--git",
+                "https://github.com/foo/bar",
+                "mycrate",
             ];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
 
             assert_eq!(toolchain, Some("nightly".to_string()));
             assert_eq!(
@@ -1167,8 +1182,8 @@ mod tests {
 
         #[test]
         fn test_no_toolchain() {
-            let args = vec!["cgx".to_string(), "ripgrep".to_string()];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "ripgrep"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
 
             assert_eq!(toolchain, None);
             assert_eq!(filtered, vec!["cgx", "ripgrep"]);
@@ -1176,8 +1191,8 @@ mod tests {
 
         #[test]
         fn test_bare_plus() {
-            let args = vec!["cgx".to_string(), "+".to_string(), "ripgrep".to_string()];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "+", "ripgrep"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
 
             assert_eq!(toolchain, None);
             assert_eq!(filtered, vec!["cgx", "+", "ripgrep"]);
@@ -1185,8 +1200,8 @@ mod tests {
 
         #[test]
         fn test_plus_in_middle_not_toolchain() {
-            let args = vec!["cgx".to_string(), "ripgrep".to_string(), "+something".to_string()];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "ripgrep", "+something"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
 
             assert_eq!(toolchain, None);
             assert_eq!(filtered, vec!["cgx", "ripgrep", "+something"]);
@@ -1194,11 +1209,8 @@ mod tests {
 
         #[test]
         fn test_toolchain_with_version_flag() {
-            let args: Vec<String> = vec!["cgx", "+nightly", "ripgrep", "--version", "14"]
-                .into_iter()
-                .map(String::from)
-                .collect();
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "+nightly", "ripgrep", "--version", "14"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
             let mut cli = CliArgs::parse_from(filtered);
             cli.toolchain = toolchain;
 
@@ -1208,11 +1220,8 @@ mod tests {
 
         #[test]
         fn test_toolchain_propagates_to_build_options() {
-            let args: Vec<String> = vec!["cgx", "+nightly", "ripgrep"]
-                .into_iter()
-                .map(String::from)
-                .collect();
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "+nightly", "ripgrep"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
             let mut cli = CliArgs::parse_from(filtered);
             cli.toolchain = toolchain;
 
@@ -1222,8 +1231,8 @@ mod tests {
 
         #[test]
         fn test_no_toolchain_in_build_options() {
-            let args: Vec<String> = vec!["cgx", "ripgrep"].into_iter().map(String::from).collect();
-            let (toolchain, filtered) = CliArgs::extract_toolchain(&args);
+            let args = vec!["cgx", "ripgrep"];
+            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
             let mut cli = CliArgs::parse_from(filtered);
             cli.toolchain = toolchain;
 

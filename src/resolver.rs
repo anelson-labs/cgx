@@ -455,17 +455,7 @@ mod tests {
     fn test_resolver() -> (CachingResolver<DefaultCrateResolver>, tempfile::TempDir) {
         crate::logging::init_test_logging();
 
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = Config {
-            config_dir: temp_dir.path().join("config"),
-            cache_dir: temp_dir.path().join("cache"),
-            bin_dir: temp_dir.path().join("bins"),
-            build_dir: temp_dir.path().join("build"),
-            resolve_cache_timeout: Duration::from_secs(60 * 60),
-            offline: false,
-            locked: false,
-            toolchain: None,
-        };
+        let (temp_dir, config) = crate::config::create_test_env();
         let cache = Cache::new(config.clone());
         let git_client = GitClient::new(cache.clone());
         let resolver = DefaultCrateResolver::new(

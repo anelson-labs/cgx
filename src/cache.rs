@@ -573,17 +573,8 @@ mod tests {
     fn test_cache_with_timeout(timeout: Duration) -> (Cache, TempDir) {
         crate::logging::init_test_logging();
 
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = Config {
-            config_dir: temp_dir.path().join("config"),
-            cache_dir: temp_dir.path().join("cache"),
-            bin_dir: temp_dir.path().join("bins"),
-            build_dir: temp_dir.path().join("build"),
-            resolve_cache_timeout: timeout,
-            offline: false,
-            locked: false,
-            toolchain: None,
-        };
+        let (temp_dir, mut config) = crate::config::create_test_env();
+        config.resolve_cache_timeout = timeout;
         (Cache::new(config), temp_dir)
     }
 

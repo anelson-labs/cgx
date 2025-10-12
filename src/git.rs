@@ -395,23 +395,11 @@ fn checkout_from_db(db_path: &Path, commit_oid: ObjectId, dest: &Path) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use assert_matches::assert_matches;
-    use std::time::Duration;
     use tempfile::TempDir;
 
     fn test_git_client() -> (GitClient, TempDir) {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = Config {
-            config_dir: temp_dir.path().join("config"),
-            cache_dir: temp_dir.path().join("cache"),
-            bin_dir: temp_dir.path().join("bin"),
-            build_dir: temp_dir.path().join("build"),
-            resolve_cache_timeout: Duration::from_secs(3600),
-            offline: false,
-            locked: false,
-            toolchain: None,
-        };
+        let (temp_dir, config) = crate::config::create_test_env();
         let cache = Cache::new(config);
         let git_client = GitClient::new(cache);
         (git_client, temp_dir)
