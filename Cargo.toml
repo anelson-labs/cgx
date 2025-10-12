@@ -14,18 +14,23 @@ version      = "0.0.3"
 [badges]
 maintenance = { status = "experimental" }
 
+[package.metadata.cargo-machete]
+ignored = [
+  # vergen-gix is a build dependency that places env vars that we use at compile time
+  # cargo-machete seems unable to detect this, and claims that it's unused
+  "vergen-gix",
+]
+
 [dependencies]
 build-context      = "0.1.3"
 cargo_metadata     = "0.20.0"
 chrono             = { version = "0.4.42", features = ["serde"] }
 clap               = { version = "4.5.48", features = ["derive", "env", "string", "unicode"] }
-directories        = "6.0.0"
 etcetera           = "0.10.0"
 flate2             = "1.1.4"
 gix                = { version = "0.73", features = ["blocking-http-transport-reqwest", "max-performance-safe", "worktree-mutation"] }
 home               = "0.5.11"
 ignore             = "0.4.23"
-indicatif          = "0.18.0"
 reqwest            = { version = "0.12.23", default-features = false, features = ["blocking", "rustls-tls", "http2", "charset", "gzip", "system-proxy"] }
 semver             = { version = "1.0.27", features = ["serde"] }
 serde              = { version = "1.0.228", features = ["derive"] }
@@ -46,11 +51,6 @@ which              = "8.0.0"
 [target.'cfg(windows)'.dependencies]
 ctrlc = "3.5"
 
-# The profile that 'dist' will build with
-[profile.dist]
-inherits = "release"
-lto      = "thin"
-
 [build-dependencies]
 vergen-gix = { version = "1.0.9", default-features = false }
 
@@ -59,6 +59,11 @@ assert-json-diff = "2.0.2"
 assert_matches   = "1.5.0"
 insta            = "1.43.2"
 rand             = "0.9.2"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto      = "thin"
 
 #
 # Enable some optional lints that are not on by default but we want to enforce

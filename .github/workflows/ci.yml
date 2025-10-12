@@ -40,10 +40,19 @@ jobs:
         run: just vibecheck
 
       - name: Check formatting
-        run: cargo fmt --all --check
+        run: just fmtcheck
 
       - name: Check TOML formatting
         run: taplo fmt --check
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.18.3 --locked
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --version 0.8.0 --locked
+
+      - name: Run dependency checks
+        run: just depcheck
 
   # Stage 2: Linux amd64 Build and Test.  This will catch most build issues and broken tests,
   # before we we move on to the more expensive and slower platform-specific builds and tests.
