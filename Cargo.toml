@@ -21,6 +21,24 @@ ignored = [
   "vergen-gix",
 ]
 
+# Tell `cargo-binstall` how to find our pre-built binaries
+#
+# It can figure it out on its own from its own heuristics, but those involve
+# trying a number of different permutations first. It will be faster and more
+# reliable to just tell it directly.
+[package.metadata.binstall]
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
 [dependencies]
 build-context      = "0.1.3"
 cargo_metadata     = "0.20.0"

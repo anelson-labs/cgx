@@ -12,19 +12,19 @@ would do manually with `cargo install`, `cargo binstall`, `cargo update`, and `c
 ## Installation
 
 You must use `cargo install`, although once you have done this it will be for the last time, as `cgx` will handle all of
-our other Rust crate installation needs:
+your other Rust crate installation needs:
 
 ```sh
 cargo install cgx
 ```
 
-You can alternatively use `cargo binstall` if you prefer that tool:
+You can alternatively use `cargo binstall` to install from pre-built binaries:
 
 ```sh
-cargo binstall install cgx
+cargo binstall cgx
 ```
 
-Or you can download a prebuild binary from the Releases page.
+Or you can download a prebuilt binary from the [Releases page](https://github.com/anelson-labs/cgx/releases).
 
 ## Example usage
 
