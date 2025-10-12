@@ -939,6 +939,85 @@ mod tests {
 
             assert_matches!(result.unwrap_err(), Error::NoMatchingVersion { .. });
         }
+
+        /// Stress test to reproduce Windows file lock bug through heavy lock contention.
+        ///
+        /// This test spawns 20 threads that all simultaneously query different crates from
+        /// crates.io in random order. Each thread queries 10 crates, creating heavy contention
+        /// for the cargo package cache lock.
+        ///
+        /// On Windows with the tame-index bug where `None` timeout maps to 0 instead of INFINITE,
+        /// threads will fail with `TimedOut` errors. With the fix, all threads properly wait
+        /// for the lock and succeed.
+        ///
+        /// This reproduces: <https://github.com/EmbarkStudios/tame-index/issues/94>
+        #[test]
+        fn lock_contention_stress_test() {
+            use rand::seq::SliceRandom;
+            use std::thread;
+
+            let crates = vec![
+                "serde",
+                "tokio",
+                "reqwest",
+                "clap",
+                "anyhow",
+                "thiserror",
+                "tracing",
+                "syn",
+                "quote",
+                "proc-macro2",
+                "serde_json",
+                "regex",
+                "rayon",
+                "bytes",
+                "http",
+                "futures",
+                "async-trait",
+                "rand",
+                "chrono",
+                "log",
+            ];
+
+            let (resolver, _temp_dir) = test_resolver();
+            let resolver = Arc::new(resolver);
+
+            let mut handles = vec![];
+
+            for thread_id in 0..20 {
+                let resolver = Arc::clone(&resolver);
+                let mut thread_crates = crates.clone();
+
+                let handle = thread::spawn(move || {
+                    let mut rng = rand::rng();
+                    thread_crates.shuffle(&mut rng);
+
+                    for krate_name in thread_crates.iter().take(10) {
+                        let spec = CrateSpec::CratesIo {
+                            name: (*krate_name).to_string(),
+                            version: None,
+                        };
+
+                        match resolver.resolve(&spec) {
+                            Ok(resolved) => {
+                                assert_eq!(resolved.name, *krate_name);
+                            }
+                            Err(e) => {
+                                panic!("[Thread {}] Failed to resolve {}: {:?}", thread_id, krate_name, e);
+                            }
+                        }
+                    }
+                });
+
+                handles.push(handle);
+            }
+
+            for (i, handle) in handles.into_iter().enumerate() {
+                handle
+                    .join()
+                    .unwrap_or_else(|e| panic!("Thread {} panicked: {:?}", i, e));
+            }
+        }
     }
 
     /// Tests exercising crate specs pointing to git repositories.
