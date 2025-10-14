@@ -46,7 +46,7 @@ pkg-fmt = "zip"
 build-context      = "0.1.3"
 cargo_metadata     = "0.20.0"
 chrono             = { version = "0.4.42", features = ["serde"] }
-clap               = { version = "4.5.48", features = ["derive", "env", "string", "unicode"] }
+clap               = { version = "4.5.49", features = ["derive", "env", "string", "unicode"] }
 etcetera           = "0.10.0"
 figment            = { version = "0.10.19", features = ["toml", "env"] }
 flate2             = "1.1.4"
