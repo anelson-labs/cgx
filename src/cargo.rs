@@ -34,19 +34,6 @@ impl CargoVerbosity {
     /// Construct a [`CargoVerbosity`] from a verbosity counter.
     ///
     /// The counter typically comes from CLI arguments where `-v` can be repeated.
-    ///
-    /// # Arguments
-    ///
-    /// * `count` - Number of times `-v` was specified (0-3+)
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let normal = CargoVerbosity::from_count(0);
-    /// let verbose = CargoVerbosity::from_count(1);
-    /// let very_verbose = CargoVerbosity::from_count(2);
-    /// let extremely_verbose = CargoVerbosity::from_count(3);
-    /// ```
     pub(crate) fn from_count(count: u8) -> Self {
         match count {
             0 => Self::Normal,
@@ -453,7 +440,7 @@ fn find_executable(name: &str, env_var: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{builder::BuildTarget, testdata::TestCase};
+    use crate::{builder::BuildTarget, testdata::CrateTestCase};
 
     /// Get the path to the cgx project root directory.
     fn cgx_project_root() -> PathBuf {
@@ -551,7 +538,7 @@ mod tests {
 
         let cargo = find_cargo().unwrap();
 
-        for testcase in TestCase::all() {
+        for testcase in CrateTestCase::all() {
             let result = cargo.metadata(testcase.path(), &CargoMetadataOptions::default());
 
             assert!(

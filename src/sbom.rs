@@ -463,7 +463,7 @@ pub(crate) mod tests {
     use crate::{
         cargo::{CargoMetadataOptions, CargoRunner},
         resolver::ResolvedSource,
-        testdata::TestCase,
+        testdata::CrateTestCase,
     };
     use serde_cyclonedx::cyclonedx::v_1_4::CycloneDx;
     use std::path::Path;
@@ -473,7 +473,7 @@ pub(crate) mod tests {
     }
 
     /// Generate an SBOM for a test case with the given build options.
-    fn generate_sbom_for_testcase(testcase: &TestCase, options: BuildOptions) -> Result<String> {
+    fn generate_sbom_for_testcase(testcase: &CrateTestCase, options: BuildOptions) -> Result<String> {
         let cargo_runner = test_cargo_runner();
 
         let metadata_opts = CargoMetadataOptions::from(&options);
@@ -561,7 +561,7 @@ pub(crate) mod tests {
 
     #[test]
     fn smoke_test_all_testcases() {
-        for testcase in TestCase::all() {
+        for testcase in CrateTestCase::all() {
             // workspace-all-libs is a pure workspace with no root package, which doesn't
             // make sense for SBOM generation (which package would we generate an SBOM for?)
             // TODO: Modify this smoke test to just be smart enough to detect when a test case is a
@@ -598,7 +598,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_simple_bin_no_deps() {
-            let tc = TestCase::simple_bin_no_deps();
+            let tc = CrateTestCase::simple_bin_no_deps();
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
@@ -607,7 +607,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_simple_lib_no_deps() {
-            let tc = TestCase::simple_lib_no_deps();
+            let tc = CrateTestCase::simple_lib_no_deps();
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
@@ -616,7 +616,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_timestamp_default_features() {
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
@@ -625,7 +625,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_timestamp_no_default_features() {
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
             let options = BuildOptions {
                 no_default_features: true,
                 ..Default::default()
@@ -638,7 +638,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_timestamp_all_features() {
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
             let options = BuildOptions {
                 all_features: true,
                 ..Default::default()
@@ -651,7 +651,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_timestamp_frobnulator_only() {
-            let tc = TestCase::timestamp();
+            let tc = CrateTestCase::timestamp();
             let options = BuildOptions {
                 features: vec!["frobnulator".to_string()],
                 no_default_features: true,
@@ -665,7 +665,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_stale_serde() {
-            let tc = TestCase::stale_serde();
+            let tc = CrateTestCase::stale_serde();
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
@@ -674,7 +674,7 @@ pub(crate) mod tests {
 
         #[test]
         fn snapshot_thicc() {
-            let tc = TestCase::thicc();
+            let tc = CrateTestCase::thicc();
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
@@ -684,7 +684,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_feature_conditional_deps_default() {
-        let tc = TestCase::timestamp();
+        let tc = CrateTestCase::timestamp();
         let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
         let bom: CycloneDx = serde_json::from_str(&sbom).unwrap();
 
@@ -700,7 +700,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_feature_conditional_deps_all_features() {
-        let tc = TestCase::timestamp();
+        let tc = CrateTestCase::timestamp();
         let options = BuildOptions {
             all_features: true,
             ..Default::default()
@@ -721,7 +721,7 @@ pub(crate) mod tests {
     /// that this is handled as expected
     #[test]
     fn test_proc_macro_marked_as_build_dep() {
-        let tc = TestCase::proc_macro_dep();
+        let tc = CrateTestCase::proc_macro_dep();
         let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
         let bom: CycloneDx = serde_json::from_str(&sbom).unwrap();
 
@@ -746,7 +746,7 @@ pub(crate) mod tests {
     /// dependencies for the current platform are included in the SBOM.
     #[test]
     fn test_os_specific_deps_filtered_by_platform() {
-        let tc = TestCase::os_specific_deps();
+        let tc = CrateTestCase::os_specific_deps();
         let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
         let bom: CycloneDx = serde_json::from_str(&sbom).unwrap();
 
@@ -838,7 +838,7 @@ pub(crate) mod tests {
     /// the SBOM
     #[test]
     fn test_version_resolution_with_lockfile() {
-        let tc = TestCase::stale_serde();
+        let tc = CrateTestCase::stale_serde();
         let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
         let bom: CycloneDx = serde_json::from_str(&sbom).unwrap();
 
@@ -859,7 +859,7 @@ pub(crate) mod tests {
     /// part of getting metadata, and that should be reflected in the SBOM
     #[test]
     fn test_version_resolution_without_lockfile() {
-        let tc = TestCase::stale_serde();
+        let tc = CrateTestCase::stale_serde();
 
         let lockfile = tc.path().join("Cargo.lock");
         assert!(lockfile.exists());
@@ -881,7 +881,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_build_options_in_metadata() {
-        let tc = TestCase::simple_bin_no_deps();
+        let tc = CrateTestCase::simple_bin_no_deps();
         let options = BuildOptions {
             profile: Some("release".to_string()),
             all_features: true,
@@ -915,7 +915,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_lockfile_affects_sbom() {
-        let tc = TestCase::stale_serde();
+        let tc = CrateTestCase::stale_serde();
 
         let sbom_with_lock = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
         let path_with_lock = tc.path().join("sbom_with_lock.json");

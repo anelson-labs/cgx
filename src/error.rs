@@ -175,6 +175,16 @@ pub enum Error {
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
 
+    // Configuration loading errors
+    #[snafu(display("Failed to load configuration from {}: {}", path.display(), source))]
+    ConfigLoad { path: PathBuf, source: figment::Error },
+
+    #[snafu(display("Invalid configuration value for '{}': {}", field, message))]
+    InvalidConfigValue { field: String, message: String },
+
+    #[snafu(display("Failed to extract configuration: {}", source))]
+    ConfigExtract { source: figment::Error },
+
     // Binary execution errors
     #[snafu(display("Failed to execute binary at {}: {source}", path.display()))]
     ExecFailed { path: PathBuf, source: std::io::Error },
@@ -188,6 +198,9 @@ pub enum Error {
     #[cfg(windows)]
     #[snafu(display("Failed to set up Windows console control handler"))]
     ConsoleHandlerFailed { source: ctrlc::Error },
+
+    #[snafu(display("Error determining home directory"))]
+    Etcetera { source: etcetera::HomeDirError },
 }
 
 impl From<crate::git::Error> for Error {

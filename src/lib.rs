@@ -17,7 +17,7 @@ mod testdata;
 
 use std::sync::Arc;
 
-use builder::CrateBuilder;
+use builder::{BuildOptions, CrateBuilder};
 pub use cli::CliArgs;
 use config::Config;
 use cratespec::CrateSpec;
@@ -43,11 +43,10 @@ pub struct Cgx {
 }
 
 impl Cgx {
-    /// Create a new instance from our [`CliArgs`], which can be obtained by calling
-    /// [`CliArgs::parse_from_cli_args`]
-    pub fn new_from_cli_args(args: &CliArgs) -> Result<Self> {
-        let config = Config::load(args)?;
-
+    /// Create a new instance from a loaded configuration.
+    ///
+    /// The config should be loaded using `Config::load()` with the CLI args.
+    pub fn new(config: Config) -> Result<Self> {
         tracing::debug!("Using config: {:#?}", config);
 
         let cache = cache::Cache::new(config.clone());
@@ -109,10 +108,15 @@ pub fn cgx_main() -> Result<()> {
         }
     }
 
-    let cgx = Cgx::new_from_cli_args(&args)?;
+    let config = Config::load(&args)?;
 
-    let crate_spec = args.parse_crate_spec()?;
-    let build_options = args.parse_build_options()?;
+    // Apply log level from config file if appropriate
+    logging::apply_config(&config, &args);
+
+    let crate_spec = CrateSpec::load(&config, &args)?;
+    let build_options = BuildOptions::load(&config, &args)?;
+
+    let cgx = Cgx::new(config)?;
 
     tracing::debug!("Got crate spec:");
     match &crate_spec {
@@ -240,7 +244,7 @@ pub fn cgx_main() -> Result<()> {
     }
 
     // Extract arguments to pass to the binary
-    let binary_args = args.get_binary_args();
+    let binary_args = CrateSpec::get_binary_args(&args);
 
     // Run the binary - this function never returns on success
     // It either replaces the process (Unix) or exits with the child's code (Windows)

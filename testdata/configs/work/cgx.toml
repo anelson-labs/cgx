@@ -1,0 +1,8 @@
+# Test config file in a hierarchy of config files used for testing the config module
+resolve_cache_timeout = "2m"
+
+[tools]
+work_tool = "1"
+
+[aliases]
+dummytool = "work"

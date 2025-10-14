@@ -1,0 +1,8 @@
+# Test case when the user explicitly specifies a config file, which doesn't have to be called `cgx.toml`
+resolve_cache_timeout = "6m"
+
+[tools]
+project1_tool = "2"
+
+[aliases]
+dummytool = "not_called_cgx_project1"
