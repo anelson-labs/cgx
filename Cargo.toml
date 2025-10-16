@@ -54,7 +54,7 @@ gix                = { version = "0.73", features = ["blocking-http-transport-re
 home               = "0.5.11"
 humantime-serde    = "1.1.1"
 ignore             = "0.4.23"
-reqwest            = { version = "0.12.23", default-features = false, features = ["blocking", "rustls-tls", "http2", "charset", "gzip", "system-proxy"] }
+reqwest            = { version = "0.12.24", default-features = false, features = ["blocking", "rustls-tls", "http2", "charset", "gzip", "system-proxy"] }
 semver             = { version = "1.0.27", features = ["serde"] }
 serde              = { version = "1.0.228", features = ["derive"] }
 serde-cyclonedx    = "0.10.0"
