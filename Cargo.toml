@@ -50,7 +50,7 @@ clap               = { version = "4.5.49", features = ["derive", "env", "string"
 etcetera           = "0.10.0"
 figment            = { version = "0.10.19", features = ["toml", "env"] }
 flate2             = "1.1.4"
-gix                = { version = "0.73", features = ["blocking-http-transport-reqwest", "max-performance-safe", "worktree-mutation"] }
+gix                = { version = "0.74", features = ["blocking-http-transport-reqwest", "max-performance-safe", "worktree-mutation"] }
 home               = "0.5.11"
 humantime-serde    = "1.1.1"
 ignore             = "0.4.24"
