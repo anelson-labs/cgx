@@ -1,0 +1,3 @@
+# We have Cargo.toml files and Rust projects in these directories, that are NOT part of our workspace and should be
+# ignored for LSP purposes.
+files.excludeDirs = ["testdata", "scrap"]
