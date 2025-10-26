@@ -11,7 +11,7 @@ use std::{
 /// Represents the sources to check for pre-built binaries before building from source.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum BinaryProvider {
+pub(crate) enum BinaryProvider {
     /// Use the same logic as cargo-binstall
     Binstall,
     /// Check GitHub releases on the crate's repository
@@ -28,7 +28,7 @@ pub enum BinaryProvider {
 /// with version, features, registry, git repo, etc.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
-pub enum ToolConfig {
+pub(crate) enum ToolConfig {
     /// Simple version specification (e.g., "1.0", "*")
     Version(String),
     /// Detailed configuration with version, features, registry, etc.
@@ -58,7 +58,7 @@ pub enum ToolConfig {
 /// process. Fields are then mapped to the final [`Config`] struct.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
-pub struct ConfigFile {
+pub(crate) struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "deserialize_optional_expanded_path")]
     pub bin_dir: Option<PathBuf>,
@@ -127,7 +127,7 @@ where
 /// 4. Directory hierarchy from filesystem root to current directory (each `cgx.toml` found)
 /// 5. Command-line arguments (highest priority)
 #[derive(Debug, Default, Clone)]
-pub struct Config {
+pub(crate) struct Config {
     /// Directory where config files are stored
     #[allow(dead_code)]
     pub config_dir: PathBuf,
@@ -189,7 +189,7 @@ impl Config {
     /// 3. User config file
     /// 4. Directory hierarchy config files (from root to current directory)
     /// 5. Command-line arguments (highest priority)
-    pub fn load(args: &CliArgs) -> Result<Self> {
+    pub(crate) fn load(args: &CliArgs) -> Result<Self> {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         Self::load_from_dir(&cwd, args)

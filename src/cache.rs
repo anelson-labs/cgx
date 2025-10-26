@@ -67,13 +67,13 @@ type ResolveCacheEntry = CacheEntry<ResolvedCrate>;
 ///
 /// More may be added over time.
 #[derive(Clone, Debug)]
-pub struct Cache {
+pub(crate) struct Cache {
     inner: Arc<CacheInner>,
 }
 
 impl Cache {
     /// Create a new [`Cache`] with the given configuration
-    pub fn new(config: Config) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         Self {
             inner: Arc::new(CacheInner { config }),
         }
@@ -87,7 +87,7 @@ impl Cache {
     /// 3. On success, cache the result and return it
     /// 4. On transient errors (network/IO), fall back to stale cache if available
     /// 5. On permanent errors, propagate without using stale cache
-    pub fn get_or_resolve<F>(&self, spec: &CrateSpec, resolver: F) -> Result<ResolvedCrate>
+    pub(crate) fn get_or_resolve<F>(&self, spec: &CrateSpec, resolver: F) -> Result<ResolvedCrate>
     where
         F: FnOnce() -> Result<ResolvedCrate>,
     {
@@ -125,7 +125,11 @@ impl Cache {
     /// 3. Call the downloader function with the temp directory path
     /// 4. On success, atomically rename the temp directory to the cache location
     /// 5. Handle race conditions where multiple processes download simultaneously
-    pub fn get_or_download<F>(&self, resolved: &ResolvedCrate, downloader: F) -> Result<DownloadedCrate>
+    pub(crate) fn get_or_download<F>(
+        &self,
+        resolved: &ResolvedCrate,
+        downloader: F,
+    ) -> Result<DownloadedCrate>
     where
         F: FnOnce(&std::path::Path) -> Result<()>,
     {
@@ -402,7 +406,7 @@ impl Cache {
     /// # Returns
     ///
     /// The path to the binary, either from cache or freshly built.
-    pub fn get_or_build_binary<F>(
+    pub(crate) fn get_or_build_binary<F>(
         &self,
         krate: &ResolvedCrate,
         options: &BuildOptions,
@@ -1334,7 +1338,7 @@ mod tests {
                 name: "test".to_string(),
                 version: Version::parse("1.0.0").unwrap(),
                 source: ResolvedSource::Forge {
-                    forge: crate::cratespec::Forge::GitHub {
+                    forge: Forge::GitHub {
                         custom_url: None,
                         owner: "owner".to_string(),
                         repo: "repo".to_string(),
@@ -1360,7 +1364,7 @@ mod tests {
                 name: "test".to_string(),
                 version: Version::parse("1.0.0").unwrap(),
                 source: ResolvedSource::Forge {
-                    forge: crate::cratespec::Forge::GitLab {
+                    forge: Forge::GitLab {
                         custom_url: None,
                         owner: "owner".to_string(),
                         repo: "repo".to_string(),
@@ -1386,7 +1390,7 @@ mod tests {
                 name: "test".to_string(),
                 version: Version::parse("1.0.0").unwrap(),
                 source: ResolvedSource::Registry {
-                    source: crate::cratespec::RegistrySource::Named("my-registry".to_string()),
+                    source: RegistrySource::Named("my-registry".to_string()),
                 },
             };
 
@@ -1408,7 +1412,7 @@ mod tests {
                 name: "test".to_string(),
                 version: Version::parse("1.0.0").unwrap(),
                 source: ResolvedSource::Registry {
-                    source: crate::cratespec::RegistrySource::IndexUrl(index_url),
+                    source: RegistrySource::IndexUrl(index_url),
                 },
             };
 

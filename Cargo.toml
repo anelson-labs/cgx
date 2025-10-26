@@ -94,14 +94,20 @@ lto      = "thin"
 # Enable some optional lints that are not on by default but we want to enforce
 #
 # This is inspired by the Embark Studios list at <https://github.com/EmbarkStudios/rust-ecosystem/blob/main/lints.toml>
-#
+# and the cargo-edit project list at <https://github.com/killercup/cargo-edit/blob/master/Cargo.toml>
 
 [lints.rust]
-future_incompatible = { level = "warn", priority = -1 }
-nonstandard_style   = { level = "warn", priority = -1 }
-rust_2018_idioms    = { level = "warn", priority = -1 }
-unexpected_cfgs     = "warn"
-unsafe_code         = "forbid"
+future_incompatible    = { level = "warn", priority = -1 }
+nonstandard_style      = { level = "warn", priority = -1 }
+rust_2018_idioms       = { level = "warn", priority = -1 }
+unexpected_cfgs        = "warn"
+unnameable_types       = "warn"
+unreachable_pub        = "warn"
+unsafe_code            = "forbid"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes       = "warn"
+unused_macro_rules     = "warn"
+unused_qualifications  = "warn"
 
 [lints.clippy]
 await_holding_lock                 = "warn"

@@ -447,7 +447,7 @@ impl RealCrateBuilder {
     /// `Ok(None)` is returned.  If the workspace has multiple members, then the crate name must
     /// match one of them, and `Ok(Some(name))` is returned.  If it does not match any, then an
     /// error is returned.
-    fn resolve_package_name(metadata: &cargo_metadata::Metadata, crate_name: &str) -> Result<Option<String>> {
+    fn resolve_package_name(metadata: &Metadata, crate_name: &str) -> Result<Option<String>> {
         let workspace_members: Vec<_> = metadata
             .workspace_packages()
             .iter()
@@ -691,7 +691,7 @@ mod tests {
             let cargo = find_cargo().unwrap();
 
             for tc in CrateTestCase::all() {
-                let metadata_opts = crate::cargo::CargoMetadataOptions::default();
+                let metadata_opts = CargoMetadataOptions::default();
                 let metadata = cargo.metadata(tc.path(), &metadata_opts).unwrap();
 
                 let workspace_pkgs = metadata.workspace_packages();

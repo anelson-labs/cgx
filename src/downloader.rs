@@ -22,7 +22,7 @@ use tame_index::{
 /// `DownlaodedOrPossiblyAlreadyLocalCrate` isn't very catchy, so you'll have to do that
 /// substitution in your head.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct DownloadedCrate {
+pub(crate) struct DownloadedCrate {
     /// The resolved crate metadata (name, version, source)
     pub resolved: ResolvedCrate,
 
@@ -38,7 +38,7 @@ pub struct DownloadedCrate {
 ///
 /// The trait abstraction allows for thorough testing and alternative implementations
 /// (e.g., mock downloaders for testing).
-pub trait CrateDownloader: std::fmt::Debug + Send + Sync + 'static {
+pub(crate) trait CrateDownloader: std::fmt::Debug + Send + Sync + 'static {
     /// Download a resolved crate and return the path to its source code.
     ///
     /// This involves:
@@ -58,7 +58,7 @@ pub trait CrateDownloader: std::fmt::Debug + Send + Sync + 'static {
 
 /// Create a default implementation of [`CrateDownloader`] using the given cache, config, and git
 /// client.
-pub fn create_downloader(config: Config, cache: Cache, git_client: GitClient) -> impl CrateDownloader {
+pub(crate) fn create_downloader(config: Config, cache: Cache, git_client: GitClient) -> impl CrateDownloader {
     DefaultCrateDownloader::new(cache, config, git_client)
 }
 
@@ -73,7 +73,7 @@ struct DefaultCrateDownloader {
 
 impl DefaultCrateDownloader {
     /// Create a new [`DefaultCrateDownloader`] with the given cache, configuration, and git client.
-    pub fn new(cache: Cache, config: Config, git_client: GitClient) -> Self {
+    pub(crate) fn new(cache: Cache, config: Config, git_client: GitClient) -> Self {
         Self {
             cache,
             config,

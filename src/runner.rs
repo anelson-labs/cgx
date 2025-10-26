@@ -37,7 +37,7 @@ use std::{ffi::OsString, path::Path, process::Command};
 ///
 /// Only returns `Err` if the binary cannot be launched. On success, this function
 /// either replaces the current process or exits, and thus never returns.
-pub fn run(bin_path: &Path, args: &[OsString]) -> Result<()> {
+pub(crate) fn run(bin_path: &Path, args: &[OsString]) -> Result<()> {
     #[cfg(unix)]
     {
         exec_replace(bin_path, args)
