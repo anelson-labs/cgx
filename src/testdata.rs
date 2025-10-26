@@ -22,8 +22,7 @@ pub(crate) struct CrateTestCase {
     ///
     /// Kept alive to prevent automatic cleanup of the temporary directory. All test crates are
     /// self-contained and copied to a subdirectory (`temp_dir/{crate_name}/`).
-    #[allow(dead_code)]
-    temp_dir: TempDir,
+    _temp_dir: TempDir,
 
     /// Path to the crate within the temp directory (`temp_dir/{crate_name`}/).
     /// This is what tests should use as the source directory.
@@ -123,7 +122,7 @@ impl CrateTestCase {
         Self {
             name,
             path,
-            temp_dir,
+            _temp_dir: temp_dir,
             crate_path,
         }
     }

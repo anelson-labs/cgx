@@ -229,15 +229,47 @@ impl Config {
 
         let config_file: ConfigFile = figment.extract().context(crate::error::ConfigExtractSnafu)?;
 
+        // Determine config_dir based on override precedence
+        let config_dir = if let Some(user_config_dir) = &args.user_config_dir {
+            user_config_dir.clone()
+        } else if let Some(app_dir) = &args.app_dir {
+            app_dir.join("config")
+        } else {
+            strategy.config_dir()
+        };
+
+        // Determine cache_dir: config file > app-dir > strategy
+        let cache_dir = config_file.cache_dir.unwrap_or_else(|| {
+            if let Some(app_dir) = &args.app_dir {
+                app_dir.join("cache")
+            } else {
+                strategy.cache_dir()
+            }
+        });
+
+        // Determine bin_dir: config file > app-dir > strategy
+        let bin_dir = config_file.bin_dir.unwrap_or_else(|| {
+            if let Some(app_dir) = &args.app_dir {
+                app_dir.join("bins")
+            } else {
+                strategy.in_data_dir("bins")
+            }
+        });
+
+        // Determine build_dir: config file > app-dir > strategy
+        let build_dir = config_file.build_dir.unwrap_or_else(|| {
+            if let Some(app_dir) = &args.app_dir {
+                app_dir.join("build")
+            } else {
+                strategy.in_data_dir("build")
+            }
+        });
+
         Ok(Self {
-            config_dir: strategy.config_dir(),
-            cache_dir: config_file.cache_dir.unwrap_or_else(|| strategy.cache_dir()),
-            bin_dir: config_file
-                .bin_dir
-                .unwrap_or_else(|| strategy.in_data_dir("bins")),
-            build_dir: config_file
-                .build_dir
-                .unwrap_or_else(|| strategy.in_data_dir("build")),
+            config_dir,
+            cache_dir,
+            bin_dir,
+            build_dir,
             resolve_cache_timeout: config_file
                 .resolve_cache_timeout
                 .unwrap_or_else(|| Duration::from_secs(60 * 60)),
@@ -257,46 +289,60 @@ impl Config {
     /// Returns paths from lowest to highest precedence. Later config files override earlier ones.
     ///
     /// The search order is:
-    /// 1. System config: `/etc/cgx.toml` on Unix, Windows equivalent
-    /// 2. User config: `$XDG_CONFIG_HOME/cgx/cgx.toml` or platform equivalent
+    /// 1. System config: `/etc/cgx.toml` on Unix, Windows equivalent (or override location)
+    /// 2. User config: `$XDG_CONFIG_HOME/cgx/cgx.toml` or platform equivalent (or override
+    ///    location)
     /// 3. Directory hierarchy: All `cgx.toml` files from filesystem root to current directory
     fn discover_config_files(cwd: &Path, args: &CliArgs) -> Result<Vec<PathBuf>> {
         let mut config_files = Vec::new();
 
-        let strategy = Self::get_user_dirs()?;
+        // If the user explicitly specified a config file, read ONLY that file
+        if let Some(config_path) = &args.config_file {
+            return Ok(vec![config_path.clone()]);
+        }
 
-        #[cfg(unix)]
-        {
-            let system_config = PathBuf::from("/etc/cgx.toml");
+        // System config (can be overridden)
+        if let Some(system_config_dir) = &args.system_config_dir {
+            let system_config = system_config_dir.join("cgx.toml");
             if system_config.exists() {
                 config_files.push(system_config);
             }
-        }
-
-        #[cfg(windows)]
-        {
-            if let Some(program_data) = std::env::var_os("ProgramData") {
-                let system_config = PathBuf::from(program_data).join("cgx").join("cgx.toml");
+        } else {
+            #[cfg(unix)]
+            {
+                let system_config = PathBuf::from("/etc/cgx.toml");
                 if system_config.exists() {
                     config_files.push(system_config);
                 }
             }
+
+            #[cfg(windows)]
+            {
+                if let Some(program_data) = std::env::var_os("ProgramData") {
+                    let system_config = PathBuf::from(program_data).join("cgx").join("cgx.toml");
+                    if system_config.exists() {
+                        config_files.push(system_config);
+                    }
+                }
+            }
         }
 
-        let user_config = strategy.config_dir().join("cgx.toml");
+        // User config (can be overridden via user-config-dir or app-dir)
+        let user_config = if let Some(user_config_dir) = &args.user_config_dir {
+            // Most specific: explicit user config directory
+            user_config_dir.join("cgx.toml")
+        } else if let Some(app_dir) = &args.app_dir {
+            // App dir provides a base for config
+            app_dir.join("config").join("cgx.toml")
+        } else {
+            // Default: use platform-specific config directory
+            let strategy = Self::get_user_dirs()?;
+            strategy.config_dir().join("cgx.toml")
+        };
+
         if user_config.exists() {
             config_files.push(user_config);
         }
-
-        // If the user explicitly specified a config file, then use that one as the leaf and walk
-        // up the filesystem hierarchy from there to root, if not default to looking in the current
-        // directory
-        if let Some(config_path) = &args.config_file {
-            // Read only this config file, and NOTHING else
-            config_files.push(config_path.clone());
-
-            return Ok(config_files);
-        };
 
         let mut ancestors: Vec<PathBuf> = cwd.ancestors().map(|p| p.to_path_buf()).collect();
         ancestors.reverse();
@@ -706,6 +752,487 @@ mod tests {
             assert!(config.locked);
             assert_eq!(config.toolchain, Some("stable".to_string()));
         }
+
+        /// Test that --config-file reads only the specified file.
+        ///
+        /// When --config-file is specified, only that single config file should be loaded,
+        /// bypassing all config discovery (system, user, and hierarchy configs).
+        #[test]
+        fn test_config_file_reads_only_specified_file() {
+            // The hierarchy has configs with resolve_cache_timeout set to various values:
+            // root=1m, work=2m, project1=3m
+            let hierarchy_dir = crate::testdata::ConfigTestCase::hierarchy_project1();
+
+            // The explicit config has a different timeout (6m)
+            let explicit_config = crate::testdata::ConfigTestCase::explicit_non_standard_name();
+
+            // Load config from project1 directory but with --config-file pointing to explicit config
+            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+            args.config_file = Some(explicit_config.path().to_path_buf());
+
+            let config = Config::load_from_dir(hierarchy_dir.path(), &args).unwrap();
+
+            // Should have the explicit config's timeout (6m), not any from the hierarchy (1m/2m/3m)
+            assert_eq!(config.resolve_cache_timeout, Duration::from_secs(6 * 60));
+
+            // Should have only the tool from explicit config, not from hierarchy
+            assert!(config.tools.contains_key("project1_tool"));
+            assert_eq!(config.tools.len(), 1);
+
+            // Should have only the alias from explicit config
+            assert_eq!(
+                config.aliases.get("dummytool"),
+                Some(&"not_called_cgx_project1".to_string())
+            );
+            assert_eq!(config.aliases.len(), 1);
+        }
+    }
+
+    mod config_file_discovery_tests {
+        use super::*;
+
+        /// Test that [`discover_config_files`] returns only the explicit file when --config-file is
+        /// set.
+        ///
+        /// This directly tests the discovery logic to ensure hierarchy configs are not included.
+        #[test]
+        fn test_discover_only_explicit_file() {
+            use std::fs;
+
+            // RAII guard to ensure user config cleanup happens even if test panics
+            struct UserConfigGuard {
+                path: PathBuf,
+                should_delete: bool,
+            }
+
+            impl Drop for UserConfigGuard {
+                fn drop(&mut self) {
+                    if self.should_delete {
+                        fs::remove_file(&self.path).ok();
+                    }
+                }
+            }
+
+            let temp_dir = tempfile::tempdir().unwrap();
+            let cwd = temp_dir.path();
+
+            // Create a hierarchy of config files
+            let root_config = cwd.join("cgx.toml");
+            fs::write(&root_config, "resolve_cache_timeout = \"1m\"").unwrap();
+
+            let sub_dir = cwd.join("subdir");
+            fs::create_dir(&sub_dir).unwrap();
+            let sub_config = sub_dir.join("cgx.toml");
+            fs::write(&sub_config, "resolve_cache_timeout = \"2m\"").unwrap();
+
+            // Create an explicit config elsewhere
+            let explicit_config = temp_dir.path().join("explicit.toml");
+            fs::write(&explicit_config, "resolve_cache_timeout = \"3m\"").unwrap();
+
+            // Create a user config to trigger the bug (if it doesn't already exist)
+            let strategy = Config::get_user_dirs().unwrap();
+            let user_config_dir = strategy.config_dir();
+            fs::create_dir_all(&user_config_dir).ok();
+            let user_config_path = user_config_dir.join("cgx.toml");
+            let user_config_existed = user_config_path.exists();
+
+            // Guard ensures cleanup even if test panics
+            let _guard = if !user_config_existed {
+                fs::write(&user_config_path, "resolve_cache_timeout = \"99m\"").unwrap();
+                UserConfigGuard {
+                    path: user_config_path,
+                    should_delete: true,
+                }
+            } else {
+                UserConfigGuard {
+                    path: user_config_path,
+                    should_delete: false,
+                }
+            };
+
+            // Test with --config-file
+            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+            args.config_file = Some(explicit_config.clone());
+
+            let discovered = Config::discover_config_files(&sub_dir, &args).unwrap();
+
+            // Should contain ONLY the explicit config file (no system, user, or hierarchy configs)
+            // This will FAIL if the bug exists, showing [user_config, explicit_config]
+            assert_eq!(
+                discovered.len(),
+                1,
+                "Expected only 1 config file, got {}: {:?}",
+                discovered.len(),
+                discovered
+            );
+            assert_eq!(discovered[0], explicit_config);
+        }
+
+        /// Test that hierarchy configs are discovered when --config-file is not set.
+        #[test]
+        fn test_discover_hierarchy_without_explicit() {
+            use std::fs;
+
+            let temp_dir = tempfile::tempdir().unwrap();
+            let cwd = temp_dir.path();
+
+            // Create a hierarchy of config files
+            let root_config = cwd.join("cgx.toml");
+            fs::write(&root_config, "resolve_cache_timeout = \"1m\"").unwrap();
+
+            let sub_dir = cwd.join("subdir");
+            fs::create_dir(&sub_dir).unwrap();
+            let sub_config = sub_dir.join("cgx.toml");
+            fs::write(&sub_config, "resolve_cache_timeout = \"2m\"").unwrap();
+
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let discovered = Config::discover_config_files(&sub_dir, &args).unwrap();
+
+            // Should contain both hierarchy configs (and possibly system/user if they exist)
+            // We check that at least our two configs are present
+            assert!(
+                discovered.contains(&root_config),
+                "Root config should be discovered"
+            );
+            assert!(
+                discovered.contains(&sub_config),
+                "Sub config should be discovered"
+            );
+        }
+    }
+
+    mod override_tests {
+        use super::*;
+        use std::fs;
+
+        mod system_config_dir_tests {
+            use super::*;
+
+            #[test]
+            fn test_system_config_dir_cli_arg() {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let system_config_dir = temp_dir.path().join("system");
+                fs::create_dir_all(&system_config_dir).unwrap();
+                let system_config = system_config_dir.join("cgx.toml");
+                fs::write(&system_config, "resolve_cache_timeout = \"5m\"").unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                // Also set user_config_dir to ensure isolation (no real user config is loaded)
+                let user_config_dir = temp_dir.path().join("user");
+                fs::create_dir_all(&user_config_dir).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.system_config_dir = Some(system_config_dir);
+                args.user_config_dir = Some(user_config_dir);
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+                assert_eq!(config.resolve_cache_timeout, Duration::from_secs(5 * 60));
+            }
+
+            #[test]
+            fn test_system_config_dir_vs_user_config() {
+                let temp_dir = tempfile::tempdir().unwrap();
+
+                // Create system config with 10m timeout
+                let system_config_dir = temp_dir.path().join("system");
+                fs::create_dir_all(&system_config_dir).unwrap();
+                fs::write(
+                    system_config_dir.join("cgx.toml"),
+                    "resolve_cache_timeout = \"10m\"",
+                )
+                .unwrap();
+
+                // Create user config with 20m timeout
+                let user_config_dir = temp_dir.path().join("user");
+                fs::create_dir_all(&user_config_dir).unwrap();
+                fs::write(
+                    user_config_dir.join("cgx.toml"),
+                    "resolve_cache_timeout = \"20m\"",
+                )
+                .unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.system_config_dir = Some(system_config_dir);
+                args.user_config_dir = Some(user_config_dir);
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+                // User config should override system config
+                assert_eq!(config.resolve_cache_timeout, Duration::from_secs(20 * 60));
+            }
+        }
+
+        mod app_dir_tests {
+            use super::*;
+
+            #[test]
+            fn test_app_dir_config_location() {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let app_dir = temp_dir.path().join("app");
+                let config_dir = app_dir.join("config");
+                fs::create_dir_all(&config_dir).unwrap();
+                fs::write(config_dir.join("cgx.toml"), "resolve_cache_timeout = \"7m\"").unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+                assert_eq!(config.resolve_cache_timeout, Duration::from_secs(7 * 60));
+                assert_eq!(config.config_dir, config_dir);
+            }
+
+            #[test]
+            fn test_app_dir_cache_location() {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let app_dir = temp_dir.path().join("app");
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+                assert_eq!(config.cache_dir, app_dir.join("cache"));
+            }
+
+            #[test]
+            fn test_app_dir_bins_location() {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let app_dir = temp_dir.path().join("app");
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+                assert_eq!(config.bin_dir, app_dir.join("bins"));
+            }
+
+            #[test]
+            fn test_app_dir_build_location() {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let app_dir = temp_dir.path().join("app");
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+                assert_eq!(config.build_dir, app_dir.join("build"));
+            }
+
+            #[test]
+            fn test_app_dir_complete_isolation() {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let app_dir = temp_dir.path().join("app");
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+
+                // All directories should be under app_dir
+                assert!(config.config_dir.starts_with(&app_dir));
+                assert!(config.cache_dir.starts_with(&app_dir));
+                assert!(config.bin_dir.starts_with(&app_dir));
+                assert!(config.build_dir.starts_with(&app_dir));
+            }
+        }
+
+        mod user_config_dir_tests {
+            use super::*;
+
+            #[test]
+            fn test_user_config_dir_cli_arg() {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let user_config_dir = temp_dir.path().join("user");
+                fs::create_dir_all(&user_config_dir).unwrap();
+                fs::write(user_config_dir.join("cgx.toml"), "resolve_cache_timeout = \"8m\"").unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.user_config_dir = Some(user_config_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+                assert_eq!(config.resolve_cache_timeout, Duration::from_secs(8 * 60));
+                assert_eq!(config.config_dir, user_config_dir);
+            }
+
+            #[test]
+            fn test_user_config_dir_overrides_app_dir() {
+                let temp_dir = tempfile::tempdir().unwrap();
+
+                // Create app_dir with config
+                let app_dir = temp_dir.path().join("app");
+                let app_config_dir = app_dir.join("config");
+                fs::create_dir_all(&app_config_dir).unwrap();
+                fs::write(app_config_dir.join("cgx.toml"), "resolve_cache_timeout = \"9m\"").unwrap();
+
+                // Create user_config_dir with different config
+                let user_config_dir = temp_dir.path().join("user");
+                fs::create_dir_all(&user_config_dir).unwrap();
+                fs::write(
+                    user_config_dir.join("cgx.toml"),
+                    "resolve_cache_timeout = \"11m\"",
+                )
+                .unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir.clone());
+                args.user_config_dir = Some(user_config_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+
+                // user_config_dir should override app_dir for config location
+                assert_eq!(config.resolve_cache_timeout, Duration::from_secs(11 * 60));
+                assert_eq!(config.config_dir, user_config_dir);
+
+                // But cache/bins/build should still come from app_dir
+                assert_eq!(config.cache_dir, app_dir.join("cache"));
+                assert_eq!(config.bin_dir, app_dir.join("bins"));
+                assert_eq!(config.build_dir, app_dir.join("build"));
+            }
+        }
+
+        mod combined_tests {
+            use super::*;
+
+            #[test]
+            fn test_all_three_overrides() {
+                let temp_dir = tempfile::tempdir().unwrap();
+
+                // System config
+                let system_config_dir = temp_dir.path().join("system");
+                fs::create_dir_all(&system_config_dir).unwrap();
+                fs::write(
+                    system_config_dir.join("cgx.toml"),
+                    "[tools]\nsystem_tool = \"1\"\n[aliases]\ndummytool = \"system\"",
+                )
+                .unwrap();
+
+                // App dir with config
+                let app_dir = temp_dir.path().join("app");
+                let app_config_dir = app_dir.join("config");
+                fs::create_dir_all(&app_config_dir).unwrap();
+                fs::write(app_config_dir.join("cgx.toml"), "[tools]\napp_tool = \"1\"").unwrap();
+
+                // User config dir
+                let user_config_dir = temp_dir.path().join("user");
+                fs::create_dir_all(&user_config_dir).unwrap();
+                fs::write(
+                    user_config_dir.join("cgx.toml"),
+                    "resolve_cache_timeout = \"12m\"\n[tools]\nuser_tool = \"1\"\n[aliases]\ndummytool = \
+                     \"user\"",
+                )
+                .unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.system_config_dir = Some(system_config_dir);
+                args.app_dir = Some(app_dir.clone());
+                args.user_config_dir = Some(user_config_dir.clone());
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+
+                // Should have merged tools from all configs
+                assert!(config.tools.contains_key("system_tool"));
+                assert!(config.tools.contains_key("user_tool"));
+                assert_eq!(config.tools.len(), 2);
+
+                // User config should override alias
+                assert_eq!(config.aliases.get("dummytool"), Some(&"user".to_string()));
+
+                // Config dir from user_config_dir
+                assert_eq!(config.config_dir, user_config_dir);
+
+                // Other dirs from app_dir
+                assert_eq!(config.cache_dir, app_dir.join("cache"));
+                assert_eq!(config.bin_dir, app_dir.join("bins"));
+                assert_eq!(config.build_dir, app_dir.join("build"));
+            }
+
+            #[test]
+            fn test_hierarchy_still_works_with_overrides() {
+                let temp_dir = tempfile::tempdir().unwrap();
+
+                // App dir
+                let app_dir = temp_dir.path().join("app");
+
+                // Create hierarchy with configs
+                let root = temp_dir.path().join("work");
+                fs::create_dir_all(&root).unwrap();
+                fs::write(root.join("cgx.toml"), "[tools]\nroot_tool = \"1\"").unwrap();
+
+                let sub = root.join("sub");
+                fs::create_dir_all(&sub).unwrap();
+                fs::write(sub.join("cgx.toml"), "[tools]\nsub_tool = \"1\"").unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir);
+
+                let config = Config::load_from_dir(&sub, &args).unwrap();
+
+                // Should have tools from both hierarchy configs
+                assert!(config.tools.contains_key("root_tool"));
+                assert!(config.tools.contains_key("sub_tool"));
+                assert_eq!(config.tools.len(), 2);
+            }
+
+            #[test]
+            fn test_config_file_overrides_take_precedence_over_app_dir() {
+                let temp_dir = tempfile::tempdir().unwrap();
+
+                // App dir
+                let app_dir = temp_dir.path().join("app");
+                let app_config_dir = app_dir.join("config");
+                fs::create_dir_all(&app_config_dir).unwrap();
+
+                // Config file with explicit settings
+                let config_file = temp_dir.path().join("explicit.toml");
+                fs::write(
+                    &config_file,
+                    format!(
+                        "cache_dir = \"{}\"\nbin_dir = \"{}\"\nbuild_dir = \"{}\"",
+                        temp_dir.path().join("my-cache").display(),
+                        temp_dir.path().join("my-bins").display(),
+                        temp_dir.path().join("my-build").display()
+                    ),
+                )
+                .unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                args.app_dir = Some(app_dir.clone());
+                args.config_file = Some(config_file);
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+
+                // Explicit config file settings should win over app_dir
+                assert_eq!(config.cache_dir, temp_dir.path().join("my-cache"));
+                assert_eq!(config.bin_dir, temp_dir.path().join("my-bins"));
+                assert_eq!(config.build_dir, temp_dir.path().join("my-build"));
+            }
+        }
     }
 
     mod error_tests {
@@ -750,7 +1277,13 @@ mod tests {
         fn test_no_config_files_uses_defaults() {
             let temp_dir = tempfile::tempdir().unwrap();
 
-            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+            // Ensure isolation from developer's real cgx config on their system.
+            // Without these overrides, this test would load ~/.config/cgx/cgx.toml if it exists,
+            // causing the test to fail with config values from the developer's actual config.
+            args.system_config_dir = Some(temp_dir.path().join("system"));
+            args.user_config_dir = Some(temp_dir.path().join("user"));
+
             let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
 
             assert_eq!(config.resolve_cache_timeout, Duration::from_secs(60 * 60));

@@ -130,7 +130,8 @@ pub struct CliArgs {
     #[arg(long, value_name = "WHEN")]
     pub color: Option<String>,
 
-    /// Read configuration options from the given TOML file.
+    /// Read configuration options from the given TOML file only, bypassing the usual config search
+    /// paths.
     ///
     /// By default, cgx will look for a file in the current directory called `cgx.toml`, if not
     /// found it will check the parent, and the grandparent, up to the root.
@@ -139,10 +140,62 @@ pub struct CliArgs {
     /// system-level `cgx.toml` at `/etc/cgx.toml`, or the equivalent on other OSes.
     ///
     /// All config files' options are merged, with highest priority given to the file closest to
-    /// the current directory.  Specifying a config file with this option disables that logic, and
+    /// the current directory.
+    ///
+    /// Specifying a config file with this option disables that logic, and
     /// reads the config only from the specified file.
-    #[arg(long, value_name = "FILE")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with_all = ["system_config_dir", "app_dir", "user_config_dir"]
+    )]
     pub config_file: Option<PathBuf>,
+
+    /// Override the system config directory location.
+    ///
+    /// When set, cgx will look for `cgx.toml` in this directory instead of the default
+    /// system location (`/etc` on Unix, `%ProgramData%\cgx` on Windows).
+    ///
+    /// This is primarily useful for testing and CI environments where you need complete
+    /// control over config file locations without modifying system directories.
+    ///
+    /// Can also be set via the `CGX_SYSTEM_CONFIG_DIR` environment variable, with the
+    /// command-line argument taking precedence.
+    #[arg(long, value_name = "PATH", env = "CGX_SYSTEM_CONFIG_DIR")]
+    pub system_config_dir: Option<PathBuf>,
+
+    /// Override the base application directory.
+    ///
+    /// When set, cgx uses this as the root for all application data:
+    /// - Config: `<app-dir>/config/cgx.toml`
+    /// - Cache: `<app-dir>/cache/`
+    /// - Binaries: `<app-dir>/bins/`
+    /// - Build artifacts: `<app-dir>/build/`
+    ///
+    /// This provides complete isolation of cgx's data, useful for testing, CI, or
+    /// managing multiple independent cgx environments.
+    ///
+    /// Individual config file settings (like `cache_dir` in cgx.toml) take precedence
+    /// over these defaults.
+    ///
+    /// Can also be set via the `CGX_APP_DIR` environment variable, with the
+    /// command-line argument taking precedence.
+    #[arg(long, value_name = "PATH", env = "CGX_APP_DIR")]
+    pub app_dir: Option<PathBuf>,
+
+    /// Override the user config directory location.
+    ///
+    /// When set, cgx will look for `cgx.toml` in this directory instead of the default
+    /// user config location (typically `$XDG_CONFIG_HOME/cgx` or platform equivalent).
+    ///
+    /// This option is more specific than `--app-dir`: when both are set, `--user-config-dir`
+    /// determines where cgx looks for the user config file, while `--app-dir` determines
+    /// the locations for cache, bins, and build directories.
+    ///
+    /// Can also be set via the `CGX_USER_CONFIG_DIR` environment variable, with the
+    /// command-line argument taking precedence.
+    #[arg(long, value_name = "PATH", env = "CGX_USER_CONFIG_DIR")]
+    pub user_config_dir: Option<PathBuf>,
 
     /// Build the binary but do not execute it; print its path to stdout instead.
     ///
@@ -1015,6 +1068,32 @@ mod tests {
             let config = Config::default();
             let opts = BuildOptions::load(&config, &cli).unwrap();
             assert_eq!(opts.toolchain, None);
+        }
+    }
+
+    mod config_overrides {
+        use super::*;
+
+        #[test]
+        fn test_config_overrides_can_combine() {
+            // Verify that system-config-dir, app-dir, and user-config-dir work together.
+            // This tests our design decision that these three options are compatible,
+            // not just clap functionality.
+            let result = CliArgs::try_parse_from([
+                "cgx",
+                "--system-config-dir",
+                "/tmp/system",
+                "--app-dir",
+                "/tmp/app",
+                "--user-config-dir",
+                "/tmp/user",
+                "ripgrep",
+            ]);
+            assert!(result.is_ok());
+            let cli = result.unwrap();
+            assert_eq!(cli.system_config_dir, Some(PathBuf::from("/tmp/system")));
+            assert_eq!(cli.app_dir, Some(PathBuf::from("/tmp/app")));
+            assert_eq!(cli.user_config_dir, Some(PathBuf::from("/tmp/user")));
         }
     }
 }
