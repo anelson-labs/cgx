@@ -1,7 +1,7 @@
 //! Module exposing a strongly typed interface to the test Cargo projects located in the `testdata`
 //! directory.
 //!
-//! This module is only built with tests are enabled.
+//! This module is only built when tests are enabled.
 
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -45,7 +45,7 @@ impl CrateTestCase {
     /// Get the path to the crate in the temporary directory.
     ///
     /// This is the directory containing Cargo.toml that should be used for building.
-    #[allow(clippy::misnamed_getters)]
+    #[allow(clippy::misnamed_getters)] // as far as the caller knows `crate_path` is the path
     pub(crate) fn path(&self) -> &Path {
         &self.crate_path
     }
@@ -147,13 +147,78 @@ impl CrateTestCase {
     }
 }
 
-/// Get the path to the test config files, used for testing various config loading scenarios.
-///
-/// Unlike the test crates, these are not copied to a temp directory, nor are they divided into
-/// logical test cases.  The config load tests operate by reading various files directoy based on
-/// what the test case calls for.
-pub(crate) fn config_test_data() -> PathBuf {
-    const TESTDATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/configs");
+pub(crate) struct ConfigTestCase {
+    /// The full path to the test case (either a directory or a specific file)
+    path: PathBuf,
+}
 
-    Path::new(TESTDATA_DIR).to_path_buf()
+impl ConfigTestCase {
+    /// Get the path to this test case (directory or file, depending on the test case)
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Load a test case from the filesystem
+    fn load(name: &'static str, relative_path: &str, must_exist: bool) -> Self {
+        const TESTDATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/configs");
+
+        let path = if relative_path.is_empty() {
+            Path::new(TESTDATA_DIR).to_path_buf()
+        } else {
+            Path::new(TESTDATA_DIR).join(relative_path)
+        };
+
+        if must_exist {
+            assert!(
+                path.exists(),
+                "Config test case '{}' doesn't exist: {}",
+                name,
+                path.display()
+            );
+        }
+
+        Self { path }
+    }
+
+    // Directory-based hierarchy test cases
+
+    pub(crate) fn hierarchy_root() -> Self {
+        Self::load("hierarchy_root", "", true)
+    }
+
+    pub(crate) fn hierarchy_work() -> Self {
+        Self::load("hierarchy_work", "work", true)
+    }
+
+    pub(crate) fn hierarchy_project1() -> Self {
+        Self::load("hierarchy_project1", "work/project1", true)
+    }
+
+    pub(crate) fn hierarchy_project2() -> Self {
+        Self::load("hierarchy_project2", "work/project2", true)
+    }
+
+    // File-based test cases
+
+    pub(crate) fn explicit_non_standard_name() -> Self {
+        Self::load(
+            "explicit_non_standard_name",
+            "work/project1/not_called_cgx.toml",
+            true,
+        )
+    }
+
+    pub(crate) fn invalid_toml() -> Self {
+        Self::load("invalid_toml", "invalid_toml.toml", true)
+    }
+
+    pub(crate) fn invalid_options() -> Self {
+        Self::load("invalid_options", "invalid_config_options.toml", true)
+    }
+
+    // Special case: intentionally nonexistent file for testing error handling
+
+    pub(crate) fn nonexistent() -> Self {
+        Self::load("nonexistent", "does_not_exist.toml", false)
+    }
 }

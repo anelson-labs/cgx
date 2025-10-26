@@ -541,11 +541,10 @@ mod tests {
         /// should show the `dummytool` override from project1.
         #[test]
         fn test_config_hierarchy_project1() {
-            let test_data = crate::testdata::config_test_data();
-            let project1_dir = test_data.join("work").join("project1");
+            let test_case = crate::testdata::ConfigTestCase::hierarchy_project1();
 
             let args = CliArgs::parse_from_test_args(["test-crate"]);
-            let config = Config::load_from_dir(&project1_dir, &args).unwrap();
+            let config = Config::load_from_dir(test_case.path(), &args).unwrap();
 
             assert_eq!(config.resolve_cache_timeout, Duration::from_secs(3 * 60));
 
@@ -570,11 +569,10 @@ mod tests {
         /// `dummytool` alias should override to "project2".
         #[test]
         fn test_config_hierarchy_project2() {
-            let test_data = crate::testdata::config_test_data();
-            let project2_dir = test_data.join("work").join("project2");
+            let test_case = crate::testdata::ConfigTestCase::hierarchy_project2();
 
             let args = CliArgs::parse_from_test_args(["test-crate"]);
-            let config = Config::load_from_dir(&project2_dir, &args).unwrap();
+            let config = Config::load_from_dir(test_case.path(), &args).unwrap();
 
             assert_eq!(config.resolve_cache_timeout, Duration::from_secs(5 * 60));
 
@@ -598,11 +596,10 @@ mod tests {
         /// both root and work (4 total), and the `dummytool` alias should override to "work".
         #[test]
         fn test_config_hierarchy_work() {
-            let test_data = crate::testdata::config_test_data();
-            let work_dir = test_data.join("work");
+            let test_case = crate::testdata::ConfigTestCase::hierarchy_work();
 
             let args = CliArgs::parse_from_test_args(["test-crate"]);
-            let config = Config::load_from_dir(&work_dir, &args).unwrap();
+            let config = Config::load_from_dir(test_case.path(), &args).unwrap();
 
             assert_eq!(config.resolve_cache_timeout, Duration::from_secs(2 * 60));
 
@@ -625,10 +622,10 @@ mod tests {
         /// should be present (3 tools, 3 aliases including dummytool="root").
         #[test]
         fn test_config_hierarchy_root() {
-            let test_data = crate::testdata::config_test_data();
+            let test_case = crate::testdata::ConfigTestCase::hierarchy_root();
 
             let args = CliArgs::parse_from_test_args(["test-crate"]);
-            let config = Config::load_from_dir(&test_data, &args).unwrap();
+            let config = Config::load_from_dir(test_case.path(), &args).unwrap();
 
             assert_eq!(config.resolve_cache_timeout, Duration::from_secs(60));
 
@@ -651,14 +648,10 @@ mod tests {
         /// and 1 alias from the specified file, with timeout=6m.
         #[test]
         fn test_explicit_config_file() {
-            let test_data = crate::testdata::config_test_data();
-            let explicit_config = test_data
-                .join("work")
-                .join("project1")
-                .join("not_called_cgx.toml");
+            let test_case = crate::testdata::ConfigTestCase::explicit_non_standard_name();
 
             let mut args = CliArgs::parse_from_test_args(["test-crate"]);
-            args.config_file = Some(explicit_config);
+            args.config_file = Some(test_case.path().to_path_buf());
 
             let config = Config::load(&args).unwrap();
 
@@ -681,10 +674,10 @@ mod tests {
         /// retain its version="1.11.0" and features=["schema"] specification.
         #[test]
         fn test_tools_detailed_config_preserved() {
-            let test_data = crate::testdata::config_test_data();
+            let test_case = crate::testdata::ConfigTestCase::hierarchy_root();
 
             let args = CliArgs::parse_from_test_args(["test-crate"]);
-            let config = Config::load_from_dir(&test_data, &args).unwrap();
+            let config = Config::load_from_dir(test_case.path(), &args).unwrap();
 
             let taplo_tool = config.tools.get("taplo-cli").unwrap();
             assert_matches!(
@@ -704,11 +697,10 @@ mod tests {
         /// --locked, and +toolchain flags take precedence over the merged config.
         #[test]
         fn test_cli_args_override_config_files() {
-            let test_data = crate::testdata::config_test_data();
-            let project1_dir = test_data.join("work").join("project1");
+            let test_case = crate::testdata::ConfigTestCase::hierarchy_project1();
 
             let args = CliArgs::parse_from_test_args(["+stable", "--offline", "--locked", "test-crate"]);
-            let config = Config::load_from_dir(&project1_dir, &args).unwrap();
+            let config = Config::load_from_dir(test_case.path(), &args).unwrap();
 
             assert!(config.offline);
             assert!(config.locked);
@@ -722,11 +714,10 @@ mod tests {
 
         #[test]
         fn test_invalid_toml_syntax() {
-            let test_data = crate::testdata::config_test_data();
-            let invalid_toml = test_data.join("invalid_toml.toml");
+            let test_case = crate::testdata::ConfigTestCase::invalid_toml();
 
             let mut args = CliArgs::parse_from_test_args(["test-crate"]);
-            args.config_file = Some(invalid_toml);
+            args.config_file = Some(test_case.path().to_path_buf());
 
             let result = Config::load(&args);
             assert_matches!(result, Err(crate::error::Error::ConfigExtract { .. }));
@@ -734,11 +725,10 @@ mod tests {
 
         #[test]
         fn test_invalid_config_options_ignored() {
-            let test_data = crate::testdata::config_test_data();
-            let invalid_options = test_data.join("invalid_config_options.toml");
+            let test_case = crate::testdata::ConfigTestCase::invalid_options();
 
             let mut args = CliArgs::parse_from_test_args(["test-crate"]);
-            args.config_file = Some(invalid_options);
+            args.config_file = Some(test_case.path().to_path_buf());
 
             let result = Config::load(&args);
             result.unwrap();
@@ -746,11 +736,10 @@ mod tests {
 
         #[test]
         fn test_nonexistent_explicit_config_file() {
-            let test_data = crate::testdata::config_test_data();
-            let nonexistent = test_data.join("does_not_exist.toml");
+            let test_case = crate::testdata::ConfigTestCase::nonexistent();
 
             let mut args = CliArgs::parse_from_test_args(["test-crate"]);
-            args.config_file = Some(nonexistent);
+            args.config_file = Some(test_case.path().to_path_buf());
 
             let config = Config::load(&args).unwrap();
 
