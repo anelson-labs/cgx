@@ -18,21 +18,10 @@ pub(crate) struct CrateTestCase {
     #[allow(dead_code)]
     path: PathBuf,
 
-    /// The temp dir containing a copy of the test case.
+    /// The temp directory containing a copy of the test case.
     ///
-    /// The structure is:
-    /// ```
-    /// temp_dir/
-    ///   main.rs              <- shared main.rs from testdata root
-    ///   {crate_name}/        <- the actual test crate
-    ///     Cargo.toml
-    ///     src/...
-    /// ```
-    ///
-    /// This allows test crates that use `include!(concat!(env!("CARGO_MANIFEST_DIR"),
-    /// "/../main.rs"))` to find the shared main.rs one level up.
-    ///
-    /// TODO: Actually this isn't true anymore, I fixed it so every test crate is self-contained
+    /// Kept alive to prevent automatic cleanup of the temporary directory. All test crates are
+    /// self-contained and copied to a subdirectory (`temp_dir/{crate_name}/`).
     #[allow(dead_code)]
     temp_dir: TempDir,
 
@@ -122,13 +111,6 @@ impl CrateTestCase {
         );
 
         let temp_dir = tempfile::tempdir().unwrap();
-
-        // Copy shared main.rs to temp dir root (one level above the crate)
-        // Many test cases use include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../main.rs"))
-        let shared_main = Path::new(TESTDATA_DIR).join("main.rs");
-        if shared_main.exists() {
-            std::fs::copy(&shared_main, temp_dir.path().join("main.rs")).unwrap();
-        }
 
         // Copy the crate into a subdirectory of temp_dir
         let crate_path = temp_dir.path().join(name);
