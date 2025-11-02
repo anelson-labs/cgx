@@ -1,0 +1,132 @@
+pub mod builder;
+pub(crate) mod cache;
+pub mod cargo;
+pub mod cli;
+pub mod config;
+pub mod cratespec;
+pub mod downloader;
+pub mod error;
+pub mod git;
+pub(crate) mod helpers;
+pub(crate) mod logging;
+pub mod resolver;
+pub mod runner;
+pub(crate) mod sbom;
+#[cfg(test)]
+pub(crate) mod testdata;
+
+use builder::{BuildOptions, CrateBuilder};
+use cache::Cache;
+use config::Config;
+use cratespec::CrateSpec;
+use downloader::CrateDownloader;
+use error::Result;
+use resolver::CrateResolver;
+use std::sync::Arc;
+
+/// Instance of the engine that powers the `cgx` tool.
+///
+/// This is packaged this way so that our `main.rs` is as minimal as possible.  That's useful for a
+/// few reasons, but in our particular case it's because we want to be able to add `cgx` as a crate
+/// in others' workspaces so that it can be invoked with `cargo run` or aliases and always
+/// available to everyone using the project whether or not they previously installed `cgx` on their
+/// systems.
+pub struct Cgx {
+    resolver: Arc<dyn CrateResolver>,
+    downloader: Arc<dyn CrateDownloader>,
+    builder: Arc<dyn CrateBuilder>,
+}
+
+impl Cgx {
+    /// Create a new instance from a loaded configuration.
+    ///
+    /// The config should be loaded using [`Config::load()`] with the CLI args.
+    pub fn new(config: Config) -> Result<Self> {
+        tracing::debug!("Using config: {:#?}", config);
+
+        let cache = Cache::new(config.clone());
+        let git_client = git::GitClient::new(cache.clone());
+
+        let cargo_runner = Arc::new(cargo::find_cargo()?);
+
+        let resolver = Arc::new(resolver::create_resolver(
+            config.clone(),
+            cache.clone(),
+            git_client.clone(),
+            cargo_runner.clone(),
+        ));
+
+        let downloader = Arc::new(downloader::create_downloader(
+            config.clone(),
+            cache.clone(),
+            git_client,
+        ));
+
+        let builder = Arc::new(builder::create_builder(config, cache, cargo_runner));
+
+        Ok(Self {
+            resolver,
+            downloader,
+            builder,
+        })
+    }
+
+    /// Run the cgx engine with the given crate spec and build options.
+    ///
+    /// This is the main execution path that:
+    /// 1. Resolves the crate spec to a concrete version
+    /// 2. Downloads the crate to the cache
+    /// 3. Builds the crate binary
+    /// 4. Returns the path to the built binary
+    ///
+    /// This method does NOT execute the binary - that's left to the caller.
+    pub fn run(&self, crate_spec: &CrateSpec, build_options: &BuildOptions) -> Result<std::path::PathBuf> {
+        tracing::debug!("Got crate spec: {:?}", crate_spec);
+
+        tracing::info!("Resolving crate...");
+        let resolved_crate = self.resolver.resolve(crate_spec)?;
+
+        tracing::info!(
+            "Resolved crate {}@{}; proceeding to download",
+            resolved_crate.name,
+            resolved_crate.version
+        );
+
+        let downloaded_crate = self.downloader.download(resolved_crate)?;
+
+        tracing::debug!("Downloaded crate to cache: {:#?}", downloaded_crate);
+
+        tracing::info!("Building crate...");
+
+        let bin_path = self.builder.build(&downloaded_crate, build_options)?;
+
+        tracing::info!("Built crate binary at: {}", bin_path.display());
+
+        Ok(bin_path)
+    }
+
+    /// List the available targets (binaries and examples) in a crate.
+    ///
+    /// Returns a tuple of:
+    /// - `String`: The crate name
+    /// - `Option<Target>`: The default target if one is specified
+    /// - `Vec<Target>`: All binary targets
+    /// - `Vec<Target>`: All example targets
+    #[allow(clippy::type_complexity)]
+    pub fn list_targets(
+        &self,
+        crate_spec: &CrateSpec,
+        build_options: &BuildOptions,
+    ) -> Result<(
+        String,
+        Option<cargo_metadata::Target>,
+        Vec<cargo_metadata::Target>,
+        Vec<cargo_metadata::Target>,
+    )> {
+        let resolved_crate = self.resolver.resolve(crate_spec)?;
+        let crate_name = resolved_crate.name.clone();
+        let downloaded_crate = self.downloader.download(resolved_crate)?;
+        let (default, bins, examples) = self.builder.list_targets(&downloaded_crate, build_options)?;
+        Ok((crate_name, default, bins, examples))
+    }
+}

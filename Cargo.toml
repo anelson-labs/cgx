@@ -1,52 +1,18 @@
-[package]
-authors      = ["Adam Nelson <anelson@apocryph.org>"]
-categories   = ["command-line-utilities", "development-tools"]
-description  = "Rust version of uvx or npx, for use with Rust crates"
-edition      = "2024"
-homepage     = "https://github.com/anelson-labs/cgx"
-license      = "MIT OR Apache-2.0"
-name         = "cgx"
-readme       = "README.md"
-repository   = "https://github.com/anelson-labs/cgx"
-rust-version = "1.85.1"
-version      = "0.0.3"
+[workspace]
+members  = ["cgx", "cgx-core"]
+resolver = "2"
 
-[badges]
-maintenance = { status = "experimental" }
-
-[package.metadata.cargo-machete]
-ignored = [
-  # vergen-gix is a build dependency that places env vars that we use at compile time
-  # cargo-machete seems unable to detect this, and claims that it's unused
-  "vergen-gix",
-
-  # This is used in a `#[serde(with = "...")]` attribute, cargo-machete seems unable to detect this
-  "humantime-serde",
-]
-
-# Tell `cargo-binstall` how to find our pre-built binaries
-#
-# It can figure it out on its own from its own heuristics, but those involve
-# trying a number of different permutations first. It will be faster and more
-# reliable to just tell it directly.
-[package.metadata.binstall]
-bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
-pkg-fmt = "txz"
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
-
-[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
-bin-dir = "{ bin }{ binary-ext }"
-pkg-fmt = "zip"
-
-[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
-bin-dir = "{ bin }{ binary-ext }"
-pkg-fmt = "zip"
-
-[dependencies]
+[workspace.dependencies]
+assert-json-diff   = "2.0.2"
+assert_cmd         = { version = "2.0.17", features = ["color-auto"] }
+assert_fs          = { version = "1.1.3", features = ["color-auto"] }
+assert_matches     = "1.5.0"
 build-context      = "0.1.3"
 cargo_metadata     = "0.20.0"
+cgx-core           = { version = "0.0.3", path = "cgx-core" }
 chrono             = { version = "0.4.42", features = ["serde"] }
 clap               = { version = "4.5.51", features = ["derive", "env", "string", "unicode"] }
+ctrlc              = "3.5"
 etcetera           = "0.10.0"
 figment            = { version = "0.10.19", features = ["toml", "env"] }
 flate2             = "1.1.5"
@@ -54,6 +20,9 @@ gix                = { version = "0.73", features = ["blocking-http-transport-re
 home               = "0.5.11"
 humantime-serde    = "1.1.1"
 ignore             = "0.4.25"
+insta              = "1.43.2"
+predicates         = "3.1.3"
+rand               = "0.9.2"
 reqwest            = { version = "0.12.24", default-features = false, features = ["blocking", "rustls-tls", "http2", "charset", "gzip", "system-proxy"] }
 semver             = { version = "1.0.27", features = ["serde"] }
 serde              = { version = "1.0.228", features = ["derive"] }
@@ -66,27 +35,13 @@ tame-index         = { version = "0.24.1", features = ["sparse"] }
 tar                = "0.4.44"
 tempfile           = "3.23.0"
 tokio              = { version = "1", features = ["rt", "rt-multi-thread"] }
+toml               = "0.9.8"
 tracing            = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 url                = { version = "2.5.7", features = ["serde"] }
 uuid               = { version = "1.18.1", features = ["v4"] }
+vergen-gix         = { version = "1.0.9", default-features = false }
 which              = "8.0.0"
-
-[target.'cfg(windows)'.dependencies]
-ctrlc = "3.5"
-
-[build-dependencies]
-vergen-gix = { version = "1.0.9", default-features = false }
-
-[dev-dependencies]
-assert-json-diff = "2.0.2"
-assert_cmd       = { version = "2.0.17", features = ["color-auto"] }
-assert_fs        = { version = "1.1.3", features = ["color-auto"] }
-assert_matches   = "1.5.0"
-insta            = "1.43.2"
-predicates       = "3.1.3"
-rand             = "0.9.2"
-toml             = "0.9.8"
 
 # The profile that 'dist' will build with
 [profile.dist]
@@ -99,7 +54,7 @@ lto      = "thin"
 # This is inspired by the Embark Studios list at <https://github.com/EmbarkStudios/rust-ecosystem/blob/main/lints.toml>
 # and the cargo-edit project list at <https://github.com/killercup/cargo-edit/blob/master/Cargo.toml>
 
-[lints.rust]
+[workspace.lints.rust]
 future_incompatible    = { level = "warn", priority = -1 }
 nonstandard_style      = { level = "warn", priority = -1 }
 rust_2018_idioms       = { level = "warn", priority = -1 }
@@ -112,7 +67,7 @@ unused_lifetimes       = "warn"
 unused_macro_rules     = "warn"
 unused_qualifications  = "warn"
 
-[lints.clippy]
+[workspace.lints.clippy]
 await_holding_lock                 = "warn"
 char_lit_as_u8                     = "warn"
 checked_conversions                = "warn"

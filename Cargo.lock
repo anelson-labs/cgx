@@ -369,6 +369,21 @@ dependencies = [
  "assert_cmd",
  "assert_fs",
  "assert_matches",
+ "cgx-core",
+ "insta",
+ "predicates",
+ "snafu",
+ "tracing",
+ "tracing-subscriber",
+ "vergen-gix",
+]
+
+[[package]]
+name = "cgx-core"
+version = "0.0.3"
+dependencies = [
+ "assert-json-diff",
+ "assert_matches",
  "build-context",
  "cargo_metadata",
  "chrono",
@@ -382,7 +397,6 @@ dependencies = [
  "humantime-serde",
  "ignore",
  "insta",
- "predicates",
  "rand",
  "reqwest",
  "semver",
@@ -401,7 +415,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
- "vergen-gix",
  "which",
 ]
 

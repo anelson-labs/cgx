@@ -1,4 +1,4 @@
-exclude = ["scrap/**", "testdata/configs/**"]
+exclude = ["scrap/**", "cgx-core/testdata/configs/**"]
 include = ["**/*.toml"]
 
 [formatting]

@@ -1,5 +1,5 @@
 ---
-source: src/sbom.rs
+source: cgx-core/src/sbom.rs
 expression: normalized
 ---
 {
@@ -7,20 +7,14 @@ expression: normalized
   "components": [],
   "dependencies": [
     {
-      "ref": "pkg:cargo/timestamp@0.1.0"
+      "ref": "pkg:cargo/simple-bin-no-deps@0.1.0"
     }
   ],
   "metadata": {
     "component": {
-      "bom-ref": "pkg:cargo/timestamp@0.1.0",
-      "name": "timestamp",
-      "properties": [
-        {
-          "name": "build:no-default-features",
-          "value": "true"
-        }
-      ],
-      "purl": "pkg:cargo/timestamp@0.1.0",
+      "bom-ref": "pkg:cargo/simple-bin-no-deps@0.1.0",
+      "name": "simple-bin-no-deps",
+      "purl": "pkg:cargo/simple-bin-no-deps@0.1.0",
       "type": "application",
       "version": "0.1.0"
     },

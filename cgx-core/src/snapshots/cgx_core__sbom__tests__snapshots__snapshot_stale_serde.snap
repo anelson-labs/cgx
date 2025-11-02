@@ -1,5 +1,5 @@
 ---
-source: src/sbom.rs
+source: cgx-core/src/sbom.rs
 expression: normalized
 ---
 {
