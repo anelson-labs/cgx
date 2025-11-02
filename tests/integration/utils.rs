@@ -1,5 +1,5 @@
 //! Utility functions to help run our CLI as part of a test
-use assert_cmd::Command;
+use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use assert_fs::TempDir;
 
 pub(crate) struct TestFs {
@@ -34,7 +34,7 @@ impl Cgx {
     /// Creates a new `Cgx` that locates the bin
     pub(crate) fn find() -> Self {
         Self {
-            cmd: Command::cargo_bin("cgx").expect("Failed to find cgx binary"),
+            cmd: cargo_bin_cmd!("cgx"),
             test_fs: None,
         }
     }
