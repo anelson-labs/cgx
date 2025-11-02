@@ -53,7 +53,7 @@ flate2             = "1.1.4"
 gix                = { version = "0.73", features = ["blocking-http-transport-reqwest", "max-performance-safe", "worktree-mutation"] }
 home               = "0.5.11"
 humantime-serde    = "1.1.1"
-ignore             = "0.4.24"
+ignore             = "0.4.25"
 reqwest            = { version = "0.12.24", default-features = false, features = ["blocking", "rustls-tls", "http2", "charset", "gzip", "system-proxy"] }
 semver             = { version = "1.0.27", features = ["serde"] }
 serde              = { version = "1.0.228", features = ["derive"] }
