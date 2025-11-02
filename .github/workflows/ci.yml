@@ -58,10 +58,14 @@ jobs:
           tool: just
 
       - name: Install cargo-deny
-        run: cargo install cargo-deny --version 0.18.3 --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.18.3
 
       - name: Install cargo-machete
-        run: cargo install cargo-machete --version 0.8.0 --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.8.0
 
       - uses: Swatinem/rust-cache@v2
 
@@ -126,7 +130,9 @@ jobs:
           tool: just
 
       - name: Install taplo
-        run: cargo install taplo-cli --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: taplo
 
       - uses: Swatinem/rust-cache@v2
 
@@ -140,10 +146,14 @@ jobs:
         run: taplo fmt --check
 
       - name: Install cargo-deny
-        run: cargo install cargo-deny --version 0.18.3 --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.18.3
 
       - name: Install cargo-machete
-        run: cargo install cargo-machete --version 0.8.0 --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.8.0
 
       - name: Run dependency checks
         run: just depcheck
