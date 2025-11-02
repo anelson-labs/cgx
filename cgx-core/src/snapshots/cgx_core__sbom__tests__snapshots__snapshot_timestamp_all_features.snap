@@ -1,5 +1,5 @@
 ---
-source: src/sbom.rs
+source: cgx-core/src/sbom.rs
 expression: normalized
 ---
 {
@@ -42,6 +42,22 @@ expression: normalized
       "purl": "pkg:cargo/num-traits@0.2.19",
       "type": "library",
       "version": "0.2.19"
+    },
+    {
+      "bom-ref": "pkg:cargo/serde@1.0.228",
+      "description": "A generic serialization/deserialization framework",
+      "name": "serde",
+      "purl": "pkg:cargo/serde@1.0.228",
+      "type": "library",
+      "version": "1.0.228"
+    },
+    {
+      "bom-ref": "pkg:cargo/serde_core@1.0.228",
+      "description": "Serde traits only, with no support for derive -- use the `serde` crate instead",
+      "name": "serde_core",
+      "purl": "pkg:cargo/serde_core@1.0.228",
+      "type": "library",
+      "version": "1.0.228"
     }
   ],
   "dependencies": [
@@ -66,7 +82,17 @@ expression: normalized
     },
     {
       "dependsOn": [
-        "pkg:cargo/chrono@0.4.42"
+        "pkg:cargo/serde_core@1.0.228"
+      ],
+      "ref": "pkg:cargo/serde@1.0.228"
+    },
+    {
+      "ref": "pkg:cargo/serde_core@1.0.228"
+    },
+    {
+      "dependsOn": [
+        "pkg:cargo/chrono@0.4.42",
+        "pkg:cargo/serde@1.0.228"
       ],
       "ref": "pkg:cargo/timestamp@0.1.0"
     }
@@ -77,12 +103,8 @@ expression: normalized
       "name": "timestamp",
       "properties": [
         {
-          "name": "build:no-default-features",
+          "name": "build:all-features",
           "value": "true"
-        },
-        {
-          "name": "build:features",
-          "value": "frobnulator"
         }
       ],
       "purl": "pkg:cargo/timestamp@0.1.0",

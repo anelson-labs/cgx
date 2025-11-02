@@ -1,0 +1,53 @@
+[package]
+authors      = ["Adam Nelson <anelson@apocryph.org>"]
+categories   = ["command-line-utilities", "development-tools"]
+description  = "Rust equivalent of uvx or npx, for running Rust crates quickly and easily"
+edition      = "2024"
+homepage     = "https://github.com/anelson-labs/cgx"
+license      = "MIT OR Apache-2.0"
+name         = "cgx"
+readme       = "README.md"
+repository   = "https://github.com/anelson-labs/cgx"
+rust-version = "1.85.1"
+version      = "0.0.3"
+
+[badges]
+maintenance = { status = "experimental" }
+
+# Tell `cargo-binstall` how to find our pre-built binaries
+#
+# It can figure it out on its own from its own heuristics, but those involve
+# trying a number of different permutations first. It will be faster and more
+# reliable to just tell it directly.
+[package.metadata.binstall]
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
+[dependencies]
+cgx-core           = { workspace = true }
+snafu              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+vergen-gix = { workspace = true }
+
+[dev-dependencies]
+assert-json-diff = { workspace = true }
+assert_cmd       = { workspace = true }
+assert_fs        = { workspace = true }
+assert_matches   = { workspace = true }
+insta            = { workspace = true }
+predicates       = { workspace = true }
+
+[lints]
+workspace = true
