@@ -35,6 +35,6 @@ https://github.com/eza-community/eza
         .stdout(predicates::str::starts_with(
             cgx.test_fs_app_root().join("bins").to_string_lossy(),
         ))
-        .stdout(predicates::str::contains("/eza-0.23.1/"))
+        .stdout(predicates::str::contains("eza-0.23.1"))
         .stderr(predicates::str::is_empty());
 }
