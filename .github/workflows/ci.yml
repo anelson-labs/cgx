@@ -11,9 +11,103 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # Stage 0: Detect PR type to determine which CI path to use
+  #
+  # Security model for dependabot PRs:
+  # - We use `github.actor == 'dependabot[bot]'` to detect dependabot commits
+  # - This is secure because GitHub protects the [bot] namespace - third parties cannot impersonate it
+  # - If anyone manually commits to a dependabot PR, github.actor changes to that person's username,
+  #   which automatically triggers the full CI path instead of the minimal one
+  # - Therefore, the minimal CI checks ONLY apply to 100% pure dependabot-originated commits
+  # - Workflows run from the base branch, so malicious PRs cannot modify this detection logic
+  detect-pr-type:
+    name: Detect PR Type
+    runs-on: ubuntu-latest
+    outputs:
+      is-dependabot: ${{ steps.check.outputs.is-dependabot }}
+    steps:
+      - name: Check if PR is from dependabot
+        id: check
+        run: |
+          if [ "${{ github.actor }}" == "dependabot[bot]" ]; then
+            echo "is-dependabot=true" >> $GITHUB_OUTPUT
+            echo "Detected dependabot PR - will use minimal CI checks"
+          else
+            echo "is-dependabot=false" >> $GITHUB_OUTPUT
+            echo "Not a dependabot PR - will use full CI checks"
+          fi
+
+  # Stage 1a: Minimal dependency checks for dependabot PRs (Linux amd64 only)
+  # This runs just depcheck, build, and unit tests to verify dependency updates don't break anything
+  dependabot-quick-check:
+    name: Dependabot Quick Check (Linux amd64)
+    needs: detect-pr-type
+    if: needs.detect-pr-type.outputs.is-dependabot == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.85.1
+          components: rustfmt, clippy
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.18.3 --locked
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --version 0.8.0 --locked
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run dependency checks
+        run: just depcheck
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Run unit tests
+        run: cargo test --workspace --lib
+
+  # Stage 1b: Platform verification for dependabot PRs (Mac/Windows check only, no tests)
+  # This ensures the dependency update doesn't break compilation on other platforms
+  dependabot-platform-check:
+    name: Dependabot Platform Check (${{ matrix.name }})
+    needs: [detect-pr-type, dependabot-quick-check]
+    if: needs.detect-pr-type.outputs.is-dependabot == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows amd64
+          - os: macos-13
+            name: Mac amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.85.1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      - name: Check compilation
+        run: cargo check --workspace
+
   # Stage 1: Lint and Format Check on Linux amd64, which is the cheapest and quickest build for us
   lint:
     name: Lint and Format Check
+    needs: detect-pr-type
+    if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -58,7 +152,8 @@ jobs:
   # before we we move on to the more expensive and slower platform-specific builds and tests.
   test-linux-amd64:
     name: Test (Linux amd64)
-    needs: lint
+    needs: [detect-pr-type, lint]
+    if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -91,7 +186,8 @@ jobs:
   # that the basic linux amd64 build and tests have passed.
   test-tier1-platforms:
     name: Test (Tier 1 ${{ matrix.name }})
-    needs: test-linux-amd64
+    needs: [detect-pr-type, test-linux-amd64]
+    if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -149,7 +245,8 @@ jobs:
   # sure that build and test have passed on the amd64 versions of all of these platforms
   test-arm-platforms:
     name: Test (ARM ${{ matrix.name }})
-    needs: [test-linux-amd64, test-tier1-platforms]
+    needs: [detect-pr-type, test-linux-amd64, test-tier1-platforms]
+    if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -187,19 +284,37 @@ jobs:
         run: cargo test --workspace
 
   # Aggregate job that depends on all previous builds.  This is the check that
-  # must pass for the PR to be considered successful
+  # must pass for the PR to be considered successful.
+  # This job is configured as the required status check for branch protection.
+  # It checks different sets of jobs depending on whether the PR is from dependabot or not.
   build-test:
     name: Build and Test
-    needs: [test-linux-amd64, test-tier1-platforms, test-arm-platforms]
+    needs: [detect-pr-type, dependabot-quick-check, dependabot-platform-check,
+            test-linux-amd64, test-tier1-platforms, test-arm-platforms]
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Check all tests passed
+      - name: Check appropriate tests passed
         run: |
-          if [ "${{ needs.test-linux-amd64.result }}" != "success" ] || \
-             [ "${{ needs.test-tier1-platforms.result }}" != "success" ] || \
-             [ "${{ needs.test-arm-platforms.result }}" != "success" ]; then
-            echo "One or more test jobs failed"
-            exit 1
+          IS_DEPENDABOT="${{ needs.detect-pr-type.outputs.is-dependabot }}"
+
+          if [ "$IS_DEPENDABOT" == "true" ]; then
+            echo "Checking minimal CI for dependabot PR..."
+            # For dependabot PRs, only check the minimal jobs
+            if [ "${{ needs.dependabot-quick-check.result }}" != "success" ] || \
+               [ "${{ needs.dependabot-platform-check.result }}" != "success" ]; then
+              echo "One or more dependabot checks failed"
+              exit 1
+            fi
+            echo "All dependabot checks passed"
+          else
+            echo "Checking full CI for regular PR..."
+            # For regular PRs, check all full CI jobs
+            if [ "${{ needs.test-linux-amd64.result }}" != "success" ] || \
+               [ "${{ needs.test-tier1-platforms.result }}" != "success" ] || \
+               [ "${{ needs.test-arm-platforms.result }}" != "success" ]; then
+              echo "One or more test jobs failed"
+              exit 1
+            fi
+            echo "All builds and tests passed"
           fi
-          echo "All builds and tests passed"
