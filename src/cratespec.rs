@@ -959,7 +959,7 @@ mod tests {
             .tools
             .insert("ripgrep".to_string(), ToolConfig::Version("14.0".to_string()));
 
-        let args = CliArgs::parse_from_test_args(["ripgrep", "--version", "13.0"]);
+        let args = CliArgs::parse_from_test_args(["--version", "13.0", "ripgrep"]);
         let spec = CrateSpec::load(&config, &args).unwrap();
 
         assert_matches!(
@@ -1026,7 +1026,7 @@ mod tests {
             },
         );
 
-        let args = CliArgs::parse_from_test_args(["my-tool", "--registry", "other-registry"]);
+        let args = CliArgs::parse_from_test_args(["--registry", "other-registry", "my-tool"]);
         let spec = CrateSpec::load(&config, &args).unwrap();
 
         assert_matches!(
@@ -1070,7 +1070,7 @@ mod tests {
             },
         );
 
-        let args = CliArgs::parse_from_test_args(["my-tool", "--git", "https://example.com/repo.git"]);
+        let args = CliArgs::parse_from_test_args(["--git", "https://example.com/repo.git", "my-tool"]);
         let spec = CrateSpec::load(&config, &args).unwrap();
 
         assert_matches!(
