@@ -1207,16 +1207,13 @@ mod tests {
 
                 // Config file with explicit settings
                 let config_file = temp_dir.path().join("explicit.toml");
-                fs::write(
-                    &config_file,
-                    format!(
-                        "cache_dir = \"{}\"\nbin_dir = \"{}\"\nbuild_dir = \"{}\"",
-                        temp_dir.path().join("my-cache").display(),
-                        temp_dir.path().join("my-bins").display(),
-                        temp_dir.path().join("my-build").display()
-                    ),
-                )
-                .unwrap();
+                let test_config = ConfigFile {
+                    cache_dir: Some(temp_dir.path().join("my-cache")),
+                    bin_dir: Some(temp_dir.path().join("my-bins")),
+                    build_dir: Some(temp_dir.path().join("my-build")),
+                    ..Default::default()
+                };
+                fs::write(&config_file, toml::to_string(&test_config).unwrap()).unwrap();
 
                 let cwd = temp_dir.path().join("work");
                 fs::create_dir_all(&cwd).unwrap();
