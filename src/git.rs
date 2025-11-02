@@ -39,7 +39,7 @@ pub(crate) enum Error {
 
     #[snafu(display("Failed to open git repository at {}", path.display()))]
     OpenRepo {
-        path: std::path::PathBuf,
+        path: PathBuf,
         #[snafu(source(from(gix::open::Error, Box::new)))]
         source: Box<gix::open::Error>,
     },

@@ -46,7 +46,7 @@ impl Cgx {
     /// Create a new instance from a loaded configuration.
     ///
     /// The config should be loaded using `Config::load()` with the CLI args.
-    pub fn new(config: Config) -> Result<Self> {
+    pub(crate) fn new(config: Config) -> Result<Self> {
         tracing::debug!("Using config: {:#?}", config);
 
         let cache = cache::Cache::new(config.clone());

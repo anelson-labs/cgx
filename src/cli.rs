@@ -1,5 +1,5 @@
-use clap::Parser;
-use std::path::PathBuf;
+use clap::{ArgAction, CommandFactory, Parser};
+use std::{collections::HashSet, path::PathBuf};
 
 #[derive(Clone, Debug, Parser)]
 #[command(name = "cgx")]
@@ -130,7 +130,8 @@ pub struct CliArgs {
     #[arg(long, value_name = "WHEN")]
     pub color: Option<String>,
 
-    /// Read configuration options from the given TOML file.
+    /// Read configuration options from the given TOML file only, bypassing the usual config search
+    /// paths.
     ///
     /// By default, cgx will look for a file in the current directory called `cgx.toml`, if not
     /// found it will check the parent, and the grandparent, up to the root.
@@ -139,10 +140,62 @@ pub struct CliArgs {
     /// system-level `cgx.toml` at `/etc/cgx.toml`, or the equivalent on other OSes.
     ///
     /// All config files' options are merged, with highest priority given to the file closest to
-    /// the current directory.  Specifying a config file with this option disables that logic, and
+    /// the current directory.
+    ///
+    /// Specifying a config file with this option disables that logic, and
     /// reads the config only from the specified file.
-    #[arg(long, value_name = "FILE")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with_all = ["system_config_dir", "app_dir", "user_config_dir"]
+    )]
     pub config_file: Option<PathBuf>,
+
+    /// Override the system config directory location.
+    ///
+    /// When set, cgx will look for `cgx.toml` in this directory instead of the default
+    /// system location (`/etc` on Unix, `%ProgramData%\cgx` on Windows).
+    ///
+    /// This is primarily useful for testing and CI environments where you need complete
+    /// control over config file locations without modifying system directories.
+    ///
+    /// Can also be set via the `CGX_SYSTEM_CONFIG_DIR` environment variable, with the
+    /// command-line argument taking precedence.
+    #[arg(long, value_name = "PATH", env = "CGX_SYSTEM_CONFIG_DIR")]
+    pub system_config_dir: Option<PathBuf>,
+
+    /// Override the base application directory.
+    ///
+    /// When set, cgx uses this as the root for all application data:
+    /// - Config: `<app-dir>/config/cgx.toml`
+    /// - Cache: `<app-dir>/cache/`
+    /// - Binaries: `<app-dir>/bins/`
+    /// - Build artifacts: `<app-dir>/build/`
+    ///
+    /// This provides complete isolation of cgx's data, useful for testing, CI, or
+    /// managing multiple independent cgx environments.
+    ///
+    /// Individual config file settings (like `cache_dir` in cgx.toml) take precedence
+    /// over these defaults.
+    ///
+    /// Can also be set via the `CGX_APP_DIR` environment variable, with the
+    /// command-line argument taking precedence.
+    #[arg(long, value_name = "PATH", env = "CGX_APP_DIR")]
+    pub app_dir: Option<PathBuf>,
+
+    /// Override the user config directory location.
+    ///
+    /// When set, cgx will look for `cgx.toml` in this directory instead of the default
+    /// user config location (typically `$XDG_CONFIG_HOME/cgx` or platform equivalent).
+    ///
+    /// This option is more specific than `--app-dir`: when both are set, `--user-config-dir`
+    /// determines where cgx looks for the user config file, while `--app-dir` determines
+    /// the locations for cache, bins, and build directories.
+    ///
+    /// Can also be set via the `CGX_USER_CONFIG_DIR` environment variable, with the
+    /// command-line argument taking precedence.
+    #[arg(long, value_name = "PATH", env = "CGX_USER_CONFIG_DIR")]
+    pub user_config_dir: Option<PathBuf>,
 
     /// Build the binary but do not execute it; print its path to stdout instead.
     ///
@@ -199,8 +252,10 @@ impl CliArgs {
     pub fn parse_from_cli_args() -> Self {
         let args: Vec<String> = std::env::args().collect();
         let (toolchain, filtered_args) = Self::extract_toolchain(&args);
+        let (cgx_args, binary_args) = Self::split_at_crate_spec(filtered_args);
 
-        let mut cli = Self::parse_from(filtered_args);
+        let mut cli = Self::parse_from(cgx_args);
+        cli.args = binary_args;
         cli.toolchain = toolchain;
         cli
     }
@@ -218,8 +273,10 @@ impl CliArgs {
         let args = std::iter::once(std::ffi::OsString::from("cgx")).chain(args.into_iter().map(|s| s.into()));
         let args: Vec<String> = args.map(|s| s.to_string_lossy().to_string()).collect();
         let (toolchain, filtered_args) = Self::extract_toolchain(&args);
+        let (cgx_args, binary_args) = Self::split_at_crate_spec(filtered_args);
 
-        let mut cli = Self::parse_from(filtered_args);
+        let mut cli = Self::parse_from(cgx_args);
+        cli.args = binary_args;
         cli.toolchain = toolchain;
         cli
     }
@@ -263,6 +320,198 @@ impl CliArgs {
             (None, args)
         }
     }
+
+    /// Split command-line arguments into cgx arguments and binary arguments.
+    ///
+    /// This function separates arguments that should be parsed by cgx from arguments
+    /// that should be passed through to the executed binary. The split point is the
+    /// crate spec (the first positional argument).
+    ///
+    /// # Why Manual Splitting?
+    ///
+    /// While clap provides `trailing_var_arg = true` to capture trailing arguments,
+    /// it still parses flags globally across the entire command line. This means
+    /// `cgx eza --version` would have `--version` parsed as a cgx flag
+    /// (since we have a `--version` flag) rather than being passed to eza.
+    ///
+    /// This behavior is tracked in [clap issue #1538]: "`TrailingVarArg` doesn't work
+    /// without `--`". The recommended workaround is to require users to use `--`
+    /// explicitly (e.g., `cgx eza -- --version`), but this is less ergonomic than
+    /// the npx/uvx pattern we're trying to emulate.
+    ///
+    /// # Prior Art
+    ///
+    /// This pattern of manual argument splitting is common in wrapper tools:
+    ///
+    /// - `npx`: "When run via the npx binary, all flags and options must be set
+    ///   prior to any positional arguments." Everything after the package name is
+    ///   passed to the tool.
+    ///   See: <https://docs.npmjs.com/cli/v8/commands/npx/>
+    ///
+    /// - `uvx`: Wrapper options like `--from`, `--with`, and `--python` must come
+    ///   before the tool name. Everything after the tool name is passed as arguments
+    ///   to that tool.
+    ///   See: <https://docs.astral.sh/uv/guides/tools/>
+    ///
+    /// - `cargo run`: Uses the `--` delimiter approach (`cargo run -- args`), which is more
+    ///   explicit but less convenient for repeated use.
+    ///
+    /// # Algorithm
+    ///
+    /// The function scans arguments left-to-right, tracking which arguments are flags
+    /// and which are flag values. The first argument that is neither a flag nor a flag
+    /// value is identified as the crate spec, and serves as the split point.
+    ///
+    /// For compatibility, if an explicit `--` delimiter is present, it is used as the
+    /// split point instead.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// cgx ripgrep --version
+    ///  cgx args: ["cgx", "ripgrep"]
+    ///  binary args: ["--version"]
+    ///
+    /// cgx --features foo ripgrep --color=always -i
+    ///  cgx args: ["cgx", "--features", "foo", "ripgrep"]
+    ///  binary args: ["--color=always", "-i"]
+    ///
+    /// cgx --path ./foo mycrate --help
+    ///  cgx args: ["cgx", "--path", "./foo", "mycrate"]
+    ///  binary args: ["--help"]
+    ///
+    /// cgx ripgrep -- --version
+    ///  cgx args: ["cgx", "ripgrep"]
+    ///  binary args: ["--version"]
+    /// ```
+    ///
+    /// [clap issue #1538](https://github.com/clap-rs/clap/issues/1538)
+    fn split_at_crate_spec<I, T>(args: I) -> (Vec<String>, Vec<String>)
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let args: Vec<String> = args.into_iter().map(|s| s.into()).collect();
+
+        // Check for explicit -- separator (standard POSIX convention)
+        // If present, everything before it goes to cgx, everything after goes to the binary
+        if let Some(dash_dash_pos) = args.iter().position(|arg| arg == "--") {
+            let cgx_args = args[..dash_dash_pos].to_vec();
+            let binary_args = args[dash_dash_pos + 1..].to_vec();
+            return (cgx_args, binary_args);
+        }
+
+        // Build flag lists dynamically from clap metadata, so that this function works reliably
+        // as we add and modify CLI options.
+
+        let cmd = CliArgs::command();
+        let mut no_value_flags = HashSet::new();
+        let mut value_taking_flags = HashSet::new();
+        let mut short_value_taking_flags = HashSet::new();
+
+        for arg in cmd.get_arguments() {
+            // Skip positional arguments
+            if arg.is_positional() {
+                continue;
+            }
+
+            // Determine if this flag takes a value based on its action
+            let takes_value = matches!(arg.get_action(), ArgAction::Set | ArgAction::Append);
+
+            // Handle long flags
+            if let Some(long) = arg.get_long() {
+                let flag = format!("--{}", long);
+                if takes_value {
+                    value_taking_flags.insert(flag);
+                } else {
+                    no_value_flags.insert(flag);
+                }
+            }
+
+            // Handle short flags
+            if let Some(short) = arg.get_short() {
+                if takes_value {
+                    short_value_taking_flags.insert(short);
+                }
+                // Note: short no-value flags don't need tracking; we handle them via else clause
+            }
+        }
+
+        let mut position = 1; // Start after binary name (args[0])
+
+        while position < args.len() {
+            let arg = &args[position];
+
+            if let Some(flag) = arg.strip_prefix("--") {
+                // Long flag
+                if flag.contains('=') {
+                    // --flag=value syntax, counts as one argument
+                    position += 1;
+                } else if no_value_flags.contains(arg.as_str()) {
+                    position += 1;
+                } else if value_taking_flags.contains(arg.as_str()) {
+                    // Skip flag and its value (next argument)
+                    position += 2;
+                } else if arg == "--version" {
+                    // Special case: --version can have 0 or 1 values
+                    // If next arg exists and doesn't look like a flag, it's the version value
+                    if position + 1 < args.len() && !args[position + 1].starts_with('-') {
+                        position += 2;
+                    } else {
+                        position += 1;
+                    }
+                } else {
+                    // Unknown long flag, conservatively assume it takes no value
+                    position += 1;
+                }
+            } else if let Some(flag) = arg.strip_prefix('-') {
+                // Short flag(s)
+                if flag.is_empty() {
+                    // Just "-", often used to indicate stdin - treat as positional argument
+                    break;
+                }
+
+                let first_char = flag.chars().next().unwrap();
+
+                if short_value_taking_flags.contains(&first_char) {
+                    if flag.len() == 1 {
+                        // -F foo (flag and value are separate arguments)
+                        position += 2;
+                    } else {
+                        // -Ffoo (flag and value combined in one argument)
+                        position += 1;
+                    }
+                } else if first_char == 'V' {
+                    // -V is short for --version, same special handling
+                    if flag.len() == 1 && position + 1 < args.len() && !args[position + 1].starts_with('-') {
+                        // -V 14 (separate arguments)
+                        position += 2;
+                    } else {
+                        // -V or -V14 (combined)
+                        position += 1;
+                    }
+                } else {
+                    // Assume no value (like -v, -q, or bundled flags like -vvv or -qv)
+                    position += 1;
+                }
+            } else {
+                // Not a flag - this is the crate spec (first positional argument)!
+                break;
+            }
+        }
+
+        // Split at the crate spec position
+        if position < args.len() {
+            // Found a crate spec: split after it
+            let cgx_args = args[..=position].to_vec();
+            let binary_args = args[position + 1..].to_vec();
+            (cgx_args, binary_args)
+        } else {
+            // No crate spec found (e.g., `cgx --path ./foo` with no crate name specified)
+            // All args go to cgx, none to binary
+            (args, vec![])
+        }
+    }
 }
 
 #[cfg(test)]
@@ -286,9 +535,7 @@ mod tests {
     mod cratespec {
         use super::*;
         fn parse_cratespec_from_args(args: &[&str]) -> Result<CrateSpec> {
-            let mut full_args = vec!["cgx"];
-            full_args.extend_from_slice(args);
-            let cli = CliArgs::parse_from(full_args);
+            let cli = CliArgs::parse_from_test_args(args);
             let config = Config::default();
             CrateSpec::load(&config, &cli)
         }
@@ -314,7 +561,7 @@ mod tests {
 
         #[test]
         fn test_crate_with_flag_version() {
-            let cr = parse_cratespec_from_args(&["ripgrep", "--version", "14"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--version", "14", "ripgrep"]).unwrap();
             assert_matches!(
                 cr,
                 CrateSpec::CratesIo { ref name, version: Some(ref v) }
@@ -324,7 +571,7 @@ mod tests {
 
         #[test]
         fn test_crate_with_matching_versions() {
-            let cr = parse_cratespec_from_args(&["ripgrep@14", "--version", "14"]).unwrap();
+            let cr = parse_cratespec_from_args(&["--version", "14", "ripgrep@14"]).unwrap();
             assert_matches!(
                 cr,
                 CrateSpec::CratesIo { ref name, version: Some(ref v) }
@@ -334,7 +581,7 @@ mod tests {
 
         #[test]
         fn test_crate_with_conflicting_versions() {
-            let result = parse_cratespec_from_args(&["ripgrep@14", "--version", "15"]);
+            let result = parse_cratespec_from_args(&["--version", "15", "ripgrep@14"]);
             assert_matches!(result, Err(crate::error::Error::ConflictingVersions { .. }));
         }
 
@@ -791,9 +1038,7 @@ mod tests {
         use super::*;
 
         fn parse_build_options_from_args(args: &[&str]) -> Result<BuildOptions> {
-            let mut full_args = vec!["cgx"];
-            full_args.extend_from_slice(args);
-            let cli = CliArgs::parse_from(full_args);
+            let cli = CliArgs::parse_from_test_args(args);
             let config = Config::default();
             BuildOptions::load(&config, &cli)
         }
@@ -984,10 +1229,8 @@ mod tests {
 
         #[test]
         fn test_toolchain_with_version_flag() {
-            let args = vec!["cgx", "+nightly", "ripgrep", "--version", "14"];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
-            let mut cli = CliArgs::parse_from(filtered);
-            cli.toolchain = toolchain;
+            let args = vec!["+nightly", "ripgrep", "--version", "14"];
+            let cli = CliArgs::parse_from_test_args(args);
 
             assert_eq!(cli.toolchain, Some("nightly".to_string()));
             assert_eq!(cli.crate_spec, Some("ripgrep".to_string()));
@@ -995,10 +1238,8 @@ mod tests {
 
         #[test]
         fn test_toolchain_propagates_to_build_options() {
-            let args = vec!["cgx", "+nightly", "ripgrep"];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
-            let mut cli = CliArgs::parse_from(filtered);
-            cli.toolchain = toolchain;
+            let args = vec!["+nightly", "ripgrep"];
+            let cli = CliArgs::parse_from_test_args(args);
 
             let config = Config::default();
             let opts = BuildOptions::load(&config, &cli).unwrap();
@@ -1007,14 +1248,197 @@ mod tests {
 
         #[test]
         fn test_no_toolchain_in_build_options() {
-            let args = vec!["cgx", "ripgrep"];
-            let (toolchain, filtered) = CliArgs::extract_toolchain(args);
-            let mut cli = CliArgs::parse_from(filtered);
-            cli.toolchain = toolchain;
+            let args = vec!["ripgrep"];
+            let cli = CliArgs::parse_from_test_args(args);
 
             let config = Config::default();
             let opts = BuildOptions::load(&config, &cli).unwrap();
             assert_eq!(opts.toolchain, None);
+        }
+    }
+
+    mod config_overrides {
+        use super::*;
+
+        #[test]
+        fn test_config_overrides_can_combine() {
+            // Verify that system-config-dir, app-dir, and user-config-dir work together.
+            // This tests our design decision that these three options are compatible,
+            // not just clap functionality.
+            let result = CliArgs::try_parse_from([
+                "cgx",
+                "--system-config-dir",
+                "/tmp/system",
+                "--app-dir",
+                "/tmp/app",
+                "--user-config-dir",
+                "/tmp/user",
+                "ripgrep",
+            ]);
+            assert!(result.is_ok());
+            let cli = result.unwrap();
+            assert_eq!(cli.system_config_dir, Some(PathBuf::from("/tmp/system")));
+            assert_eq!(cli.app_dir, Some(PathBuf::from("/tmp/app")));
+            assert_eq!(cli.user_config_dir, Some(PathBuf::from("/tmp/user")));
+        }
+    }
+
+    mod argument_splitting {
+        use super::*;
+
+        #[test]
+        fn test_simple_split_at_crate_spec() {
+            let args = vec!["cgx", "ripgrep", "--version"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "ripgrep"]);
+            assert_eq!(binary_args, vec!["--version"]);
+        }
+
+        #[test]
+        fn test_split_with_cgx_flags_before_crate() {
+            let args = vec!["cgx", "--features", "foo", "ripgrep", "--color=always", "-i"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "--features", "foo", "ripgrep"]);
+            assert_eq!(binary_args, vec!["--color=always", "-i"]);
+        }
+
+        #[test]
+        fn test_split_with_path_flag() {
+            let args = vec!["cgx", "--path", "./foo", "mycrate", "--help"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "--path", "./foo", "mycrate"]);
+            assert_eq!(binary_args, vec!["--help"]);
+        }
+
+        #[test]
+        fn test_no_crate_spec_no_binary_args() {
+            let args = vec!["cgx", "--path", "./foo", "--version"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "--path", "./foo", "--version"]);
+            assert_eq!(binary_args, Vec::<String>::new());
+        }
+
+        #[test]
+        fn test_explicit_dash_dash_separator() {
+            let args = vec!["cgx", "ripgrep", "--", "--version"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "ripgrep"]);
+            assert_eq!(binary_args, vec!["--version"]);
+        }
+
+        #[test]
+        fn test_dash_dash_before_crate_spec() {
+            let args = vec!["cgx", "--path", "./foo", "--", "--help"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "--path", "./foo"]);
+            assert_eq!(binary_args, vec!["--help"]);
+        }
+
+        #[test]
+        fn test_short_flags() {
+            let args = vec!["cgx", "-j", "4", "ripgrep", "-i"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "-j", "4", "ripgrep"]);
+            assert_eq!(binary_args, vec!["-i"]);
+        }
+
+        #[test]
+        fn test_combined_short_flag_with_value() {
+            let args = vec!["cgx", "-F", "foo,bar", "ripgrep", "-A", "3"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "-F", "foo,bar", "ripgrep"]);
+            assert_eq!(binary_args, vec!["-A", "3"]);
+        }
+
+        #[test]
+        fn test_bundled_short_flags() {
+            let args = vec!["cgx", "-vvv", "ripgrep", "-i"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "-vvv", "ripgrep"]);
+            assert_eq!(binary_args, vec!["-i"]);
+        }
+
+        #[test]
+        fn test_equals_syntax() {
+            let args = vec!["cgx", "--features=foo,bar", "ripgrep", "--color=always"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "--features=foo,bar", "ripgrep"]);
+            assert_eq!(binary_args, vec!["--color=always"]);
+        }
+
+        #[test]
+        fn test_version_with_value() {
+            let args = vec!["cgx", "ripgrep", "--version", "14"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "ripgrep"]);
+            assert_eq!(binary_args, vec!["--version", "14"]);
+        }
+
+        #[test]
+        fn test_version_flag_before_crate_with_value() {
+            let args = vec!["cgx", "--version", "14", "ripgrep"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "--version", "14", "ripgrep"]);
+            assert_eq!(binary_args, Vec::<String>::new());
+        }
+
+        #[test]
+        fn test_version_flag_before_crate_without_value() {
+            let args = vec!["cgx", "--version", "ripgrep"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "--version", "ripgrep"]);
+            assert_eq!(binary_args, Vec::<String>::new());
+        }
+
+        #[test]
+        fn test_crate_with_version_suffix() {
+            let args = vec!["cgx", "eza@=0.23.1", "--version"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "eza@=0.23.1"]);
+            assert_eq!(binary_args, vec!["--version"]);
+        }
+
+        #[test]
+        fn test_cargo_subcommand() {
+            let args = vec!["cgx", "cargo", "deny", "--help"];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "cargo"]);
+            assert_eq!(binary_args, vec!["deny", "--help"]);
+        }
+
+        #[test]
+        fn test_multiple_binary_flags() {
+            let args = vec![
+                "cgx",
+                "ripgrep",
+                "--color=always",
+                "-i",
+                "--no-heading",
+                "pattern",
+                "file.txt",
+            ];
+            let (cgx_args, binary_args) = CliArgs::split_at_crate_spec(args);
+
+            assert_eq!(cgx_args, vec!["cgx", "ripgrep"]);
+            assert_eq!(
+                binary_args,
+                vec!["--color=always", "-i", "--no-heading", "pattern", "file.txt"]
+            );
         }
     }
 }

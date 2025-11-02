@@ -28,7 +28,7 @@ use tame_index::{
 ///
 /// This type is the result of resolving a [`CrateSpec`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ResolvedCrate {
+pub(crate) struct ResolvedCrate {
     /// The exact name of the crate
     pub name: String,
 
@@ -44,7 +44,7 @@ pub struct ResolvedCrate {
 ///
 /// The trait abstraction is important to allow thorough testing of the many edge cases and failure
 /// modes involved.
-pub trait CrateResolver: std::fmt::Debug + Send + Sync + 'static {
+pub(crate) trait CrateResolver: std::fmt::Debug + Send + Sync + 'static {
     /// Resolve a (potentially ambiguous, potentially invalid) [`CrateSpec`] to a concrete,
     /// validated [`ResolvedCrate`].
     ///
@@ -57,7 +57,7 @@ pub trait CrateResolver: std::fmt::Debug + Send + Sync + 'static {
     ///
     /// Returns an error if the crate specification is invalid, if the crate cannot be found,
     /// or if the specified version is not compatible with the found version.
-    fn resolve(&self, spec: &crate::cratespec::CrateSpec) -> Result<ResolvedCrate>;
+    fn resolve(&self, spec: &CrateSpec) -> Result<ResolvedCrate>;
 }
 
 /// The source location of a resolved crate.
@@ -66,7 +66,7 @@ pub trait CrateResolver: std::fmt::Debug + Send + Sync + 'static {
 /// selectors (like branch names or tags), [`ResolvedSource`] variants contain only concrete,
 /// immutable references (like commit hashes).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ResolvedSource {
+pub(crate) enum ResolvedSource {
     /// A crate from Crates.io
     CratesIo,
 
@@ -103,7 +103,7 @@ pub enum ResolvedSource {
 
 /// Create the default [`CrateResolver`] implementation, repecting the given config and using the
 /// provided cache.
-pub fn create_resolver(
+pub(crate) fn create_resolver(
     config: Config,
     cache: Cache,
     git_client: GitClient,
@@ -124,7 +124,7 @@ struct DefaultCrateResolver {
 
 impl DefaultCrateResolver {
     /// Create a new [`DefaultCrateResolver`] with the given configuration and git client.
-    pub fn new(config: Config, git_client: GitClient, cargo: Arc<dyn CargoRunner>) -> Self {
+    pub(crate) fn new(config: Config, git_client: GitClient, cargo: Arc<dyn CargoRunner>) -> Self {
         Self {
             config,
             git_client,
@@ -419,7 +419,7 @@ impl CrateResolver for DefaultCrateResolver {
 /// in a cache and using them to avoid unnecessary network requests. It also implements
 /// resilient behavior like falling back to stale cache entries when network errors occur.
 #[derive(Debug)]
-pub struct CachingResolver<R: CrateResolver> {
+pub(crate) struct CachingResolver<R: CrateResolver> {
     inner: R,
     cache: Cache,
 }
@@ -427,7 +427,7 @@ pub struct CachingResolver<R: CrateResolver> {
 impl<R: CrateResolver> CachingResolver<R> {
     /// Create a new [`CachingResolver`] that wraps the given inner resolver.
     #[allow(dead_code)]
-    pub fn new(inner: R, cache: Cache) -> Self {
+    pub(crate) fn new(inner: R, cache: Cache) -> Self {
         Self { inner, cache }
     }
 }

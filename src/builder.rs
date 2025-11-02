@@ -224,7 +224,7 @@ impl CrateBuilder for RealCrateBuilder {
         // that they are on a local filesystem (and presumably fast to access), but it also means
         // that their source contents are mutable.  Even if we wanted to cache them, we would need
         // a way to detect if any changes had occurred since the last build (basically what `cargo
-        // build` does), and that doesn't seem worth it.  So local crates are always build directly
+        // build` does), and that doesn't seem worth it.  So local crates are always built directly
         // from their sources, and never cached
         if matches!(krate.resolved.source, ResolvedSource::LocalDir { .. }) {
             return self.build_uncached(krate, options.as_ref(), &metadata);
@@ -447,7 +447,7 @@ impl RealCrateBuilder {
     /// `Ok(None)` is returned.  If the workspace has multiple members, then the crate name must
     /// match one of them, and `Ok(Some(name))` is returned.  If it does not match any, then an
     /// error is returned.
-    fn resolve_package_name(metadata: &cargo_metadata::Metadata, crate_name: &str) -> Result<Option<String>> {
+    fn resolve_package_name(metadata: &Metadata, crate_name: &str) -> Result<Option<String>> {
         let workspace_members: Vec<_> = metadata
             .workspace_packages()
             .iter()
@@ -691,7 +691,7 @@ mod tests {
             let cargo = find_cargo().unwrap();
 
             for tc in CrateTestCase::all() {
-                let metadata_opts = crate::cargo::CargoMetadataOptions::default();
+                let metadata_opts = CargoMetadataOptions::default();
                 let metadata = cargo.metadata(tc.path(), &metadata_opts).unwrap();
 
                 let workspace_pkgs = metadata.workspace_packages();
@@ -1418,7 +1418,7 @@ mod tests {
             #[test]
             fn empty_features_string() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--features", ""]);
+                let args = CliArgs::parse_from_test_args(["--features", "", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.features.is_empty());
@@ -1428,7 +1428,7 @@ mod tests {
             #[test]
             fn single_feature() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1"]);
+                let args = CliArgs::parse_from_test_args(["--features", "feat1", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.features, vec!["feat1"]);
@@ -1438,7 +1438,7 @@ mod tests {
             #[test]
             fn comma_separated_features() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1,feat2"]);
+                let args = CliArgs::parse_from_test_args(["--features", "feat1,feat2", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.features, vec!["feat1", "feat2"]);
@@ -1448,7 +1448,7 @@ mod tests {
             #[test]
             fn space_separated_features() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1 feat2"]);
+                let args = CliArgs::parse_from_test_args(["--features", "feat1 feat2", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.features, vec!["feat1", "feat2"]);
@@ -1458,7 +1458,7 @@ mod tests {
             #[test]
             fn mixed_separator_features() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--features", "feat1, feat2 feat3"]);
+                let args = CliArgs::parse_from_test_args(["--features", "feat1, feat2 feat3", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.features, vec!["feat1", "feat2", "feat3"]);
@@ -1468,7 +1468,7 @@ mod tests {
             #[test]
             fn whitespace_handling() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--features", " feat1 , feat2 "]);
+                let args = CliArgs::parse_from_test_args(["--features", " feat1 , feat2 ", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.features, vec!["feat1", "feat2"]);
@@ -1492,7 +1492,7 @@ mod tests {
             #[test]
             fn debug_flag_maps_to_dev() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--debug"]);
+                let args = CliArgs::parse_from_test_args(["--debug", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.profile, Some("dev".to_string()));
@@ -1502,7 +1502,7 @@ mod tests {
             #[test]
             fn explicit_profile() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--profile", "custom"]);
+                let args = CliArgs::parse_from_test_args(["--profile", "custom", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.profile, Some("custom".to_string()));
@@ -1536,7 +1536,7 @@ mod tests {
             #[test]
             fn explicit_bin() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--bin", "foo"]);
+                let args = CliArgs::parse_from_test_args(["--bin", "foo", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.build_target, BuildTarget::Bin("foo".to_string()));
@@ -1546,7 +1546,7 @@ mod tests {
             #[test]
             fn explicit_example() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--example", "bar"]);
+                let args = CliArgs::parse_from_test_args(["--example", "bar", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.build_target, BuildTarget::Example("bar".to_string()));
@@ -1617,7 +1617,7 @@ mod tests {
                     locked: false,
                     ..Default::default()
                 };
-                let args = CliArgs::parse_from_test_args(["tool", "--locked"]);
+                let args = CliArgs::parse_from_test_args(["--locked", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.locked);
@@ -1631,7 +1631,7 @@ mod tests {
                     offline: false,
                     ..Default::default()
                 };
-                let args = CliArgs::parse_from_test_args(["tool", "--offline"]);
+                let args = CliArgs::parse_from_test_args(["--offline", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(!options.locked);
@@ -1642,7 +1642,7 @@ mod tests {
             #[test]
             fn cli_frozen_sets_both() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let args = CliArgs::parse_from_test_args(["--frozen", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.locked);
@@ -1657,7 +1657,7 @@ mod tests {
                     offline: false,
                     ..Default::default()
                 };
-                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let args = CliArgs::parse_from_test_args(["--frozen", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.locked);
@@ -1671,7 +1671,7 @@ mod tests {
                     offline: false,
                     ..Default::default()
                 };
-                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let args = CliArgs::parse_from_test_args(["--frozen", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.locked);
@@ -1686,7 +1686,7 @@ mod tests {
                     offline: true,
                     ..Default::default()
                 };
-                let args = CliArgs::parse_from_test_args(["tool", "--frozen"]);
+                let args = CliArgs::parse_from_test_args(["--frozen", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.locked);
@@ -1741,7 +1741,7 @@ mod tests {
             #[test]
             fn all_features() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--all-features"]);
+                let args = CliArgs::parse_from_test_args(["--all-features", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.all_features);
@@ -1751,7 +1751,7 @@ mod tests {
             #[test]
             fn no_default_features() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--no-default-features"]);
+                let args = CliArgs::parse_from_test_args(["--no-default-features", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.no_default_features);
@@ -1761,7 +1761,7 @@ mod tests {
             #[test]
             fn target() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--target", "x86_64-unknown-linux-gnu"]);
+                let args = CliArgs::parse_from_test_args(["--target", "x86_64-unknown-linux-gnu", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.target, Some("x86_64-unknown-linux-gnu".to_string()));
@@ -1771,7 +1771,7 @@ mod tests {
             #[test]
             fn jobs() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--jobs", "4"]);
+                let args = CliArgs::parse_from_test_args(["--jobs", "4", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert_eq!(options.jobs, Some(4));
@@ -1781,7 +1781,7 @@ mod tests {
             #[test]
             fn ignore_rust_version() {
                 let config = Config::default();
-                let args = CliArgs::parse_from_test_args(["tool", "--ignore-rust-version"]);
+                let args = CliArgs::parse_from_test_args(["--ignore-rust-version", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
                 assert!(options.ignore_rust_version);
@@ -1796,11 +1796,11 @@ mod tests {
                 let options = BuildOptions::load(&config, &args).unwrap();
                 assert_eq!(options.cargo_verbosity, CargoVerbosity::Normal);
 
-                let args = CliArgs::parse_from_test_args(["tool", "-v"]);
+                let args = CliArgs::parse_from_test_args(["-v", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
                 assert_eq!(options.cargo_verbosity, CargoVerbosity::Verbose);
 
-                let args = CliArgs::parse_from_test_args(["tool", "-vv"]);
+                let args = CliArgs::parse_from_test_args(["-vv", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
                 assert_eq!(options.cargo_verbosity, CargoVerbosity::VeryVerbose);
             }

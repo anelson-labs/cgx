@@ -43,6 +43,28 @@ cgx cargo deny
 
 ````
 
+## Argument ordering
+
+Like `npx` and `uvx`, `cgx` requires that its own flags come **before** the crate name, and any flags intended for the executed crate come **after** the crate name:
+
+```sh
+# Correct: cgx flags before crate name, crate flags after
+cgx --features serde ripgrep --color=always
+
+# Wrong: cgx will pass --features to ripgrep as an argument
+cgx ripgrep --features serde --color=always
+```
+
+You can also use `--` as an explicit separator (like `cargo run`):
+
+```sh
+# Explicit separator, equivalent to `cgx ripgrep --version` but more explicit
+cgx ripgrep -- --version
+```
+
+
+## Version specification
+
 The default is to use the latest version of the crate, but you can specify a version if you want, using the familiar
 Rust crate version syntax:
 
@@ -53,6 +75,8 @@ cgx ripgrep@14
 # Run the latest version of Ripgrep 14.1
 cgx ripgrep@14.1
 ````
+
+XXX: The following text is aspirational, this functionality is not yet implemented!
 
 One of the handy features of tools like `uvx` and `npx` is that you can pin to a specific version of a tool in your
 workspace. `cgx` supports this was well, by extending your `Cargo.toml` file with custom `cgx` metadata, like so:

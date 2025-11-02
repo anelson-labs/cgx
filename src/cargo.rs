@@ -9,7 +9,7 @@ use std::{
     process::Command,
 };
 
-pub use cargo_metadata::Metadata;
+pub(crate) use cargo_metadata::Metadata;
 
 /// Verbosity level for cargo build operations.
 ///
@@ -100,7 +100,7 @@ impl From<&BuildOptions> for CargoMetadataOptions {
 /// This type is mainly concerened with the surprisingly complex task of figuring out where `cargo`
 /// is and how to invoke it, and secondarily with constructing its command lines and parsing the
 /// resulting output.
-pub trait CargoRunner: std::fmt::Debug + Send + Sync + 'static {
+pub(crate) trait CargoRunner: std::fmt::Debug + Send + Sync + 'static {
     /// Get cargo metadata for a source directory.
     ///
     /// Executes `cargo metadata` on the specified directory and returns the
@@ -110,8 +110,7 @@ pub trait CargoRunner: std::fmt::Debug + Send + Sync + 'static {
     ///
     /// * `source_dir` - Path to directory containing Cargo.toml
     /// * `options` - Options controlling metadata invocation (deps, features, platform, etc.)
-    fn metadata(&self, source_dir: &Path, options: &CargoMetadataOptions)
-    -> Result<cargo_metadata::Metadata>;
+    fn metadata(&self, source_dir: &Path, options: &CargoMetadataOptions) -> Result<Metadata>;
 
     /// Build a binary from source.
     ///
@@ -174,16 +173,12 @@ pub(crate) fn find_cargo() -> Result<impl CargoRunner> {
 
 #[derive(Debug, Clone)]
 struct RealCargoRunner {
-    cargo_path: std::path::PathBuf,
-    rustup_path: Option<std::path::PathBuf>,
+    cargo_path: PathBuf,
+    rustup_path: Option<PathBuf>,
 }
 
 impl CargoRunner for RealCargoRunner {
-    fn metadata(
-        &self,
-        source_dir: &Path,
-        options: &CargoMetadataOptions,
-    ) -> Result<cargo_metadata::Metadata> {
+    fn metadata(&self, source_dir: &Path, options: &CargoMetadataOptions) -> Result<Metadata> {
         use snafu::ResultExt;
 
         let mut cmd = cargo_metadata::MetadataCommand::new();
@@ -242,7 +237,7 @@ impl CargoRunner for RealCargoRunner {
             cmd.other_options(other_args);
         }
 
-        cmd.exec().with_context(|_| crate::error::CargoMetadataSnafu {
+        cmd.exec().with_context(|_| error::CargoMetadataSnafu {
             cargo_path: self.cargo_path.clone(),
             source_dir: source_dir.to_path_buf(),
         })
@@ -351,7 +346,7 @@ impl CargoRunner for RealCargoRunner {
         }
 
         // Execute the command
-        let output = cmd.output().context(crate::error::CommandExecutionSnafu)?;
+        let output = cmd.output().context(error::CommandExecutionSnafu)?;
 
         if !output.status.success() {
             return error::CargoBuildFailedSnafu {

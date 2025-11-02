@@ -30,7 +30,7 @@ use url::Url;
 /// if the `version` field is present, it is validated against the version found at the location,
 /// and if it's not compatible then an error ocurrs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum CrateSpec {
+pub(crate) enum CrateSpec {
     /// A crate on Crates.io, specified by its name and optional version.
     CratesIo {
         name: String,
@@ -142,16 +142,16 @@ impl CrateSpec {
                     .fail();
                 }
                 Some(
-                    semver::VersionReq::parse(at_ver)
+                    VersionReq::parse(at_ver)
                         .with_context(|_| error::InvalidVersionReqSnafu { version: at_ver })?,
                 )
             }
             (Some(at_ver), None) => Some(
-                semver::VersionReq::parse(at_ver)
+                VersionReq::parse(at_ver)
                     .with_context(|_| error::InvalidVersionReqSnafu { version: at_ver })?,
             ),
             (None, Some(flag_ver)) => Some(
-                semver::VersionReq::parse(flag_ver)
+                VersionReq::parse(flag_ver)
                     .with_context(|_| error::InvalidVersionReqSnafu { version: flag_ver })?,
             ),
             (None, None) => None,
@@ -165,7 +165,7 @@ impl CrateSpec {
                     .get(tool_name)
                     .and_then(|tool_config| match tool_config {
                         ToolConfig::Version(v) | ToolConfig::Detailed { version: Some(v), .. } => {
-                            semver::VersionReq::parse(v).ok()
+                            VersionReq::parse(v).ok()
                         }
                         ToolConfig::Detailed { version: None, .. } => None,
                     })
@@ -218,7 +218,7 @@ impl CrateSpec {
         } else if let Some(index_str) = &args.index {
             let name = name.context(error::MissingCrateParameterSnafu)?;
             let index_url =
-                url::Url::parse(index_str).with_context(|_| error::InvalidUrlSnafu { url: index_str })?;
+                Url::parse(index_str).with_context(|_| error::InvalidUrlSnafu { url: index_str })?;
             Ok(CrateSpec::Registry {
                 source: RegistrySource::IndexUrl(index_url),
                 name,
@@ -233,7 +233,7 @@ impl CrateSpec {
         } else if let Some(github_repo) = &args.github {
             let (owner, repo) = Self::parse_owner_repo(github_repo)?;
             let custom_url = if let Some(url_str) = &args.github_url {
-                Some(url::Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
+                Some(Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
             } else {
                 None
             };
@@ -250,7 +250,7 @@ impl CrateSpec {
         } else if let Some(gitlab_repo) = &args.gitlab {
             let (owner, repo) = Self::parse_owner_repo(gitlab_repo)?;
             let custom_url = if let Some(url_str) = &args.gitlab_url {
-                Some(url::Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
+                Some(Url::parse(url_str).with_context(|_| error::InvalidUrlSnafu { url: url_str })?)
             } else {
                 None
             };
@@ -399,7 +399,7 @@ impl CrateSpec {
 /// Registries can be specified either by a named configuration in `.cargo/config.toml` or by
 /// directly providing the index URL.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RegistrySource {
+pub(crate) enum RegistrySource {
     /// A named registry configured in `.cargo/config.toml` (corresponds to `--registry`).
     Named(String),
 
@@ -409,7 +409,7 @@ pub enum RegistrySource {
 
 /// Supported software forges where crates can be hosted
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Forge {
+pub(crate) enum Forge {
     GitHub {
         /// Custom URL for Github Enterprise instances; None for github.com
         custom_url: Option<Url>,
@@ -460,7 +460,7 @@ impl Forge {
     /// Only HTTPS urls are recognized, and only URLs that point to the root of a repository, on
     /// the forges that we have API support for.
     pub(crate) fn try_parse_from_url(git_url: &str) -> Option<Self> {
-        let url = url::Url::parse(git_url).ok()?;
+        let url = Url::parse(git_url).ok()?;
 
         if url.scheme() != "https" {
             return None;
@@ -556,7 +556,7 @@ mod tests {
         assert_matches!(
             spec,
             CrateSpec::CratesIo { ref name, version: Some(ref v) }
-            if name == "ripgrep" && v == &semver::VersionReq::parse("14.0").unwrap()
+            if name == "ripgrep" && v == &VersionReq::parse("14.0").unwrap()
         );
     }
 
@@ -594,7 +594,7 @@ mod tests {
         assert_matches!(
             spec,
             CrateSpec::CratesIo { ref name, version: Some(ref v) }
-            if name == "ripgrep" && v == &semver::VersionReq::parse("14.0").unwrap()
+            if name == "ripgrep" && v == &VersionReq::parse("14.0").unwrap()
         );
     }
 
@@ -637,7 +637,7 @@ mod tests {
                 source: RegistrySource::Named(ref reg),
                 ref name,
                 version: Some(ref v)
-            } if reg == "my-registry" && name == "my-tool" && v == &semver::VersionReq::parse("1.0").unwrap()
+            } if reg == "my-registry" && name == "my-tool" && v == &VersionReq::parse("1.0").unwrap()
         );
     }
 
@@ -959,13 +959,13 @@ mod tests {
             .tools
             .insert("ripgrep".to_string(), ToolConfig::Version("14.0".to_string()));
 
-        let args = CliArgs::parse_from_test_args(["ripgrep", "--version", "13.0"]);
+        let args = CliArgs::parse_from_test_args(["--version", "13.0", "ripgrep"]);
         let spec = CrateSpec::load(&config, &args).unwrap();
 
         assert_matches!(
             spec,
             CrateSpec::CratesIo { ref name, version: Some(ref v) }
-            if name == "ripgrep" && v == &semver::VersionReq::parse("13.0").unwrap()
+            if name == "ripgrep" && v == &VersionReq::parse("13.0").unwrap()
         );
     }
 
@@ -993,7 +993,7 @@ mod tests {
         assert_matches!(
             spec,
             CrateSpec::CratesIo { ref name, version: Some(ref v) }
-            if name == "ripgrep" && v == &semver::VersionReq::parse("13.0").unwrap()
+            if name == "ripgrep" && v == &VersionReq::parse("13.0").unwrap()
         );
     }
 
@@ -1026,7 +1026,7 @@ mod tests {
             },
         );
 
-        let args = CliArgs::parse_from_test_args(["my-tool", "--registry", "other-registry"]);
+        let args = CliArgs::parse_from_test_args(["--registry", "other-registry", "my-tool"]);
         let spec = CrateSpec::load(&config, &args).unwrap();
 
         assert_matches!(
@@ -1037,7 +1037,7 @@ mod tests {
                 version: Some(ref v)
             } if reg == "other-registry"
                 && name == "my-tool"
-                && v == &semver::VersionReq::parse("1.0").unwrap()
+                && v == &VersionReq::parse("1.0").unwrap()
         );
     }
 
@@ -1070,7 +1070,7 @@ mod tests {
             },
         );
 
-        let args = CliArgs::parse_from_test_args(["my-tool", "--git", "https://example.com/repo.git"]);
+        let args = CliArgs::parse_from_test_args(["--git", "https://example.com/repo.git", "my-tool"]);
         let spec = CrateSpec::load(&config, &args).unwrap();
 
         assert_matches!(
@@ -1082,7 +1082,7 @@ mod tests {
                 version: Some(ref v)
             } if repo == "https://example.com/repo.git"
                 && n == "my-tool"
-                && v == &semver::VersionReq::parse("1.0").unwrap()
+                && v == &VersionReq::parse("1.0").unwrap()
         );
     }
 
@@ -1115,7 +1115,7 @@ mod tests {
         assert_matches!(
             spec,
             CrateSpec::CratesIo { ref name, version: Some(ref v) }
-            if name == "ripgrep" && v == &semver::VersionReq::parse("14.0").unwrap()
+            if name == "ripgrep" && v == &VersionReq::parse("14.0").unwrap()
         );
     }
 
@@ -1155,7 +1155,7 @@ mod tests {
                 version: Some(ref v)
             } if reg == "my-default-registry"
                 && name == "my-tool"
-                && v == &semver::VersionReq::parse("1.0").unwrap()
+                && v == &VersionReq::parse("1.0").unwrap()
         );
     }
 
@@ -1205,7 +1205,7 @@ mod tests {
                 version: Some(ref v)
             } if reg == "tool-registry"
                 && name == "my-tool"
-                && v == &semver::VersionReq::parse("1.0").unwrap()
+                && v == &VersionReq::parse("1.0").unwrap()
         );
     }
 
