@@ -1,6 +1,6 @@
 //! Utility functions to help run our CLI as part of a test
 use assert_cmd::{Command, cargo::cargo_bin_cmd};
-use assert_fs::TempDir;
+use assert_fs::{TempDir, prelude::*};
 
 pub(crate) struct TestFs {
     pub(crate) app_root: TempDir,
@@ -75,6 +75,14 @@ impl Cgx {
 
     pub(crate) fn test_fs_app_root(&self) -> &TempDir {
         &self.test_fs().app_root
+    }
+
+    /// Get the user config directory (`app_root/config`)
+    ///
+    /// This matches the logic in config.rs where `--app-dir` causes user config
+    /// to be loaded from `{app_dir}/config/cgx.toml`
+    pub(crate) fn user_config_dir(&self) -> assert_fs::fixture::ChildPath {
+        self.test_fs().app_root.child("config")
     }
 
     fn set_test_env(&mut self, test_fs: TestFs) {
