@@ -76,38 +76,50 @@ cgx ripgrep@14
 cgx ripgrep@14.1
 ````
 
-XXX: The following text is aspirational, this functionality is not yet implemented!
+## Version pinning with config files
 
 One of the handy features of tools like `uvx` and `npx` is that you can pin to a specific version of a tool in your
-workspace. `cgx` supports this was well, by extending your `Cargo.toml` file with custom `cgx` metadata, like so:
+workspace. `cgx` supports this as well using `cgx.toml` configuration files.
+
+Create a `cgx.toml` file in your project root:
 
 ```toml
-# Cargo.toml
-[workspace.metadata.cgx]
+[tools]
 ripgrep = "14.1"
 cargo-deny = "0.17"
 ```
 
-Now, anywhere inside this workspace, `cgx ripgrep` will run version 14.1 of ripgrep, and `cgx cargo deny` will run
-`cargo-deny` version 0.17.
+Now, anywhere inside this directory (or its subdirectories), `cgx ripgrep` will use version 14.1, and `cgx cargo deny`
+will use cargo-deny version 0.17.
 
-This can go in either `workspace.metadata.cgx` or `package.metadata.cgx`, although in the later case beware that
-specifying versions in multiple `Cargo.toml` files in a workspace will cause a warning to be emitted encouraging you to
-use workspace-level metadata instead.
-
-If you have workspace-level tool versions specified in `Cargo.toml`, you can run `cgx --alias <tool>` to modify
-`.config/cargo` to add a `cargo` alias that will automatically run `cgx`. Or you can use `cgx --alias-all` to
-automatically put aliases for all `cgx`-managed tools into `.config/cargo`.
-
-To continue our example above, if you ran `cgx --alias cargo-deny`, then it would put something like this in your
-workspace's `.cargo/config`:
+You can also specify more complex configurations:
 
 ```toml
-[alias]
-# NOTE: The actual contents of `.cargo/config` will be more complex than this to account for the need to boot-strap
-# `cgx` if it's not present.
-deny = "cgx cargo-deny"
+[tools]
+# Simple version constraint
+ripgrep = "14.1"
+
+# Detailed configuration with features
+taplo = { version = "1.0", features = ["full"] }
+
+# Git repository source
+my-tool = { git = "https://github.com/owner/repo.git", tag = "v1.0.0" }
+
+# Custom registry
+private-tool = { version = "1.0", registry = "my-registry" }
+
+[aliases]
+# Convenient short names
+rg = "ripgrep"
 ```
 
-Then, you and your colleagues can all run `cargo deny` directly, without needing to install `cargo-deny` first, and be
-assured of getting the correct version.
+### Config file hierarchy
+
+Config files are loaded and merged in order of precedence (later sources override earlier ones):
+
+1. System-wide config (`/etc/cgx.toml` on Linux/macOS)
+2. User config (`$XDG_CONFIG_HOME/cgx/cgx.toml` or platform equivalent)
+3. Directory hierarchy from filesystem root to current directory (each `cgx.toml` found)
+4. Command-line arguments (highest priority)
+
+This allows you to have global defaults in your user config while overriding them on a per-project basis.
