@@ -13,7 +13,7 @@ cgx-core           = { version = "0.0.3", path = "cgx-core" }
 chrono             = { version = "0.4.42", features = ["serde"] }
 clap               = { version = "4.5.51", features = ["derive", "env", "string", "unicode"] }
 ctrlc              = "3.5"
-etcetera           = "0.10.0"
+etcetera           = "0.11.0"
 figment            = { version = "0.10.19", features = ["toml", "env"] }
 flate2             = "1.1.5"
 gix                = { version = "0.73", features = ["blocking-http-transport-reqwest", "max-performance-safe", "worktree-mutation"] }
