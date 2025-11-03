@@ -202,7 +202,7 @@ fn config_specifies_git_source() {
         .write_str(
             r#"
 [tools]
-cargo-binstall = { git = "https://github.com/cargo-bins/cargo-binstall.git", tag = "v1.7.0" }
+cargo-binstall = { git = "https://github.com/cargo-bins/cargo-binstall.git", tag = "v1.14.0" }
 "#,
         )
         .unwrap();
@@ -212,5 +212,5 @@ cargo-binstall = { git = "https://github.com/cargo-bins/cargo-binstall.git", tag
         .arg("cargo-binstall")
         .assert()
         .success()
-        .stdout(predicates::str::contains("cargo-binstall-1.7.0"));
+        .stdout(predicates::str::contains("cargo-binstall-1.14.0"));
 }
