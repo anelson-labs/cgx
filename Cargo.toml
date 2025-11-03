@@ -1,5 +1,5 @@
 [workspace]
-members  = ["cgx", "cgx-core"]
+members  = ["cgx", "cgx-core", "cargo-cgx"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -9,6 +9,7 @@ assert_fs          = { version = "1.1.3", features = ["color-auto"] }
 assert_matches     = "1.5.0"
 build-context      = "0.1.3"
 cargo_metadata     = "0.20.0"
+cgx                = { version = "0.0.3", path = "cgx" }
 cgx-core           = { version = "0.0.3", path = "cgx-core" }
 chrono             = { version = "0.4.42", features = ["serde"] }
 clap               = { version = "4.5.51", features = ["derive", "env", "string", "unicode"] }

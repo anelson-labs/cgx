@@ -300,6 +300,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo-cgx"
+version = "0.0.3"
+dependencies = [
+ "assert_cmd",
+ "cgx",
+ "predicates",
+]
+
+[[package]]
 name = "cargo-platform"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
