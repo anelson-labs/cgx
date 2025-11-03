@@ -174,7 +174,7 @@ fn config_alias_resolution() {
 rg = "ripgrep"
 
 [tools]
-ripgrep = "=14.0.0"
+ripgrep = "=15.1.0"
 "#,
         )
         .unwrap();
@@ -185,7 +185,7 @@ ripgrep = "=14.0.0"
         .arg("rg")
         .assert()
         .success()
-        .stdout(predicates::str::contains("ripgrep-14.0.0"));
+        .stdout(predicates::str::contains("ripgrep-15.1.0"));
 }
 
 /// Test git source specification from config.
