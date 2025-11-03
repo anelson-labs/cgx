@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/anelson-labs/cgx/actions/workflows/ci.yml/badge.svg)](https://github.com/anelson-labs/cgx/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/cgx?link=https%3A%2F%2Fcrates.io%2Fcrates%2Fcgx)](https://crates.io/crates/cgx)
-![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/cgx/latest)
+![license](https://img.shields.io/crates/l/cgx.svg)
 
 Execute Rust crates easily and quickly. Like `uvx` or `npx` for Rust.
 
