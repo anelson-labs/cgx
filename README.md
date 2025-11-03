@@ -1,6 +1,8 @@
 # cgx
 
-![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/cgx/latest)
+[![CI](https://github.com/anelson-labs/cgx/actions/workflows/ci.yml/badge.svg)](https://github.com/anelson-labs/cgx/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/cgx?link=https%3A%2F%2Fcrates.io%2Fcrates%2Fcgx)](https://crates.io/crates/cgx)
+![license](https://img.shields.io/crates/l/cgx.svg)
 
 Execute Rust crates easily and quickly. Like `uvx` or `npx` for Rust.
 
@@ -11,20 +13,47 @@ would do manually with `cargo install`, `cargo binstall`, `cargo update`, and `c
 
 ## Installation
 
-You must use `cargo install`, although once you have done this it will be for the last time, as `cgx` will handle all of
-your other Rust crate installation needs:
+### Quick Install (Recommended)
+
+**macOS and Linux:**
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/anelson-labs/cgx/releases/latest/download/cgx-installer.sh | sh
+```
+
+**Windows:**
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/anelson-labs/cgx/releases/latest/download/cgx-installer.ps1 | iex"
+```
+
+The installer will download the appropriate binary for your platform and add it to your PATH.
+
+> **Note:** To install a specific version for CI/reproducible builds, replace `latest` in the URL above with the desired version tag from the [Releases page](https://github.com/anelson-labs/cgx/releases) (e.g., `v0.0.3`).
+
+### Alternative Installation Methods
+
+You can also install using Rust tooling:
+
+**Via cargo install:**
 
 ```sh
 cargo install cgx
 ```
 
-You can alternatively use `cargo binstall` to install from pre-built binaries:
+**Via cargo-binstall (faster, uses pre-built binaries):**
 
 ```sh
 cargo binstall cgx
 ```
 
-Or you can download a prebuilt binary from the [Releases page](https://github.com/anelson-labs/cgx/releases).
+**Manual download:**
+
+Download prebuilt binaries directly from the [Releases page](https://github.com/anelson-labs/cgx/releases).
+
+---
+
+_Coming soon: Install via `curl https://cgx.sh/install.sh | sh` once the cgx.sh domain is set up._
 
 ## Example usage
 
