@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.0.4] - 2025-11-04
+
+### 🚀 Features
+
+- Add `cargo-cgx` binary crate for cargo subcommand integration ([#51](https://github.com/anelson-labs/cgx/pull/51))
+- Honor tool versions in config when resolving crates ([#46](https://github.com/anelson-labs/cgx/pull/46))
+
+### 🐛 Bug Fixes
+
+- Add `cargo-binstall` metadata to Cargo.toml for faster installs
+- Fix broken README link in cgx-core/Cargo.toml that blocks release
+
+### 🚜 Refactor
+
+- Factor most logic out into cgx-core library crate ([#41](https://github.com/anelson-labs/cgx/pull/41))
+
+### 📚 Documentation
+
+- Add text in README about instability
+- Update README with installation instructions ([#50](https://github.com/anelson-labs/cgx/pull/50))
+
+### 🧪 Testing
+
+- Add integration tests that actually drive the CLI and verify behavior ([#34](https://github.com/anelson-labs/cgx/pull/34))
 ## [0.0.3] - 2025-10-05
 
 ### ⚙️ Miscellaneous Tasks
