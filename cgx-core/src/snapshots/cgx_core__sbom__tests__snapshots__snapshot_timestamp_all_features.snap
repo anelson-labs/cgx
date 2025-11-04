@@ -6,7 +6,7 @@ expression: normalized
   "bomFormat": "CycloneDX",
   "components": [
     {
-      "bom-ref": "pkg:cargo/autocfg@1.5.0",
+      "bom-ref": "pkg:cargo/autocfg@[VERSION]",
       "description": "Automatic cfg for Rust compiler features",
       "name": "autocfg",
       "properties": [
@@ -15,91 +15,91 @@ expression: normalized
           "value": "build"
         }
       ],
-      "purl": "pkg:cargo/autocfg@1.5.0",
+      "purl": "pkg:cargo/autocfg@[VERSION]",
       "type": "library",
-      "version": "1.5.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/chrono@0.4.42",
+      "bom-ref": "pkg:cargo/chrono@[VERSION]",
       "description": "Date and time library for Rust",
       "name": "chrono",
-      "purl": "pkg:cargo/chrono@0.4.42",
+      "purl": "pkg:cargo/chrono@[VERSION]",
       "type": "library",
-      "version": "0.4.42"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/iana-time-zone@0.1.64",
+      "bom-ref": "pkg:cargo/iana-time-zone@[VERSION]",
       "description": "get the IANA time zone for the current system",
       "name": "iana-time-zone",
-      "purl": "pkg:cargo/iana-time-zone@0.1.64",
+      "purl": "pkg:cargo/iana-time-zone@[VERSION]",
       "type": "library",
-      "version": "0.1.64"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/num-traits@0.2.19",
+      "bom-ref": "pkg:cargo/num-traits@[VERSION]",
       "description": "Numeric traits for generic mathematics",
       "name": "num-traits",
-      "purl": "pkg:cargo/num-traits@0.2.19",
+      "purl": "pkg:cargo/num-traits@[VERSION]",
       "type": "library",
-      "version": "0.2.19"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde@1.0.228",
+      "bom-ref": "pkg:cargo/serde@[VERSION]",
       "description": "A generic serialization/deserialization framework",
       "name": "serde",
-      "purl": "pkg:cargo/serde@1.0.228",
+      "purl": "pkg:cargo/serde@[VERSION]",
       "type": "library",
-      "version": "1.0.228"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_core@1.0.228",
+      "bom-ref": "pkg:cargo/serde_core@[VERSION]",
       "description": "Serde traits only, with no support for derive -- use the `serde` crate instead",
       "name": "serde_core",
-      "purl": "pkg:cargo/serde_core@1.0.228",
+      "purl": "pkg:cargo/serde_core@[VERSION]",
       "type": "library",
-      "version": "1.0.228"
+      "version": "[VERSION]"
     }
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/autocfg@1.5.0"
+      "ref": "pkg:cargo/autocfg@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/iana-time-zone@0.1.64",
-        "pkg:cargo/num-traits@0.2.19"
+        "pkg:cargo/iana-time-zone@[VERSION]",
+        "pkg:cargo/num-traits@[VERSION]"
       ],
-      "ref": "pkg:cargo/chrono@0.4.42"
+      "ref": "pkg:cargo/chrono@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/iana-time-zone@0.1.64"
+      "ref": "pkg:cargo/iana-time-zone@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/autocfg@1.5.0"
+        "pkg:cargo/autocfg@[VERSION]"
       ],
-      "ref": "pkg:cargo/num-traits@0.2.19"
+      "ref": "pkg:cargo/num-traits@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/serde_core@1.0.228"
+        "pkg:cargo/serde_core@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde@1.0.228"
+      "ref": "pkg:cargo/serde@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/serde_core@1.0.228"
+      "ref": "pkg:cargo/serde_core@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/chrono@0.4.42",
-        "pkg:cargo/serde@1.0.228"
+        "pkg:cargo/chrono@[VERSION]",
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/timestamp@0.1.0"
+      "ref": "pkg:cargo/timestamp@[VERSION]"
     }
   ],
   "metadata": {
     "component": {
-      "bom-ref": "pkg:cargo/timestamp@0.1.0",
+      "bom-ref": "pkg:cargo/timestamp@[VERSION]",
       "name": "timestamp",
       "properties": [
         {
@@ -107,15 +107,15 @@ expression: normalized
           "value": "true"
         }
       ],
-      "purl": "pkg:cargo/timestamp@0.1.0",
+      "purl": "pkg:cargo/timestamp@[VERSION]",
       "type": "application",
-      "version": "0.1.0"
+      "version": "[VERSION]"
     },
     "tools": [
       {
         "name": "cgx",
         "vendor": "cgx project",
-        "version": "0.0.3"
+        "version": "[VERSION]"
       }
     ]
   },

@@ -6,52 +6,52 @@ expression: normalized
   "bomFormat": "CycloneDX",
   "components": [
     {
-      "bom-ref": "pkg:cargo/serde@1.0.228",
+      "bom-ref": "pkg:cargo/serde@[VERSION]",
       "description": "A generic serialization/deserialization framework",
       "name": "serde",
-      "purl": "pkg:cargo/serde@1.0.228",
+      "purl": "pkg:cargo/serde@[VERSION]",
       "type": "library",
-      "version": "1.0.228"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_core@1.0.228",
+      "bom-ref": "pkg:cargo/serde_core@[VERSION]",
       "description": "Serde traits only, with no support for derive -- use the `serde` crate instead",
       "name": "serde_core",
-      "purl": "pkg:cargo/serde_core@1.0.228",
+      "purl": "pkg:cargo/serde_core@[VERSION]",
       "type": "library",
-      "version": "1.0.228"
+      "version": "[VERSION]"
     }
   ],
   "dependencies": [
     {
       "dependsOn": [
-        "pkg:cargo/serde_core@1.0.228"
+        "pkg:cargo/serde_core@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde@1.0.228"
+      "ref": "pkg:cargo/serde@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/serde_core@1.0.228"
+      "ref": "pkg:cargo/serde_core@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/serde@1.0.228"
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/timestamp@0.1.0"
+      "ref": "pkg:cargo/timestamp@[VERSION]"
     }
   ],
   "metadata": {
     "component": {
-      "bom-ref": "pkg:cargo/timestamp@0.1.0",
+      "bom-ref": "pkg:cargo/timestamp@[VERSION]",
       "name": "timestamp",
-      "purl": "pkg:cargo/timestamp@0.1.0",
+      "purl": "pkg:cargo/timestamp@[VERSION]",
       "type": "application",
-      "version": "0.1.0"
+      "version": "[VERSION]"
     },
     "tools": [
       {
         "name": "cgx",
         "vendor": "cgx project",
-        "version": "0.0.3"
+        "version": "[VERSION]"
       }
     ]
   },

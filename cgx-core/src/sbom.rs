@@ -602,7 +602,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
 
         #[test]
@@ -611,7 +616,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
 
         #[test]
@@ -620,7 +630,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
 
         #[test]
@@ -633,7 +648,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, options).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
 
         #[test]
@@ -646,7 +666,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, options).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
 
         #[test]
@@ -660,7 +685,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, options).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
 
         #[test]
@@ -669,7 +699,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
 
         #[test]
@@ -678,7 +713,12 @@ pub(crate) mod tests {
             let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
             let normalized = normalize_sbom_json(&sbom);
 
-            insta::assert_snapshot!(normalized);
+            insta::with_settings!({filters => vec![
+                (r#""version": "\d+\.\d+\.\d+""#, r#""version": "[VERSION]""#),
+                (r"@\d+\.\d+\.\d+", "@[VERSION]"),
+            ]}, {
+                insta::assert_snapshot!(normalized);
+            });
         }
     }
 

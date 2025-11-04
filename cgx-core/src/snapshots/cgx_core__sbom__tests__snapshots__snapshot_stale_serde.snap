@@ -6,38 +6,38 @@ expression: normalized
   "bomFormat": "CycloneDX",
   "components": [
     {
-      "bom-ref": "pkg:cargo/serde@1.0.5",
+      "bom-ref": "pkg:cargo/serde@[VERSION]",
       "description": "A generic serialization/deserialization framework",
       "name": "serde",
-      "purl": "pkg:cargo/serde@1.0.5",
+      "purl": "pkg:cargo/serde@[VERSION]",
       "type": "library",
-      "version": "1.0.5"
+      "version": "[VERSION]"
     }
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/serde@1.0.5"
+      "ref": "pkg:cargo/serde@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/serde@1.0.5"
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/stale-serde@0.1.0"
+      "ref": "pkg:cargo/stale-serde@[VERSION]"
     }
   ],
   "metadata": {
     "component": {
-      "bom-ref": "pkg:cargo/stale-serde@0.1.0",
+      "bom-ref": "pkg:cargo/stale-serde@[VERSION]",
       "name": "stale-serde",
-      "purl": "pkg:cargo/stale-serde@0.1.0",
+      "purl": "pkg:cargo/stale-serde@[VERSION]",
       "type": "application",
-      "version": "0.1.0"
+      "version": "[VERSION]"
     },
     "tools": [
       {
         "name": "cgx",
         "vendor": "cgx project",
-        "version": "0.0.3"
+        "version": "[VERSION]"
       }
     ]
   },

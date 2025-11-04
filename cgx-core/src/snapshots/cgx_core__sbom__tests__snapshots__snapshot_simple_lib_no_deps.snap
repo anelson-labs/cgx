@@ -7,22 +7,22 @@ expression: normalized
   "components": [],
   "dependencies": [
     {
-      "ref": "pkg:cargo/simple-lib-no-deps@0.1.0"
+      "ref": "pkg:cargo/simple-lib-no-deps@[VERSION]"
     }
   ],
   "metadata": {
     "component": {
-      "bom-ref": "pkg:cargo/simple-lib-no-deps@0.1.0",
+      "bom-ref": "pkg:cargo/simple-lib-no-deps@[VERSION]",
       "name": "simple-lib-no-deps",
-      "purl": "pkg:cargo/simple-lib-no-deps@0.1.0",
+      "purl": "pkg:cargo/simple-lib-no-deps@[VERSION]",
       "type": "application",
-      "version": "0.1.0"
+      "version": "[VERSION]"
     },
     "tools": [
       {
         "name": "cgx",
         "vendor": "cgx project",
-        "version": "0.0.3"
+        "version": "[VERSION]"
       }
     ]
   },

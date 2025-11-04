@@ -6,375 +6,375 @@ expression: normalized
   "bomFormat": "CycloneDX",
   "components": [
     {
-      "bom-ref": "pkg:cargo/anyhow@1.0.100",
+      "bom-ref": "pkg:cargo/anyhow@[VERSION]",
       "description": "Flexible concrete Error type built on std::error::Error",
       "name": "anyhow",
-      "purl": "pkg:cargo/anyhow@1.0.100",
+      "purl": "pkg:cargo/anyhow@[VERSION]",
       "type": "library",
-      "version": "1.0.100"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/async-trait@0.1.89",
+      "bom-ref": "pkg:cargo/async-trait@[VERSION]",
       "description": "Type erasure for async trait methods",
       "name": "async-trait",
-      "purl": "pkg:cargo/async-trait@0.1.89",
+      "purl": "pkg:cargo/async-trait@[VERSION]",
       "type": "library",
-      "version": "0.1.89"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/atomic-waker@1.1.2",
+      "bom-ref": "pkg:cargo/atomic-waker@[VERSION]",
       "description": "A synchronization primitive for task wakeup",
       "name": "atomic-waker",
-      "purl": "pkg:cargo/atomic-waker@1.1.2",
+      "purl": "pkg:cargo/atomic-waker@[VERSION]",
       "type": "library",
-      "version": "1.1.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/axum@0.7.9",
+      "bom-ref": "pkg:cargo/axum@[VERSION]",
       "description": "Web framework that focuses on ergonomics and modularity",
       "name": "axum",
-      "purl": "pkg:cargo/axum@0.7.9",
+      "purl": "pkg:cargo/axum@[VERSION]",
       "type": "library",
-      "version": "0.7.9"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/axum@0.8.4",
+      "bom-ref": "pkg:cargo/axum@[VERSION]",
       "description": "Web framework that focuses on ergonomics and modularity",
       "name": "axum",
-      "purl": "pkg:cargo/axum@0.8.4",
+      "purl": "pkg:cargo/axum@[VERSION]",
       "type": "library",
-      "version": "0.8.4"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/axum-core@0.4.5",
+      "bom-ref": "pkg:cargo/axum-core@[VERSION]",
       "description": "Core types and traits for axum",
       "name": "axum-core",
-      "purl": "pkg:cargo/axum-core@0.4.5",
+      "purl": "pkg:cargo/axum-core@[VERSION]",
       "type": "library",
-      "version": "0.4.5"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/axum-core@0.5.5",
+      "bom-ref": "pkg:cargo/axum-core@[VERSION]",
       "description": "Core types and traits for axum",
       "name": "axum-core",
-      "purl": "pkg:cargo/axum-core@0.5.5",
+      "purl": "pkg:cargo/axum-core@[VERSION]",
       "type": "library",
-      "version": "0.5.5"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/base64@0.22.1",
+      "bom-ref": "pkg:cargo/base64@[VERSION]",
       "description": "encodes and decodes base64 as bytes or utf8",
       "name": "base64",
-      "purl": "pkg:cargo/base64@0.22.1",
+      "purl": "pkg:cargo/base64@[VERSION]",
       "type": "library",
-      "version": "0.22.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/bytes@1.10.1",
+      "bom-ref": "pkg:cargo/bytes@[VERSION]",
       "description": "Types and traits for working with bytes",
       "name": "bytes",
-      "purl": "pkg:cargo/bytes@1.10.1",
+      "purl": "pkg:cargo/bytes@[VERSION]",
       "type": "library",
-      "version": "1.10.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/cfg-if@1.0.3",
+      "bom-ref": "pkg:cargo/cfg-if@[VERSION]",
       "description": "A macro to ergonomically define an item depending on a large number of #[cfg]\nparameters. Structured like an if-else chain, the first matching branch is the\nitem that gets emitted.\n",
       "name": "cfg-if",
-      "purl": "pkg:cargo/cfg-if@1.0.3",
+      "purl": "pkg:cargo/cfg-if@[VERSION]",
       "type": "library",
-      "version": "1.0.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/equivalent@1.0.2",
+      "bom-ref": "pkg:cargo/equivalent@[VERSION]",
       "description": "Traits for key comparison in maps.",
       "name": "equivalent",
-      "purl": "pkg:cargo/equivalent@1.0.2",
+      "purl": "pkg:cargo/equivalent@[VERSION]",
       "type": "library",
-      "version": "1.0.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/fnv@1.0.7",
+      "bom-ref": "pkg:cargo/fnv@[VERSION]",
       "description": "Fowler–Noll–Vo hash function",
       "name": "fnv",
-      "purl": "pkg:cargo/fnv@1.0.7",
+      "purl": "pkg:cargo/fnv@[VERSION]",
       "type": "library",
-      "version": "1.0.7"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/form_urlencoded@1.2.2",
+      "bom-ref": "pkg:cargo/form_urlencoded@[VERSION]",
       "description": "Parser and serializer for the application/x-www-form-urlencoded syntax, as used by HTML forms.",
       "name": "form_urlencoded",
-      "purl": "pkg:cargo/form_urlencoded@1.2.2",
+      "purl": "pkg:cargo/form_urlencoded@[VERSION]",
       "type": "library",
-      "version": "1.2.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/futures-channel@0.3.31",
+      "bom-ref": "pkg:cargo/futures-channel@[VERSION]",
       "description": "Channels for asynchronous communication using futures-rs.\n",
       "name": "futures-channel",
-      "purl": "pkg:cargo/futures-channel@0.3.31",
+      "purl": "pkg:cargo/futures-channel@[VERSION]",
       "type": "library",
-      "version": "0.3.31"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/futures-core@0.3.31",
+      "bom-ref": "pkg:cargo/futures-core@[VERSION]",
       "description": "The core traits and types in for the `futures` library.\n",
       "name": "futures-core",
-      "purl": "pkg:cargo/futures-core@0.3.31",
+      "purl": "pkg:cargo/futures-core@[VERSION]",
       "type": "library",
-      "version": "0.3.31"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/futures-sink@0.3.31",
+      "bom-ref": "pkg:cargo/futures-sink@[VERSION]",
       "description": "The asynchronous `Sink` trait for the futures-rs library.\n",
       "name": "futures-sink",
-      "purl": "pkg:cargo/futures-sink@0.3.31",
+      "purl": "pkg:cargo/futures-sink@[VERSION]",
       "type": "library",
-      "version": "0.3.31"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/futures-task@0.3.31",
+      "bom-ref": "pkg:cargo/futures-task@[VERSION]",
       "description": "Tools for working with tasks.\n",
       "name": "futures-task",
-      "purl": "pkg:cargo/futures-task@0.3.31",
+      "purl": "pkg:cargo/futures-task@[VERSION]",
       "type": "library",
-      "version": "0.3.31"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/futures-util@0.3.31",
+      "bom-ref": "pkg:cargo/futures-util@[VERSION]",
       "description": "Common utilities and extension traits for the futures-rs library.\n",
       "name": "futures-util",
-      "purl": "pkg:cargo/futures-util@0.3.31",
+      "purl": "pkg:cargo/futures-util@[VERSION]",
       "type": "library",
-      "version": "0.3.31"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/h2@0.4.12",
+      "bom-ref": "pkg:cargo/h2@[VERSION]",
       "description": "An HTTP/2 client and server",
       "name": "h2",
-      "purl": "pkg:cargo/h2@0.4.12",
+      "purl": "pkg:cargo/h2@[VERSION]",
       "type": "library",
-      "version": "0.4.12"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/hashbrown@0.16.0",
+      "bom-ref": "pkg:cargo/hashbrown@[VERSION]",
       "description": "A Rust port of Google's SwissTable hash map",
       "name": "hashbrown",
-      "purl": "pkg:cargo/hashbrown@0.16.0",
+      "purl": "pkg:cargo/hashbrown@[VERSION]",
       "type": "library",
-      "version": "0.16.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/http@1.3.1",
+      "bom-ref": "pkg:cargo/http@[VERSION]",
       "description": "A set of types for representing HTTP requests and responses.\n",
       "name": "http",
-      "purl": "pkg:cargo/http@1.3.1",
+      "purl": "pkg:cargo/http@[VERSION]",
       "type": "library",
-      "version": "1.3.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/http-body@1.0.1",
+      "bom-ref": "pkg:cargo/http-body@[VERSION]",
       "description": "Trait representing an asynchronous, streaming, HTTP request or response body.\n",
       "name": "http-body",
-      "purl": "pkg:cargo/http-body@1.0.1",
+      "purl": "pkg:cargo/http-body@[VERSION]",
       "type": "library",
-      "version": "1.0.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/http-body-util@0.1.3",
+      "bom-ref": "pkg:cargo/http-body-util@[VERSION]",
       "description": "Combinators and adapters for HTTP request or response bodies.\n",
       "name": "http-body-util",
-      "purl": "pkg:cargo/http-body-util@0.1.3",
+      "purl": "pkg:cargo/http-body-util@[VERSION]",
       "type": "library",
-      "version": "0.1.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/httparse@1.10.1",
+      "bom-ref": "pkg:cargo/httparse@[VERSION]",
       "description": "A tiny, safe, speedy, zero-copy HTTP/1.x parser.",
       "name": "httparse",
-      "purl": "pkg:cargo/httparse@1.10.1",
+      "purl": "pkg:cargo/httparse@[VERSION]",
       "type": "library",
-      "version": "1.10.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/httpdate@1.0.3",
+      "bom-ref": "pkg:cargo/httpdate@[VERSION]",
       "description": "HTTP date parsing and formatting",
       "name": "httpdate",
-      "purl": "pkg:cargo/httpdate@1.0.3",
+      "purl": "pkg:cargo/httpdate@[VERSION]",
       "type": "library",
-      "version": "1.0.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/hyper@1.7.0",
+      "bom-ref": "pkg:cargo/hyper@[VERSION]",
       "description": "A protective and efficient HTTP library for all.",
       "name": "hyper",
-      "purl": "pkg:cargo/hyper@1.7.0",
+      "purl": "pkg:cargo/hyper@[VERSION]",
       "type": "library",
-      "version": "1.7.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/hyper-timeout@0.5.2",
+      "bom-ref": "pkg:cargo/hyper-timeout@[VERSION]",
       "description": "A connect, read and write timeout aware connector to be used with hyper Client.",
       "name": "hyper-timeout",
-      "purl": "pkg:cargo/hyper-timeout@0.5.2",
+      "purl": "pkg:cargo/hyper-timeout@[VERSION]",
       "type": "library",
-      "version": "0.5.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/hyper-util@0.1.17",
+      "bom-ref": "pkg:cargo/hyper-util@[VERSION]",
       "description": "hyper utilities",
       "name": "hyper-util",
-      "purl": "pkg:cargo/hyper-util@0.1.17",
+      "purl": "pkg:cargo/hyper-util@[VERSION]",
       "type": "library",
-      "version": "0.1.17"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/indexmap@2.11.4",
+      "bom-ref": "pkg:cargo/indexmap@[VERSION]",
       "description": "A hash table with consistent order and fast iteration.",
       "name": "indexmap",
-      "purl": "pkg:cargo/indexmap@2.11.4",
+      "purl": "pkg:cargo/indexmap@[VERSION]",
       "type": "library",
-      "version": "2.11.4"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/itoa@1.0.15",
+      "bom-ref": "pkg:cargo/itoa@[VERSION]",
       "description": "Fast integer primitive to string conversion",
       "name": "itoa",
-      "purl": "pkg:cargo/itoa@1.0.15",
+      "purl": "pkg:cargo/itoa@[VERSION]",
       "type": "library",
-      "version": "1.0.15"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/lazy_static@1.5.0",
+      "bom-ref": "pkg:cargo/lazy_static@[VERSION]",
       "description": "A macro for declaring lazily evaluated statics in Rust.",
       "name": "lazy_static",
-      "purl": "pkg:cargo/lazy_static@1.5.0",
+      "purl": "pkg:cargo/lazy_static@[VERSION]",
       "type": "library",
-      "version": "1.5.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/libc@0.2.177",
+      "bom-ref": "pkg:cargo/libc@[VERSION]",
       "description": "Raw FFI bindings to platform libraries like libc.",
       "name": "libc",
-      "purl": "pkg:cargo/libc@0.2.177",
+      "purl": "pkg:cargo/libc@[VERSION]",
       "type": "library",
-      "version": "0.2.177"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/lock_api@0.4.14",
+      "bom-ref": "pkg:cargo/lock_api@[VERSION]",
       "description": "Wrappers to create fully-featured Mutex and RwLock types. Compatible with no_std.",
       "name": "lock_api",
-      "purl": "pkg:cargo/lock_api@0.4.14",
+      "purl": "pkg:cargo/lock_api@[VERSION]",
       "type": "library",
-      "version": "0.4.14"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/log@0.4.28",
+      "bom-ref": "pkg:cargo/log@[VERSION]",
       "description": "A lightweight logging facade for Rust\n",
       "name": "log",
-      "purl": "pkg:cargo/log@0.4.28",
+      "purl": "pkg:cargo/log@[VERSION]",
       "type": "library",
-      "version": "0.4.28"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/matchit@0.7.3",
+      "bom-ref": "pkg:cargo/matchit@[VERSION]",
       "description": "A high performance, zero-copy URL router.",
       "name": "matchit",
-      "purl": "pkg:cargo/matchit@0.7.3",
+      "purl": "pkg:cargo/matchit@[VERSION]",
       "type": "library",
-      "version": "0.7.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/matchit@0.8.4",
+      "bom-ref": "pkg:cargo/matchit@[VERSION]",
       "description": "A high performance, zero-copy URL router.",
       "name": "matchit",
-      "purl": "pkg:cargo/matchit@0.8.4",
+      "purl": "pkg:cargo/matchit@[VERSION]",
       "type": "library",
-      "version": "0.8.4"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/memchr@2.7.6",
+      "bom-ref": "pkg:cargo/memchr@[VERSION]",
       "description": "Provides extremely fast (uses SIMD on x86_64, aarch64 and wasm32) routines for\n1, 2 or 3 byte search and single substring search.\n",
       "name": "memchr",
-      "purl": "pkg:cargo/memchr@2.7.6",
+      "purl": "pkg:cargo/memchr@[VERSION]",
       "type": "library",
-      "version": "2.7.6"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/mime@0.3.17",
+      "bom-ref": "pkg:cargo/mime@[VERSION]",
       "description": "Strongly Typed Mimes",
       "name": "mime",
-      "purl": "pkg:cargo/mime@0.3.17",
+      "purl": "pkg:cargo/mime@[VERSION]",
       "type": "library",
-      "version": "0.3.17"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/mio@1.0.4",
+      "bom-ref": "pkg:cargo/mio@[VERSION]",
       "description": "Lightweight non-blocking I/O.",
       "name": "mio",
-      "purl": "pkg:cargo/mio@1.0.4",
+      "purl": "pkg:cargo/mio@[VERSION]",
       "type": "library",
-      "version": "1.0.4"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/nu-ansi-term@0.50.1",
+      "bom-ref": "pkg:cargo/nu-ansi-term@[VERSION]",
       "description": "Library for ANSI terminal colors and styles (bold, underline)",
       "name": "nu-ansi-term",
-      "purl": "pkg:cargo/nu-ansi-term@0.50.1",
+      "purl": "pkg:cargo/nu-ansi-term@[VERSION]",
       "type": "library",
-      "version": "0.50.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/once_cell@1.21.3",
+      "bom-ref": "pkg:cargo/once_cell@[VERSION]",
       "description": "Single assignment cells and lazy values.",
       "name": "once_cell",
-      "purl": "pkg:cargo/once_cell@1.21.3",
+      "purl": "pkg:cargo/once_cell@[VERSION]",
       "type": "library",
-      "version": "1.21.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/opentelemetry@0.30.0",
+      "bom-ref": "pkg:cargo/opentelemetry@[VERSION]",
       "description": "OpenTelemetry API for Rust",
       "name": "opentelemetry",
-      "purl": "pkg:cargo/opentelemetry@0.30.0",
+      "purl": "pkg:cargo/opentelemetry@[VERSION]",
       "type": "library",
-      "version": "0.30.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/parking_lot@0.12.5",
+      "bom-ref": "pkg:cargo/parking_lot@[VERSION]",
       "description": "More compact and efficient implementations of the standard synchronization primitives.",
       "name": "parking_lot",
-      "purl": "pkg:cargo/parking_lot@0.12.5",
+      "purl": "pkg:cargo/parking_lot@[VERSION]",
       "type": "library",
-      "version": "0.12.5"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/parking_lot_core@0.9.12",
+      "bom-ref": "pkg:cargo/parking_lot_core@[VERSION]",
       "description": "An advanced API for creating custom synchronization primitives.",
       "name": "parking_lot_core",
-      "purl": "pkg:cargo/parking_lot_core@0.9.12",
+      "purl": "pkg:cargo/parking_lot_core@[VERSION]",
       "type": "library",
-      "version": "0.9.12"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/percent-encoding@2.3.2",
+      "bom-ref": "pkg:cargo/percent-encoding@[VERSION]",
       "description": "Percent encoding and decoding",
       "name": "percent-encoding",
-      "purl": "pkg:cargo/percent-encoding@2.3.2",
+      "purl": "pkg:cargo/percent-encoding@[VERSION]",
       "type": "library",
-      "version": "2.3.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/pin-project@1.1.10",
+      "bom-ref": "pkg:cargo/pin-project@[VERSION]",
       "description": "A crate for safe and ergonomic pin-projection.\n",
       "name": "pin-project",
-      "purl": "pkg:cargo/pin-project@1.1.10",
+      "purl": "pkg:cargo/pin-project@[VERSION]",
       "type": "library",
-      "version": "1.1.10"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/pin-project-internal@1.1.10",
+      "bom-ref": "pkg:cargo/pin-project-internal@[VERSION]",
       "description": "Implementation detail of the `pin-project` crate.\n",
       "name": "pin-project-internal",
       "properties": [
@@ -383,92 +383,92 @@ expression: normalized
           "value": "build"
         }
       ],
-      "purl": "pkg:cargo/pin-project-internal@1.1.10",
+      "purl": "pkg:cargo/pin-project-internal@[VERSION]",
       "type": "library",
-      "version": "1.1.10"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/pin-project-lite@0.2.16",
+      "bom-ref": "pkg:cargo/pin-project-lite@[VERSION]",
       "description": "A lightweight version of pin-project written with declarative macros.\n",
       "name": "pin-project-lite",
-      "purl": "pkg:cargo/pin-project-lite@0.2.16",
+      "purl": "pkg:cargo/pin-project-lite@[VERSION]",
       "type": "library",
-      "version": "0.2.16"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/pin-utils@0.1.0",
+      "bom-ref": "pkg:cargo/pin-utils@[VERSION]",
       "description": "Utilities for pinning\n",
       "name": "pin-utils",
-      "purl": "pkg:cargo/pin-utils@0.1.0",
+      "purl": "pkg:cargo/pin-utils@[VERSION]",
       "type": "library",
-      "version": "0.1.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/proc-macro2@1.0.101",
+      "bom-ref": "pkg:cargo/proc-macro2@[VERSION]",
       "description": "A substitute implementation of the compiler's `proc_macro` API to decouple token-based libraries from the procedural macro use case.",
       "name": "proc-macro2",
-      "purl": "pkg:cargo/proc-macro2@1.0.101",
+      "purl": "pkg:cargo/proc-macro2@[VERSION]",
       "type": "library",
-      "version": "1.0.101"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/prometheus@0.13.4",
+      "bom-ref": "pkg:cargo/prometheus@[VERSION]",
       "description": "Prometheus instrumentation library for Rust applications.",
       "name": "prometheus",
-      "purl": "pkg:cargo/prometheus@0.13.4",
+      "purl": "pkg:cargo/prometheus@[VERSION]",
       "type": "library",
-      "version": "0.13.4"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/protobuf@2.28.0",
+      "bom-ref": "pkg:cargo/protobuf@[VERSION]",
       "description": "Rust implementation of Google protocol buffers\n",
       "name": "protobuf",
-      "purl": "pkg:cargo/protobuf@2.28.0",
+      "purl": "pkg:cargo/protobuf@[VERSION]",
       "type": "library",
-      "version": "2.28.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/quote@1.0.41",
+      "bom-ref": "pkg:cargo/quote@[VERSION]",
       "description": "Quasi-quoting macro quote!(...)",
       "name": "quote",
-      "purl": "pkg:cargo/quote@1.0.41",
+      "purl": "pkg:cargo/quote@[VERSION]",
       "type": "library",
-      "version": "1.0.41"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/rustversion@1.0.22",
+      "bom-ref": "pkg:cargo/rustversion@[VERSION]",
       "description": "Conditional compilation according to rustc compiler version",
       "name": "rustversion",
-      "purl": "pkg:cargo/rustversion@1.0.22",
+      "purl": "pkg:cargo/rustversion@[VERSION]",
       "type": "library",
-      "version": "1.0.22"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/ryu@1.0.20",
+      "bom-ref": "pkg:cargo/ryu@[VERSION]",
       "description": "Fast floating point to string conversion",
       "name": "ryu",
-      "purl": "pkg:cargo/ryu@1.0.20",
+      "purl": "pkg:cargo/ryu@[VERSION]",
       "type": "library",
-      "version": "1.0.20"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/scopeguard@1.2.0",
+      "bom-ref": "pkg:cargo/scopeguard@[VERSION]",
       "description": "A RAII scope guard that will run a given closure when it goes out of scope,\neven if the code between panics (assuming unwinding panic).\n\nDefines the macros `defer!`, `defer_on_unwind!`, `defer_on_success!` as\nshorthands for guards with one of the implemented strategies.\n",
       "name": "scopeguard",
-      "purl": "pkg:cargo/scopeguard@1.2.0",
+      "purl": "pkg:cargo/scopeguard@[VERSION]",
       "type": "library",
-      "version": "1.2.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde@1.0.195",
+      "bom-ref": "pkg:cargo/serde@[VERSION]",
       "description": "A generic serialization/deserialization framework",
       "name": "serde",
-      "purl": "pkg:cargo/serde@1.0.195",
+      "purl": "pkg:cargo/serde@[VERSION]",
       "type": "library",
-      "version": "1.0.195"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_derive@1.0.195",
+      "bom-ref": "pkg:cargo/serde_derive@[VERSION]",
       "description": "Macros 1.1 implementation of #[derive(Serialize, Deserialize)]",
       "name": "serde_derive",
       "properties": [
@@ -477,116 +477,116 @@ expression: normalized
           "value": "build"
         }
       ],
-      "purl": "pkg:cargo/serde_derive@1.0.195",
+      "purl": "pkg:cargo/serde_derive@[VERSION]",
       "type": "library",
-      "version": "1.0.195"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_json@1.0.143",
+      "bom-ref": "pkg:cargo/serde_json@[VERSION]",
       "description": "A JSON serialization file format",
       "name": "serde_json",
-      "purl": "pkg:cargo/serde_json@1.0.143",
+      "purl": "pkg:cargo/serde_json@[VERSION]",
       "type": "library",
-      "version": "1.0.143"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_path_to_error@0.1.17",
+      "bom-ref": "pkg:cargo/serde_path_to_error@[VERSION]",
       "description": "Path to the element that failed to deserialize",
       "name": "serde_path_to_error",
-      "purl": "pkg:cargo/serde_path_to_error@0.1.17",
+      "purl": "pkg:cargo/serde_path_to_error@[VERSION]",
       "type": "library",
-      "version": "0.1.17"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_spanned@1.0.0",
+      "bom-ref": "pkg:cargo/serde_spanned@[VERSION]",
       "description": "Serde-compatible spanned Value",
       "name": "serde_spanned",
-      "purl": "pkg:cargo/serde_spanned@1.0.0",
+      "purl": "pkg:cargo/serde_spanned@[VERSION]",
       "type": "library",
-      "version": "1.0.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_urlencoded@0.7.1",
+      "bom-ref": "pkg:cargo/serde_urlencoded@[VERSION]",
       "description": "`x-www-form-urlencoded` meets Serde",
       "name": "serde_urlencoded",
-      "purl": "pkg:cargo/serde_urlencoded@0.7.1",
+      "purl": "pkg:cargo/serde_urlencoded@[VERSION]",
       "type": "library",
-      "version": "0.7.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/serde_yaml@0.9.34+deprecated",
+      "bom-ref": "pkg:cargo/serde_yaml@[VERSION]+deprecated",
       "description": "YAML data format for Serde",
       "name": "serde_yaml",
-      "purl": "pkg:cargo/serde_yaml@0.9.34+deprecated",
+      "purl": "pkg:cargo/serde_yaml@[VERSION]+deprecated",
       "type": "library",
       "version": "0.9.34+deprecated"
     },
     {
-      "bom-ref": "pkg:cargo/sharded-slab@0.1.7",
+      "bom-ref": "pkg:cargo/sharded-slab@[VERSION]",
       "description": "A lock-free concurrent slab.\n",
       "name": "sharded-slab",
-      "purl": "pkg:cargo/sharded-slab@0.1.7",
+      "purl": "pkg:cargo/sharded-slab@[VERSION]",
       "type": "library",
-      "version": "0.1.7"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/slab@0.4.11",
+      "bom-ref": "pkg:cargo/slab@[VERSION]",
       "description": "Pre-allocated storage for a uniform data type",
       "name": "slab",
-      "purl": "pkg:cargo/slab@0.4.11",
+      "purl": "pkg:cargo/slab@[VERSION]",
       "type": "library",
-      "version": "0.4.11"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/smallvec@1.15.1",
+      "bom-ref": "pkg:cargo/smallvec@[VERSION]",
       "description": "'Small vector' optimization: store up to a small number of items on the stack",
       "name": "smallvec",
-      "purl": "pkg:cargo/smallvec@1.15.1",
+      "purl": "pkg:cargo/smallvec@[VERSION]",
       "type": "library",
-      "version": "1.15.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/socket2@0.6.0",
+      "bom-ref": "pkg:cargo/socket2@[VERSION]",
       "description": "Utilities for handling networking sockets with a maximal amount of configuration\npossible intended.\n",
       "name": "socket2",
-      "purl": "pkg:cargo/socket2@0.6.0",
+      "purl": "pkg:cargo/socket2@[VERSION]",
       "type": "library",
-      "version": "0.6.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/syn@2.0.106",
+      "bom-ref": "pkg:cargo/syn@[VERSION]",
       "description": "Parser for Rust source code",
       "name": "syn",
-      "purl": "pkg:cargo/syn@2.0.106",
+      "purl": "pkg:cargo/syn@[VERSION]",
       "type": "library",
-      "version": "2.0.106"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/sync_wrapper@1.0.2",
+      "bom-ref": "pkg:cargo/sync_wrapper@[VERSION]",
       "description": "A tool for enlisting the compiler's help in proving the absence of concurrency",
       "name": "sync_wrapper",
-      "purl": "pkg:cargo/sync_wrapper@1.0.2",
+      "purl": "pkg:cargo/sync_wrapper@[VERSION]",
       "type": "library",
-      "version": "1.0.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/thiserror@1.0.69",
+      "bom-ref": "pkg:cargo/thiserror@[VERSION]",
       "description": "derive(Error)",
       "name": "thiserror",
-      "purl": "pkg:cargo/thiserror@1.0.69",
+      "purl": "pkg:cargo/thiserror@[VERSION]",
       "type": "library",
-      "version": "1.0.69"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/thiserror@2.0.17",
+      "bom-ref": "pkg:cargo/thiserror@[VERSION]",
       "description": "derive(Error)",
       "name": "thiserror",
-      "purl": "pkg:cargo/thiserror@2.0.17",
+      "purl": "pkg:cargo/thiserror@[VERSION]",
       "type": "library",
-      "version": "2.0.17"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/thiserror-impl@1.0.69",
+      "bom-ref": "pkg:cargo/thiserror-impl@[VERSION]",
       "description": "Implementation detail of the `thiserror` crate",
       "name": "thiserror-impl",
       "properties": [
@@ -595,12 +595,12 @@ expression: normalized
           "value": "build"
         }
       ],
-      "purl": "pkg:cargo/thiserror-impl@1.0.69",
+      "purl": "pkg:cargo/thiserror-impl@[VERSION]",
       "type": "library",
-      "version": "1.0.69"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/thiserror-impl@2.0.17",
+      "bom-ref": "pkg:cargo/thiserror-impl@[VERSION]",
       "description": "Implementation detail of the `thiserror` crate",
       "name": "thiserror-impl",
       "properties": [
@@ -609,28 +609,28 @@ expression: normalized
           "value": "build"
         }
       ],
-      "purl": "pkg:cargo/thiserror-impl@2.0.17",
+      "purl": "pkg:cargo/thiserror-impl@[VERSION]",
       "type": "library",
-      "version": "2.0.17"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/thread_local@1.1.9",
+      "bom-ref": "pkg:cargo/thread_local@[VERSION]",
       "description": "Per-object thread-local storage",
       "name": "thread_local",
-      "purl": "pkg:cargo/thread_local@1.1.9",
+      "purl": "pkg:cargo/thread_local@[VERSION]",
       "type": "library",
-      "version": "1.1.9"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tokio@1.47.1",
+      "bom-ref": "pkg:cargo/tokio@[VERSION]",
       "description": "An event-driven, non-blocking I/O platform for writing asynchronous I/O\nbacked applications.\n",
       "name": "tokio",
-      "purl": "pkg:cargo/tokio@1.47.1",
+      "purl": "pkg:cargo/tokio@[VERSION]",
       "type": "library",
-      "version": "1.47.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tokio-macros@2.5.0",
+      "bom-ref": "pkg:cargo/tokio-macros@[VERSION]",
       "description": "Tokio's proc macros.\n",
       "name": "tokio-macros",
       "properties": [
@@ -639,886 +639,886 @@ expression: normalized
           "value": "build"
         }
       ],
-      "purl": "pkg:cargo/tokio-macros@2.5.0",
+      "purl": "pkg:cargo/tokio-macros@[VERSION]",
       "type": "library",
-      "version": "2.5.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tokio-stream@0.1.17",
+      "bom-ref": "pkg:cargo/tokio-stream@[VERSION]",
       "description": "Utilities to work with `Stream` and `tokio`.\n",
       "name": "tokio-stream",
-      "purl": "pkg:cargo/tokio-stream@0.1.17",
+      "purl": "pkg:cargo/tokio-stream@[VERSION]",
       "type": "library",
-      "version": "0.1.17"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tokio-util@0.7.16",
+      "bom-ref": "pkg:cargo/tokio-util@[VERSION]",
       "description": "Additional utilities for working with Tokio.\n",
       "name": "tokio-util",
-      "purl": "pkg:cargo/tokio-util@0.7.16",
+      "purl": "pkg:cargo/tokio-util@[VERSION]",
       "type": "library",
-      "version": "0.7.16"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/toml@0.9.5",
+      "bom-ref": "pkg:cargo/toml@[VERSION]",
       "description": "A native Rust encoder and decoder of TOML-formatted files and streams. Provides\nimplementations of the standard Serialize/Deserialize traits for TOML data to\nfacilitate deserializing and serializing Rust structures.\n",
       "name": "toml",
-      "purl": "pkg:cargo/toml@0.9.5",
+      "purl": "pkg:cargo/toml@[VERSION]",
       "type": "library",
-      "version": "0.9.5"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/toml_datetime@0.7.0",
+      "bom-ref": "pkg:cargo/toml_datetime@[VERSION]",
       "description": "A TOML-compatible datetime type",
       "name": "toml_datetime",
-      "purl": "pkg:cargo/toml_datetime@0.7.0",
+      "purl": "pkg:cargo/toml_datetime@[VERSION]",
       "type": "library",
-      "version": "0.7.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/toml_parser@1.0.3",
+      "bom-ref": "pkg:cargo/toml_parser@[VERSION]",
       "description": "Yet another format-preserving TOML parser.",
       "name": "toml_parser",
-      "purl": "pkg:cargo/toml_parser@1.0.3",
+      "purl": "pkg:cargo/toml_parser@[VERSION]",
       "type": "library",
-      "version": "1.0.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/toml_writer@1.0.3",
+      "bom-ref": "pkg:cargo/toml_writer@[VERSION]",
       "description": "A low-level interface for writing out TOML\n",
       "name": "toml_writer",
-      "purl": "pkg:cargo/toml_writer@1.0.3",
+      "purl": "pkg:cargo/toml_writer@[VERSION]",
       "type": "library",
-      "version": "1.0.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tonic@0.14.2",
+      "bom-ref": "pkg:cargo/tonic@[VERSION]",
       "description": "A gRPC over HTTP/2 implementation focused on high performance, interoperability, and flexibility.\n",
       "name": "tonic",
-      "purl": "pkg:cargo/tonic@0.14.2",
+      "purl": "pkg:cargo/tonic@[VERSION]",
       "type": "library",
-      "version": "0.14.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tower@0.5.2",
+      "bom-ref": "pkg:cargo/tower@[VERSION]",
       "description": "Tower is a library of modular and reusable components for building robust\nclients and servers.\n",
       "name": "tower",
-      "purl": "pkg:cargo/tower@0.5.2",
+      "purl": "pkg:cargo/tower@[VERSION]",
       "type": "library",
-      "version": "0.5.2"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tower-layer@0.3.3",
+      "bom-ref": "pkg:cargo/tower-layer@[VERSION]",
       "description": "Decorates a `Service` to allow easy composition between `Service`s.\n",
       "name": "tower-layer",
-      "purl": "pkg:cargo/tower-layer@0.3.3",
+      "purl": "pkg:cargo/tower-layer@[VERSION]",
       "type": "library",
-      "version": "0.3.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tower-service@0.3.3",
+      "bom-ref": "pkg:cargo/tower-service@[VERSION]",
       "description": "Trait representing an asynchronous, request / response based, client or server.\n",
       "name": "tower-service",
-      "purl": "pkg:cargo/tower-service@0.3.3",
+      "purl": "pkg:cargo/tower-service@[VERSION]",
       "type": "library",
-      "version": "0.3.3"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tracing@0.1.40",
+      "bom-ref": "pkg:cargo/tracing@[VERSION]",
       "description": "Application-level tracing for Rust.\n",
       "name": "tracing",
-      "purl": "pkg:cargo/tracing@0.1.40",
+      "purl": "pkg:cargo/tracing@[VERSION]",
       "type": "library",
-      "version": "0.1.40"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tracing-attributes@0.1.30",
+      "bom-ref": "pkg:cargo/tracing-attributes@[VERSION]",
       "description": "Procedural macro attributes for automatically instrumenting functions.\n",
       "name": "tracing-attributes",
-      "purl": "pkg:cargo/tracing-attributes@0.1.30",
+      "purl": "pkg:cargo/tracing-attributes@[VERSION]",
       "type": "library",
-      "version": "0.1.30"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tracing-core@0.1.34",
+      "bom-ref": "pkg:cargo/tracing-core@[VERSION]",
       "description": "Core primitives for application-level tracing.\n",
       "name": "tracing-core",
-      "purl": "pkg:cargo/tracing-core@0.1.34",
+      "purl": "pkg:cargo/tracing-core@[VERSION]",
       "type": "library",
-      "version": "0.1.34"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tracing-log@0.2.0",
+      "bom-ref": "pkg:cargo/tracing-log@[VERSION]",
       "description": "Provides compatibility between `tracing` and the `log` crate.\n",
       "name": "tracing-log",
-      "purl": "pkg:cargo/tracing-log@0.2.0",
+      "purl": "pkg:cargo/tracing-log@[VERSION]",
       "type": "library",
-      "version": "0.2.0"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tracing-otel-extra@0.30.10",
+      "bom-ref": "pkg:cargo/tracing-otel-extra@[VERSION]",
       "description": "Bootstrap utilities for tracing and OpenTelemetry integration.",
       "name": "tracing-otel-extra",
-      "purl": "pkg:cargo/tracing-otel-extra@0.30.10",
+      "purl": "pkg:cargo/tracing-otel-extra@[VERSION]",
       "type": "library",
-      "version": "0.30.10"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/tracing-subscriber@0.3.20",
+      "bom-ref": "pkg:cargo/tracing-subscriber@[VERSION]",
       "description": "Utilities for implementing and composing `tracing` subscribers.\n",
       "name": "tracing-subscriber",
-      "purl": "pkg:cargo/tracing-subscriber@0.3.20",
+      "purl": "pkg:cargo/tracing-subscriber@[VERSION]",
       "type": "library",
-      "version": "0.3.20"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/try-lock@0.2.5",
+      "bom-ref": "pkg:cargo/try-lock@[VERSION]",
       "description": "A lightweight atomic lock.",
       "name": "try-lock",
-      "purl": "pkg:cargo/try-lock@0.2.5",
+      "purl": "pkg:cargo/try-lock@[VERSION]",
       "type": "library",
-      "version": "0.2.5"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/unicode-ident@1.0.19",
+      "bom-ref": "pkg:cargo/unicode-ident@[VERSION]",
       "description": "Determine whether characters have the XID_Start or XID_Continue properties according to Unicode Standard Annex #31",
       "name": "unicode-ident",
-      "purl": "pkg:cargo/unicode-ident@1.0.19",
+      "purl": "pkg:cargo/unicode-ident@[VERSION]",
       "type": "library",
-      "version": "1.0.19"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/unsafe-libyaml@0.2.11",
+      "bom-ref": "pkg:cargo/unsafe-libyaml@[VERSION]",
       "description": "libyaml transpiled to rust by c2rust",
       "name": "unsafe-libyaml",
-      "purl": "pkg:cargo/unsafe-libyaml@0.2.11",
+      "purl": "pkg:cargo/unsafe-libyaml@[VERSION]",
       "type": "library",
-      "version": "0.2.11"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/want@0.3.1",
+      "bom-ref": "pkg:cargo/want@[VERSION]",
       "description": "Detect when another Future wants a result.",
       "name": "want",
-      "purl": "pkg:cargo/want@0.3.1",
+      "purl": "pkg:cargo/want@[VERSION]",
       "type": "library",
-      "version": "0.3.1"
+      "version": "[VERSION]"
     },
     {
-      "bom-ref": "pkg:cargo/winnow@0.7.13",
+      "bom-ref": "pkg:cargo/winnow@[VERSION]",
       "description": "A byte-oriented, zero-copy, parser combinators library",
       "name": "winnow",
-      "purl": "pkg:cargo/winnow@0.7.13",
+      "purl": "pkg:cargo/winnow@[VERSION]",
       "type": "library",
-      "version": "0.7.13"
+      "version": "[VERSION]"
     }
   ],
   "dependencies": [
     {
-      "ref": "pkg:cargo/anyhow@1.0.100"
+      "ref": "pkg:cargo/anyhow@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/syn@2.0.106"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/syn@[VERSION]"
       ],
-      "ref": "pkg:cargo/async-trait@0.1.89"
+      "ref": "pkg:cargo/async-trait@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/atomic-waker@1.1.2"
+      "ref": "pkg:cargo/atomic-waker@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/async-trait@0.1.89",
-        "pkg:cargo/axum-core@0.4.5",
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-util@0.3.31",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/http-body-util@0.1.3",
-        "pkg:cargo/hyper@1.7.0",
-        "pkg:cargo/hyper-util@0.1.17",
-        "pkg:cargo/itoa@1.0.15",
-        "pkg:cargo/matchit@0.7.3",
-        "pkg:cargo/memchr@2.7.6",
-        "pkg:cargo/mime@0.3.17",
-        "pkg:cargo/percent-encoding@2.3.2",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/rustversion@1.0.22",
-        "pkg:cargo/serde@1.0.195",
-        "pkg:cargo/serde_json@1.0.143",
-        "pkg:cargo/serde_path_to_error@0.1.17",
-        "pkg:cargo/serde_urlencoded@0.7.1",
-        "pkg:cargo/sync_wrapper@1.0.2",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/tower@0.5.2",
-        "pkg:cargo/tower-layer@0.3.3",
-        "pkg:cargo/tower-service@0.3.3",
-        "pkg:cargo/tracing@0.1.40"
+        "pkg:cargo/async-trait@[VERSION]",
+        "pkg:cargo/axum-core@[VERSION]",
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-util@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/http-body-util@[VERSION]",
+        "pkg:cargo/hyper@[VERSION]",
+        "pkg:cargo/hyper-util@[VERSION]",
+        "pkg:cargo/itoa@[VERSION]",
+        "pkg:cargo/matchit@[VERSION]",
+        "pkg:cargo/memchr@[VERSION]",
+        "pkg:cargo/mime@[VERSION]",
+        "pkg:cargo/percent-encoding@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/rustversion@[VERSION]",
+        "pkg:cargo/serde@[VERSION]",
+        "pkg:cargo/serde_json@[VERSION]",
+        "pkg:cargo/serde_path_to_error@[VERSION]",
+        "pkg:cargo/serde_urlencoded@[VERSION]",
+        "pkg:cargo/sync_wrapper@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/tower@[VERSION]",
+        "pkg:cargo/tower-layer@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]"
       ],
-      "ref": "pkg:cargo/axum@0.7.9"
+      "ref": "pkg:cargo/axum@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/axum-core@0.5.5",
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-util@0.3.31",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/http-body-util@0.1.3",
-        "pkg:cargo/itoa@1.0.15",
-        "pkg:cargo/matchit@0.8.4",
-        "pkg:cargo/memchr@2.7.6",
-        "pkg:cargo/mime@0.3.17",
-        "pkg:cargo/percent-encoding@2.3.2",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/rustversion@1.0.22",
-        "pkg:cargo/serde@1.0.195",
-        "pkg:cargo/sync_wrapper@1.0.2",
-        "pkg:cargo/tower@0.5.2",
-        "pkg:cargo/tower-layer@0.3.3",
-        "pkg:cargo/tower-service@0.3.3"
+        "pkg:cargo/axum-core@[VERSION]",
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-util@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/http-body-util@[VERSION]",
+        "pkg:cargo/itoa@[VERSION]",
+        "pkg:cargo/matchit@[VERSION]",
+        "pkg:cargo/memchr@[VERSION]",
+        "pkg:cargo/mime@[VERSION]",
+        "pkg:cargo/percent-encoding@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/rustversion@[VERSION]",
+        "pkg:cargo/serde@[VERSION]",
+        "pkg:cargo/sync_wrapper@[VERSION]",
+        "pkg:cargo/tower@[VERSION]",
+        "pkg:cargo/tower-layer@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]"
       ],
-      "ref": "pkg:cargo/axum@0.8.4"
+      "ref": "pkg:cargo/axum@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/async-trait@0.1.89",
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-util@0.3.31",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/http-body-util@0.1.3",
-        "pkg:cargo/mime@0.3.17",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/rustversion@1.0.22",
-        "pkg:cargo/sync_wrapper@1.0.2",
-        "pkg:cargo/tower-layer@0.3.3",
-        "pkg:cargo/tower-service@0.3.3",
-        "pkg:cargo/tracing@0.1.40"
+        "pkg:cargo/async-trait@[VERSION]",
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-util@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/http-body-util@[VERSION]",
+        "pkg:cargo/mime@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/rustversion@[VERSION]",
+        "pkg:cargo/sync_wrapper@[VERSION]",
+        "pkg:cargo/tower-layer@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]"
       ],
-      "ref": "pkg:cargo/axum-core@0.4.5"
+      "ref": "pkg:cargo/axum-core@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/http-body-util@0.1.3",
-        "pkg:cargo/mime@0.3.17",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/sync_wrapper@1.0.2",
-        "pkg:cargo/tower-layer@0.3.3",
-        "pkg:cargo/tower-service@0.3.3"
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/http-body-util@[VERSION]",
+        "pkg:cargo/mime@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/sync_wrapper@[VERSION]",
+        "pkg:cargo/tower-layer@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]"
       ],
-      "ref": "pkg:cargo/axum-core@0.5.5"
+      "ref": "pkg:cargo/axum-core@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/base64@0.22.1"
+      "ref": "pkg:cargo/base64@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/bytes@1.10.1"
+      "ref": "pkg:cargo/bytes@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/cfg-if@1.0.3"
+      "ref": "pkg:cargo/cfg-if@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/equivalent@1.0.2"
+      "ref": "pkg:cargo/equivalent@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/fnv@1.0.7"
+      "ref": "pkg:cargo/fnv@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/percent-encoding@2.3.2"
+        "pkg:cargo/percent-encoding@[VERSION]"
       ],
-      "ref": "pkg:cargo/form_urlencoded@1.2.2"
+      "ref": "pkg:cargo/form_urlencoded@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/futures-core@0.3.31"
+        "pkg:cargo/futures-core@[VERSION]"
       ],
-      "ref": "pkg:cargo/futures-channel@0.3.31"
+      "ref": "pkg:cargo/futures-channel@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/futures-core@0.3.31"
+      "ref": "pkg:cargo/futures-core@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/futures-sink@0.3.31"
+      "ref": "pkg:cargo/futures-sink@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/futures-task@0.3.31"
+      "ref": "pkg:cargo/futures-task@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/futures-task@0.3.31",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/pin-utils@0.1.0"
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/futures-task@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/pin-utils@[VERSION]"
       ],
-      "ref": "pkg:cargo/futures-util@0.3.31"
+      "ref": "pkg:cargo/futures-util@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/atomic-waker@1.1.2",
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/fnv@1.0.7",
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/futures-sink@0.3.31",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/indexmap@2.11.4",
-        "pkg:cargo/slab@0.4.11",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/tokio-util@0.7.16",
-        "pkg:cargo/tracing@0.1.40"
+        "pkg:cargo/atomic-waker@[VERSION]",
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/fnv@[VERSION]",
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/futures-sink@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/indexmap@[VERSION]",
+        "pkg:cargo/slab@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/tokio-util@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]"
       ],
-      "ref": "pkg:cargo/h2@0.4.12"
+      "ref": "pkg:cargo/h2@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/hashbrown@0.16.0"
+      "ref": "pkg:cargo/hashbrown@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/fnv@1.0.7",
-        "pkg:cargo/itoa@1.0.15"
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/fnv@[VERSION]",
+        "pkg:cargo/itoa@[VERSION]"
       ],
-      "ref": "pkg:cargo/http@1.3.1"
+      "ref": "pkg:cargo/http@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/http@1.3.1"
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/http@[VERSION]"
       ],
-      "ref": "pkg:cargo/http-body@1.0.1"
+      "ref": "pkg:cargo/http-body@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/pin-project-lite@0.2.16"
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]"
       ],
-      "ref": "pkg:cargo/http-body-util@0.1.3"
+      "ref": "pkg:cargo/http-body-util@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/httparse@1.10.1"
+      "ref": "pkg:cargo/httparse@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/httpdate@1.0.3"
+      "ref": "pkg:cargo/httpdate@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/atomic-waker@1.1.2",
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-channel@0.3.31",
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/h2@0.4.12",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/httparse@1.10.1",
-        "pkg:cargo/httpdate@1.0.3",
-        "pkg:cargo/itoa@1.0.15",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/pin-utils@0.1.0",
-        "pkg:cargo/smallvec@1.15.1",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/want@0.3.1"
+        "pkg:cargo/atomic-waker@[VERSION]",
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-channel@[VERSION]",
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/h2@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/httparse@[VERSION]",
+        "pkg:cargo/httpdate@[VERSION]",
+        "pkg:cargo/itoa@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/pin-utils@[VERSION]",
+        "pkg:cargo/smallvec@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/want@[VERSION]"
       ],
-      "ref": "pkg:cargo/hyper@1.7.0"
+      "ref": "pkg:cargo/hyper@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/hyper@1.7.0",
-        "pkg:cargo/hyper-util@0.1.17",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/tower-service@0.3.3"
+        "pkg:cargo/hyper@[VERSION]",
+        "pkg:cargo/hyper-util@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]"
       ],
-      "ref": "pkg:cargo/hyper-timeout@0.5.2"
+      "ref": "pkg:cargo/hyper-timeout@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-channel@0.3.31",
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/futures-util@0.3.31",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/hyper@1.7.0",
-        "pkg:cargo/libc@0.2.177",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/socket2@0.6.0",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/tower-service@0.3.3",
-        "pkg:cargo/tracing@0.1.40"
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-channel@[VERSION]",
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/futures-util@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/hyper@[VERSION]",
+        "pkg:cargo/libc@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/socket2@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]"
       ],
-      "ref": "pkg:cargo/hyper-util@0.1.17"
+      "ref": "pkg:cargo/hyper-util@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/equivalent@1.0.2",
-        "pkg:cargo/hashbrown@0.16.0"
+        "pkg:cargo/equivalent@[VERSION]",
+        "pkg:cargo/hashbrown@[VERSION]"
       ],
-      "ref": "pkg:cargo/indexmap@2.11.4"
+      "ref": "pkg:cargo/indexmap@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/itoa@1.0.15"
+      "ref": "pkg:cargo/itoa@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/lazy_static@1.5.0"
+      "ref": "pkg:cargo/lazy_static@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/libc@0.2.177"
+      "ref": "pkg:cargo/libc@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/scopeguard@1.2.0"
+        "pkg:cargo/scopeguard@[VERSION]"
       ],
-      "ref": "pkg:cargo/lock_api@0.4.14"
+      "ref": "pkg:cargo/lock_api@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/log@0.4.28"
+      "ref": "pkg:cargo/log@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/matchit@0.7.3"
+      "ref": "pkg:cargo/matchit@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/matchit@0.8.4"
+      "ref": "pkg:cargo/matchit@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/memchr@2.7.6"
+      "ref": "pkg:cargo/memchr@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/mime@0.3.17"
+      "ref": "pkg:cargo/mime@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/libc@0.2.177"
+        "pkg:cargo/libc@[VERSION]"
       ],
-      "ref": "pkg:cargo/mio@1.0.4"
+      "ref": "pkg:cargo/mio@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/nu-ansi-term@0.50.1"
+      "ref": "pkg:cargo/nu-ansi-term@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/once_cell@1.21.3"
+      "ref": "pkg:cargo/once_cell@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/futures-sink@0.3.31",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/thiserror@2.0.17",
-        "pkg:cargo/tracing@0.1.40"
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/futures-sink@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/thiserror@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]"
       ],
-      "ref": "pkg:cargo/opentelemetry@0.30.0"
+      "ref": "pkg:cargo/opentelemetry@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/lock_api@0.4.14",
-        "pkg:cargo/parking_lot_core@0.9.12"
+        "pkg:cargo/lock_api@[VERSION]",
+        "pkg:cargo/parking_lot_core@[VERSION]"
       ],
-      "ref": "pkg:cargo/parking_lot@0.12.5"
+      "ref": "pkg:cargo/parking_lot@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/cfg-if@1.0.3",
-        "pkg:cargo/libc@0.2.177",
-        "pkg:cargo/smallvec@1.15.1"
+        "pkg:cargo/cfg-if@[VERSION]",
+        "pkg:cargo/libc@[VERSION]",
+        "pkg:cargo/smallvec@[VERSION]"
       ],
-      "ref": "pkg:cargo/parking_lot_core@0.9.12"
+      "ref": "pkg:cargo/parking_lot_core@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/percent-encoding@2.3.2"
+      "ref": "pkg:cargo/percent-encoding@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/pin-project-internal@1.1.10"
+        "pkg:cargo/pin-project-internal@[VERSION]"
       ],
-      "ref": "pkg:cargo/pin-project@1.1.10"
+      "ref": "pkg:cargo/pin-project@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/syn@2.0.106"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/syn@[VERSION]"
       ],
-      "ref": "pkg:cargo/pin-project-internal@1.1.10"
+      "ref": "pkg:cargo/pin-project-internal@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/pin-project-lite@0.2.16"
+      "ref": "pkg:cargo/pin-project-lite@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/pin-utils@0.1.0"
+      "ref": "pkg:cargo/pin-utils@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/unicode-ident@1.0.19"
+        "pkg:cargo/unicode-ident@[VERSION]"
       ],
-      "ref": "pkg:cargo/proc-macro2@1.0.101"
+      "ref": "pkg:cargo/proc-macro2@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/cfg-if@1.0.3",
-        "pkg:cargo/fnv@1.0.7",
-        "pkg:cargo/lazy_static@1.5.0",
-        "pkg:cargo/memchr@2.7.6",
-        "pkg:cargo/parking_lot@0.12.5",
-        "pkg:cargo/protobuf@2.28.0",
-        "pkg:cargo/thiserror@1.0.69"
+        "pkg:cargo/cfg-if@[VERSION]",
+        "pkg:cargo/fnv@[VERSION]",
+        "pkg:cargo/lazy_static@[VERSION]",
+        "pkg:cargo/memchr@[VERSION]",
+        "pkg:cargo/parking_lot@[VERSION]",
+        "pkg:cargo/protobuf@[VERSION]",
+        "pkg:cargo/thiserror@[VERSION]"
       ],
-      "ref": "pkg:cargo/prometheus@0.13.4"
+      "ref": "pkg:cargo/prometheus@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/protobuf@2.28.0"
+      "ref": "pkg:cargo/protobuf@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101"
+        "pkg:cargo/proc-macro2@[VERSION]"
       ],
-      "ref": "pkg:cargo/quote@1.0.41"
+      "ref": "pkg:cargo/quote@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/rustversion@1.0.22"
+      "ref": "pkg:cargo/rustversion@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/ryu@1.0.20"
+      "ref": "pkg:cargo/ryu@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/scopeguard@1.2.0"
+      "ref": "pkg:cargo/scopeguard@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/serde_derive@1.0.195"
+        "pkg:cargo/serde_derive@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde@1.0.195"
+      "ref": "pkg:cargo/serde@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/syn@2.0.106"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/syn@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde_derive@1.0.195"
+      "ref": "pkg:cargo/serde_derive@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/itoa@1.0.15",
-        "pkg:cargo/memchr@2.7.6",
-        "pkg:cargo/ryu@1.0.20",
-        "pkg:cargo/serde@1.0.195"
+        "pkg:cargo/itoa@[VERSION]",
+        "pkg:cargo/memchr@[VERSION]",
+        "pkg:cargo/ryu@[VERSION]",
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde_json@1.0.143"
+      "ref": "pkg:cargo/serde_json@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/itoa@1.0.15",
-        "pkg:cargo/serde@1.0.195"
+        "pkg:cargo/itoa@[VERSION]",
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde_path_to_error@0.1.17"
+      "ref": "pkg:cargo/serde_path_to_error@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/serde@1.0.195"
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde_spanned@1.0.0"
+      "ref": "pkg:cargo/serde_spanned@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/form_urlencoded@1.2.2",
-        "pkg:cargo/itoa@1.0.15",
-        "pkg:cargo/ryu@1.0.20",
-        "pkg:cargo/serde@1.0.195"
+        "pkg:cargo/form_urlencoded@[VERSION]",
+        "pkg:cargo/itoa@[VERSION]",
+        "pkg:cargo/ryu@[VERSION]",
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde_urlencoded@0.7.1"
+      "ref": "pkg:cargo/serde_urlencoded@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/indexmap@2.11.4",
-        "pkg:cargo/itoa@1.0.15",
-        "pkg:cargo/ryu@1.0.20",
-        "pkg:cargo/serde@1.0.195",
-        "pkg:cargo/unsafe-libyaml@0.2.11"
+        "pkg:cargo/indexmap@[VERSION]",
+        "pkg:cargo/itoa@[VERSION]",
+        "pkg:cargo/ryu@[VERSION]",
+        "pkg:cargo/serde@[VERSION]",
+        "pkg:cargo/unsafe-libyaml@[VERSION]"
       ],
-      "ref": "pkg:cargo/serde_yaml@0.9.34+deprecated"
+      "ref": "pkg:cargo/serde_yaml@[VERSION]+deprecated"
     },
     {
       "dependsOn": [
-        "pkg:cargo/lazy_static@1.5.0"
+        "pkg:cargo/lazy_static@[VERSION]"
       ],
-      "ref": "pkg:cargo/sharded-slab@0.1.7"
+      "ref": "pkg:cargo/sharded-slab@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/slab@0.4.11"
+      "ref": "pkg:cargo/slab@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/smallvec@1.15.1"
+      "ref": "pkg:cargo/smallvec@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/libc@0.2.177"
+        "pkg:cargo/libc@[VERSION]"
       ],
-      "ref": "pkg:cargo/socket2@0.6.0"
+      "ref": "pkg:cargo/socket2@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/unicode-ident@1.0.19"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/unicode-ident@[VERSION]"
       ],
-      "ref": "pkg:cargo/syn@2.0.106"
+      "ref": "pkg:cargo/syn@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/sync_wrapper@1.0.2"
+      "ref": "pkg:cargo/sync_wrapper@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/axum@0.7.9",
-        "pkg:cargo/log@0.4.28",
-        "pkg:cargo/opentelemetry@0.30.0",
-        "pkg:cargo/prometheus@0.13.4",
-        "pkg:cargo/serde@1.0.195",
-        "pkg:cargo/serde_yaml@0.9.34+deprecated",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/toml@0.9.5",
-        "pkg:cargo/tonic@0.14.2",
-        "pkg:cargo/tracing@0.1.40",
-        "pkg:cargo/tracing-otel-extra@0.30.10",
-        "pkg:cargo/tracing-subscriber@0.3.20"
+        "pkg:cargo/axum@[VERSION]",
+        "pkg:cargo/log@[VERSION]",
+        "pkg:cargo/opentelemetry@[VERSION]",
+        "pkg:cargo/prometheus@[VERSION]",
+        "pkg:cargo/serde@[VERSION]",
+        "pkg:cargo/serde_yaml@[VERSION]+deprecated",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/toml@[VERSION]",
+        "pkg:cargo/tonic@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]",
+        "pkg:cargo/tracing-otel-extra@[VERSION]",
+        "pkg:cargo/tracing-subscriber@[VERSION]"
       ],
-      "ref": "pkg:cargo/thicc@0.1.0"
+      "ref": "pkg:cargo/thicc@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/thiserror-impl@1.0.69"
+        "pkg:cargo/thiserror-impl@[VERSION]"
       ],
-      "ref": "pkg:cargo/thiserror@1.0.69"
+      "ref": "pkg:cargo/thiserror@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/thiserror-impl@2.0.17"
+        "pkg:cargo/thiserror-impl@[VERSION]"
       ],
-      "ref": "pkg:cargo/thiserror@2.0.17"
+      "ref": "pkg:cargo/thiserror@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/syn@2.0.106"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/syn@[VERSION]"
       ],
-      "ref": "pkg:cargo/thiserror-impl@1.0.69"
+      "ref": "pkg:cargo/thiserror-impl@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/syn@2.0.106"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/syn@[VERSION]"
       ],
-      "ref": "pkg:cargo/thiserror-impl@2.0.17"
+      "ref": "pkg:cargo/thiserror-impl@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/cfg-if@1.0.3"
+        "pkg:cargo/cfg-if@[VERSION]"
       ],
-      "ref": "pkg:cargo/thread_local@1.1.9"
+      "ref": "pkg:cargo/thread_local@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/libc@0.2.177",
-        "pkg:cargo/mio@1.0.4",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/socket2@0.6.0",
-        "pkg:cargo/tokio-macros@2.5.0"
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/libc@[VERSION]",
+        "pkg:cargo/mio@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/socket2@[VERSION]",
+        "pkg:cargo/tokio-macros@[VERSION]"
       ],
-      "ref": "pkg:cargo/tokio@1.47.1"
+      "ref": "pkg:cargo/tokio@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/syn@2.0.106"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/syn@[VERSION]"
       ],
-      "ref": "pkg:cargo/tokio-macros@2.5.0"
+      "ref": "pkg:cargo/tokio-macros@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/tokio@1.47.1"
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]"
       ],
-      "ref": "pkg:cargo/tokio-stream@0.1.17"
+      "ref": "pkg:cargo/tokio-stream@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/futures-sink@0.3.31",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/tokio@1.47.1"
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/futures-sink@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]"
       ],
-      "ref": "pkg:cargo/tokio-util@0.7.16"
+      "ref": "pkg:cargo/tokio-util@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/indexmap@2.11.4",
-        "pkg:cargo/serde@1.0.195",
-        "pkg:cargo/serde_spanned@1.0.0",
-        "pkg:cargo/toml_datetime@0.7.0",
-        "pkg:cargo/toml_parser@1.0.3",
-        "pkg:cargo/toml_writer@1.0.3",
-        "pkg:cargo/winnow@0.7.13"
+        "pkg:cargo/indexmap@[VERSION]",
+        "pkg:cargo/serde@[VERSION]",
+        "pkg:cargo/serde_spanned@[VERSION]",
+        "pkg:cargo/toml_datetime@[VERSION]",
+        "pkg:cargo/toml_parser@[VERSION]",
+        "pkg:cargo/toml_writer@[VERSION]",
+        "pkg:cargo/winnow@[VERSION]"
       ],
-      "ref": "pkg:cargo/toml@0.9.5"
+      "ref": "pkg:cargo/toml@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/serde@1.0.195"
+        "pkg:cargo/serde@[VERSION]"
       ],
-      "ref": "pkg:cargo/toml_datetime@0.7.0"
+      "ref": "pkg:cargo/toml_datetime@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/winnow@0.7.13"
+        "pkg:cargo/winnow@[VERSION]"
       ],
-      "ref": "pkg:cargo/toml_parser@1.0.3"
+      "ref": "pkg:cargo/toml_parser@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/toml_writer@1.0.3"
+      "ref": "pkg:cargo/toml_writer@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/async-trait@0.1.89",
-        "pkg:cargo/axum@0.8.4",
-        "pkg:cargo/base64@0.22.1",
-        "pkg:cargo/bytes@1.10.1",
-        "pkg:cargo/h2@0.4.12",
-        "pkg:cargo/http@1.3.1",
-        "pkg:cargo/http-body@1.0.1",
-        "pkg:cargo/http-body-util@0.1.3",
-        "pkg:cargo/hyper@1.7.0",
-        "pkg:cargo/hyper-timeout@0.5.2",
-        "pkg:cargo/hyper-util@0.1.17",
-        "pkg:cargo/percent-encoding@2.3.2",
-        "pkg:cargo/pin-project@1.1.10",
-        "pkg:cargo/socket2@0.6.0",
-        "pkg:cargo/sync_wrapper@1.0.2",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/tokio-stream@0.1.17",
-        "pkg:cargo/tower@0.5.2",
-        "pkg:cargo/tower-layer@0.3.3",
-        "pkg:cargo/tower-service@0.3.3",
-        "pkg:cargo/tracing@0.1.40"
+        "pkg:cargo/async-trait@[VERSION]",
+        "pkg:cargo/axum@[VERSION]",
+        "pkg:cargo/base64@[VERSION]",
+        "pkg:cargo/bytes@[VERSION]",
+        "pkg:cargo/h2@[VERSION]",
+        "pkg:cargo/http@[VERSION]",
+        "pkg:cargo/http-body@[VERSION]",
+        "pkg:cargo/http-body-util@[VERSION]",
+        "pkg:cargo/hyper@[VERSION]",
+        "pkg:cargo/hyper-timeout@[VERSION]",
+        "pkg:cargo/hyper-util@[VERSION]",
+        "pkg:cargo/percent-encoding@[VERSION]",
+        "pkg:cargo/pin-project@[VERSION]",
+        "pkg:cargo/socket2@[VERSION]",
+        "pkg:cargo/sync_wrapper@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/tokio-stream@[VERSION]",
+        "pkg:cargo/tower@[VERSION]",
+        "pkg:cargo/tower-layer@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]"
       ],
-      "ref": "pkg:cargo/tonic@0.14.2"
+      "ref": "pkg:cargo/tonic@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/futures-core@0.3.31",
-        "pkg:cargo/futures-util@0.3.31",
-        "pkg:cargo/indexmap@2.11.4",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/slab@0.4.11",
-        "pkg:cargo/sync_wrapper@1.0.2",
-        "pkg:cargo/tokio@1.47.1",
-        "pkg:cargo/tokio-util@0.7.16",
-        "pkg:cargo/tower-layer@0.3.3",
-        "pkg:cargo/tower-service@0.3.3",
-        "pkg:cargo/tracing@0.1.40"
+        "pkg:cargo/futures-core@[VERSION]",
+        "pkg:cargo/futures-util@[VERSION]",
+        "pkg:cargo/indexmap@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/slab@[VERSION]",
+        "pkg:cargo/sync_wrapper@[VERSION]",
+        "pkg:cargo/tokio@[VERSION]",
+        "pkg:cargo/tokio-util@[VERSION]",
+        "pkg:cargo/tower-layer@[VERSION]",
+        "pkg:cargo/tower-service@[VERSION]",
+        "pkg:cargo/tracing@[VERSION]"
       ],
-      "ref": "pkg:cargo/tower@0.5.2"
+      "ref": "pkg:cargo/tower@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/tower-layer@0.3.3"
+      "ref": "pkg:cargo/tower-layer@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/tower-service@0.3.3"
+      "ref": "pkg:cargo/tower-service@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/log@0.4.28",
-        "pkg:cargo/pin-project-lite@0.2.16",
-        "pkg:cargo/tracing-attributes@0.1.30",
-        "pkg:cargo/tracing-core@0.1.34"
+        "pkg:cargo/log@[VERSION]",
+        "pkg:cargo/pin-project-lite@[VERSION]",
+        "pkg:cargo/tracing-attributes@[VERSION]",
+        "pkg:cargo/tracing-core@[VERSION]"
       ],
-      "ref": "pkg:cargo/tracing@0.1.40"
+      "ref": "pkg:cargo/tracing@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/proc-macro2@1.0.101",
-        "pkg:cargo/quote@1.0.41",
-        "pkg:cargo/syn@2.0.106"
+        "pkg:cargo/proc-macro2@[VERSION]",
+        "pkg:cargo/quote@[VERSION]",
+        "pkg:cargo/syn@[VERSION]"
       ],
-      "ref": "pkg:cargo/tracing-attributes@0.1.30"
+      "ref": "pkg:cargo/tracing-attributes@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/once_cell@1.21.3"
+        "pkg:cargo/once_cell@[VERSION]"
       ],
-      "ref": "pkg:cargo/tracing-core@0.1.34"
+      "ref": "pkg:cargo/tracing-core@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/log@0.4.28",
-        "pkg:cargo/once_cell@1.21.3",
-        "pkg:cargo/tracing-core@0.1.34"
+        "pkg:cargo/log@[VERSION]",
+        "pkg:cargo/once_cell@[VERSION]",
+        "pkg:cargo/tracing-core@[VERSION]"
       ],
-      "ref": "pkg:cargo/tracing-log@0.2.0"
+      "ref": "pkg:cargo/tracing-log@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/anyhow@1.0.100",
-        "pkg:cargo/serde@1.0.195",
-        "pkg:cargo/serde_json@1.0.143"
+        "pkg:cargo/anyhow@[VERSION]",
+        "pkg:cargo/serde@[VERSION]",
+        "pkg:cargo/serde_json@[VERSION]"
       ],
-      "ref": "pkg:cargo/tracing-otel-extra@0.30.10"
+      "ref": "pkg:cargo/tracing-otel-extra@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/nu-ansi-term@0.50.1",
-        "pkg:cargo/sharded-slab@0.1.7",
-        "pkg:cargo/smallvec@1.15.1",
-        "pkg:cargo/thread_local@1.1.9",
-        "pkg:cargo/tracing-core@0.1.34",
-        "pkg:cargo/tracing-log@0.2.0"
+        "pkg:cargo/nu-ansi-term@[VERSION]",
+        "pkg:cargo/sharded-slab@[VERSION]",
+        "pkg:cargo/smallvec@[VERSION]",
+        "pkg:cargo/thread_local@[VERSION]",
+        "pkg:cargo/tracing-core@[VERSION]",
+        "pkg:cargo/tracing-log@[VERSION]"
       ],
-      "ref": "pkg:cargo/tracing-subscriber@0.3.20"
+      "ref": "pkg:cargo/tracing-subscriber@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/try-lock@0.2.5"
+      "ref": "pkg:cargo/try-lock@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/unicode-ident@1.0.19"
+      "ref": "pkg:cargo/unicode-ident@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/unsafe-libyaml@0.2.11"
+      "ref": "pkg:cargo/unsafe-libyaml@[VERSION]"
     },
     {
       "dependsOn": [
-        "pkg:cargo/try-lock@0.2.5"
+        "pkg:cargo/try-lock@[VERSION]"
       ],
-      "ref": "pkg:cargo/want@0.3.1"
+      "ref": "pkg:cargo/want@[VERSION]"
     },
     {
-      "ref": "pkg:cargo/winnow@0.7.13"
+      "ref": "pkg:cargo/winnow@[VERSION]"
     }
   ],
   "metadata": {
     "component": {
-      "bom-ref": "pkg:cargo/thicc@0.1.0",
+      "bom-ref": "pkg:cargo/thicc@[VERSION]",
       "name": "thicc",
-      "purl": "pkg:cargo/thicc@0.1.0",
+      "purl": "pkg:cargo/thicc@[VERSION]",
       "type": "application",
-      "version": "0.1.0"
+      "version": "[VERSION]"
     },
     "tools": [
       {
         "name": "cgx",
         "vendor": "cgx project",
-        "version": "0.0.3"
+        "version": "[VERSION]"
       }
     ]
   },
