@@ -1,15 +1,15 @@
 [package]
-authors      = ["Adam Nelson <anelson@apocryph.org>"]
-categories   = ["command-line-utilities", "development-tools"]
-description  = "Cargo subcommand for cgx - run Rust tools quickly without explicit installation"
-edition      = "2024"
-homepage     = "https://github.com/anelson-labs/cgx"
-license      = "MIT OR Apache-2.0"
-name         = "cargo-cgx"
-readme       = "README.md"
-repository   = "https://github.com/anelson-labs/cgx"
-rust-version = "1.85.1"
-version      = "0.0.4"
+authors                = ["Adam Nelson <anelson@apocryph.org>"]
+categories             = ["command-line-utilities", "development-tools"]
+description            = "Cargo subcommand for cgx - run Rust tools quickly without explicit installation"
+edition.workspace      = true
+homepage.workspace     = true
+license.workspace      = true
+name                   = "cargo-cgx"
+readme                 = "README.md"
+repository.workspace   = true
+rust-version.workspace = true
+version                = "0.0.4"
 
 [badges]
 maintenance = { status = "experimental" }

@@ -1,15 +1,15 @@
 [package]
-authors      = ["Adam Nelson <anelson@apocryph.org>"]
-categories   = ["command-line-utilities", "development-tools"]
-description  = "Core library for cgx, the Rust equivalent of uvx or npx for running Rust crates quickly and easily"
-edition      = "2024"
-homepage     = "https://github.com/anelson-labs/cgx"
-license      = "MIT OR Apache-2.0"
-name         = "cgx-core"
-readme       = "../README.md"
-repository   = "https://github.com/anelson-labs/cgx"
-rust-version = "1.85.1"
-version      = "0.0.4"
+authors                = ["Adam Nelson <anelson@apocryph.org>"]
+categories             = ["command-line-utilities", "development-tools"]
+description            = "Core library for cgx, the Rust equivalent of uvx or npx for running Rust crates quickly and easily"
+edition.workspace      = true
+homepage.workspace     = true
+license.workspace      = true
+name                   = "cgx-core"
+readme                 = "../README.md"
+repository.workspace   = true
+rust-version.workspace = true
+version                = "0.0.4"
 
 [package.metadata.cargo-machete]
 ignored = [
