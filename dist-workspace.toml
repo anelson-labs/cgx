@@ -1,5 +1,6 @@
 [workspace]
-members = ["cargo:."]
+# Only build binary crates, not the library crate (cgx-core)
+members = ["cargo:cgx", "cargo:cargo-cgx"]
 
 # Config for 'dist'
 [dist]
