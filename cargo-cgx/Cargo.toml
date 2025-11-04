@@ -9,7 +9,7 @@ name                   = "cargo-cgx"
 readme                 = "README.md"
 repository.workspace   = true
 rust-version.workspace = true
-version                = "0.0.4"
+version                = "0.0.5"
 
 [badges]
 maintenance = { status = "experimental" }
