@@ -10,6 +10,13 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# NOTE: Mac runners are temporarily DISABLED due to excessive cost
+# We burned through $45 in GitHub Actions runner spend in the first 4 days of the month,
+# with the vast majority attributable to macOS runner minutes ($0.08/min compared to
+# $0.008/min for Linux). Until this repo is public and we can use free community runners,
+# Mac builds will be run locally instead. To re-enable, uncomment the Mac entries in the
+# matrix configurations below.
+
 jobs:
   # Stage 0: Detect PR type to determine which CI path to use
   #
@@ -90,8 +97,10 @@ jobs:
         include:
           - os: windows-latest
             name: Windows amd64
-          - os: macos-13
-            name: Mac amd64
+          # DISABLED: Mac runner temporarily suspended due to cost
+          # Uncomment to re-enable Mac amd64 builds:
+          # - os: macos-13
+          #   name: Mac amd64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -204,8 +213,10 @@ jobs:
         include:
           - os: windows-latest
             name: Windows amd64
-          - os: macos-13
-            name: Mac amd64
+          # DISABLED: Mac runner temporarily suspended due to cost
+          # Uncomment to re-enable Mac amd64 builds:
+          # - os: macos-13
+          #   name: Mac amd64
           - os: ubuntu-latest
             name: Linux musl
             target: x86_64-unknown-linux-musl
@@ -263,8 +274,10 @@ jobs:
         include:
           - os: windows-11-arm64
             name: Windows ARM64
-          - os: macos-14
-            name: Mac ARM64
+          # DISABLED: Mac runner temporarily suspended due to cost
+          # Uncomment to re-enable Mac ARM64 builds:
+          # - os: macos-14
+          #   name: Mac ARM64
           - os: ubuntu-24.04-arm64
             name: Linux ARM64
     runs-on: ${{ matrix.os }}
