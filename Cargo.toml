@@ -1,6 +1,6 @@
 [workspace]
 members  = ["cgx", "cgx-core", "cargo-cgx"]
-resolver = "2"
+resolver = "3"
 
 [workspace.dependencies]
 assert-json-diff   = "2.0.2"
