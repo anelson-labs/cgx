@@ -29,14 +29,22 @@ semver_check = false
 
 
 # Advance all of the packages' versions in sync, to avoid confusion
+#
+# Maintain a single changelog for all packages.  Nearly all functionality will go in `cgx-core`, and yet no users will
+# ever directly use `cgx-core`, they will use the CLIs that wrap it, so it doesn't make sense to treat these like they
+# are separate for change logging purposes.
 [[package]]
-name          = "cgx"
-version_group = "cgx"
+changelog_include = ["cgx-core", "cargo-cgx"]
+changelog_path    = "./CHANGELOG.md"
+name              = "cgx"
+version_group     = "cgx"
 
 [[package]]
-name          = "cargo-cgx"
-version_group = "cgx"
+changelog_update = false
+name             = "cargo-cgx"
+version_group    = "cgx"
 
 [[package]]
-name          = "cgx-core"
-version_group = "cgx"
+changelog_update = false
+name             = "cgx-core"
+version_group    = "cgx"
