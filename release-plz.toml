@@ -12,6 +12,10 @@ dependencies_update = true
 # create tags for the releases
 git_tag_enable = true
 
+# Create a single tag for the version group instead of one tag per package
+# This prevents cargo-dist from creating separate releases for each package
+git_tag_name = "v{{version}}"
+
 # disable GitHub releases
 git_release_enable = false
 

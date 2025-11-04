@@ -10,13 +10,6 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
-# NOTE: Mac runners are temporarily DISABLED due to excessive cost
-# We burned through $45 in GitHub Actions runner spend in the first 4 days of the month,
-# with the vast majority attributable to macOS runner minutes ($0.08/min compared to
-# $0.008/min for Linux). Until this repo is public and we can use free community runners,
-# Mac builds will be run locally instead. To re-enable, uncomment the Mac entries in the
-# matrix configurations below.
-
 jobs:
   # Stage 0: Detect PR type to determine which CI path to use
   #
@@ -29,7 +22,7 @@ jobs:
   # - Workflows run from the base branch, so malicious PRs cannot modify this detection logic
   detect-pr-type:
     name: Detect PR Type
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       is-dependabot: ${{ steps.check.outputs.is-dependabot }}
     steps:
@@ -50,7 +43,7 @@ jobs:
     name: Dependabot Quick Check (Linux amd64)
     needs: detect-pr-type
     if: needs.detect-pr-type.outputs.is-dependabot == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -95,12 +88,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             name: Windows amd64
-          # DISABLED: Mac runner temporarily suspended due to cost
-          # Uncomment to re-enable Mac amd64 builds:
-          # - os: macos-13
-          #   name: Mac amd64
+          - os: macos-15
+            name: Mac ARM64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -121,7 +112,7 @@ jobs:
     name: Lint and Format Check
     needs: detect-pr-type
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -173,7 +164,7 @@ jobs:
     name: Test (Linux amd64)
     needs: [detect-pr-type, lint]
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -199,10 +190,9 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
-  # Stage 3: Tier 1 Platforms (Windows amd64, Mac amd64, Linux amd64 musl)
-  # These are also supported platforms, but windows and mac are more expensive to build,
-  # and linux musl is a less popular target, so we only invest in running these when we know
-  # that the basic linux amd64 build and tests have passed.
+  # Stage 3: Tier 1 Platforms (Windows amd64, Mac ARM64, Linux musl)
+  # Not to be confused with Rust "Tier 1" platforms, these are just the selection of platforms, after
+  # Linux amd64, that are most likely to catch paltform-specific breakage.
   test-tier1-platforms:
     name: Test (Tier 1 ${{ matrix.name }})
     needs: [detect-pr-type, test-linux-amd64]
@@ -211,13 +201,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             name: Windows amd64
-          # DISABLED: Mac runner temporarily suspended due to cost
-          # Uncomment to re-enable Mac amd64 builds:
-          # - os: macos-13
-          #   name: Mac amd64
-          - os: ubuntu-latest
+          - os: macos-15
+            name: Mac ARM64
+          - os: ubuntu-24.04
             name: Linux musl
             target: x86_64-unknown-linux-musl
     runs-on: ${{ matrix.os }}
@@ -260,26 +248,24 @@ jobs:
           TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
         run: cargo test --workspace ${{ env.TARGET_FLAG }}
 
-  # Stage 4: ARM Platforms (Windows ARM64, Mac ARM64, Linux ARM64)
-  # These are very expensive because we have to use what Github considers "large" runners for
-  # windows and linux, and mac is just expensive no matter what, so we only run these when we're
-  # sure that build and test have passed on the amd64 versions of all of these platforms
-  test-arm-platforms:
-    name: Test (ARM ${{ matrix.name }})
+  # Stage 4: Lesser Platforms (ARM + Intel Mac)
+  # These platforms are alternative architectures for the tier 1 targets, so in all likelihood work just as
+  # well as the primary arch, but we need to build and test them anyway in the interest of being thorough.
+  # There is no point wasting resources on these unless all of the tier 1 platforms have already passed.
+  test-tier2-platforms:
+    name: Test (Tier 2 ${{ matrix.name }})
     needs: [detect-pr-type, test-linux-amd64, test-tier1-platforms]
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-11-arm64
+          - os: windows-11-arm
             name: Windows ARM64
-          # DISABLED: Mac runner temporarily suspended due to cost
-          # Uncomment to re-enable Mac ARM64 builds:
-          # - os: macos-14
-          #   name: Mac ARM64
-          - os: ubuntu-24.04-arm64
+          - os: ubuntu-24.04-arm
             name: Linux ARM64
+          - os: macos-15-intel
+            name: Mac Intel
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -312,9 +298,16 @@ jobs:
   # It checks different sets of jobs depending on whether the PR is from dependabot or not.
   build-test:
     name: Build and Test
-    needs: [detect-pr-type, dependabot-quick-check, dependabot-platform-check,
-            test-linux-amd64, test-tier1-platforms, test-arm-platforms]
-    runs-on: ubuntu-latest
+    needs:
+      [
+        detect-pr-type,
+        dependabot-quick-check,
+        dependabot-platform-check,
+        test-linux-amd64,
+        test-tier1-platforms,
+        test-tier2-platforms,
+      ]
+    runs-on: ubuntu-24.04
     if: always()
     steps:
       - name: Check appropriate tests passed
@@ -335,7 +328,7 @@ jobs:
             # For regular PRs, check all full CI jobs
             if [ "${{ needs.test-linux-amd64.result }}" != "success" ] || \
                [ "${{ needs.test-tier1-platforms.result }}" != "success" ] || \
-               [ "${{ needs.test-arm-platforms.result }}" != "success" ]; then
+               [ "${{ needs.test-tier2-platforms.result }}" != "success" ]; then
               echo "One or more test jobs failed"
               exit 1
             fi
