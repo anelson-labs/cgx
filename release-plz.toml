@@ -26,3 +26,17 @@ publish_allow_dirty = false
 
 # disable running `cargo-semver-checks`
 semver_check = false
+
+
+# Advance all of the packages' versions in sync, to avoid confusion
+[[package]]
+name          = "cgx"
+version_group = "cgx"
+
+[[package]]
+name          = "cargo-cgx"
+version_group = "cgx"
+
+[[package]]
+name          = "cgx-core"
+version_group = "cgx"

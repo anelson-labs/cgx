@@ -251,6 +251,7 @@ impl CliArgs {
     /// after printing `--help` output.
     pub fn parse_from_cli_args() -> Self {
         let args: Vec<String> = std::env::args().collect();
+        let args = Self::strip_cargo_subcommand_arg(args);
         let (toolchain, filtered_args) = Self::extract_toolchain(&args);
         let (cgx_args, binary_args) = Self::split_at_crate_spec(filtered_args);
 
@@ -279,6 +280,56 @@ impl CliArgs {
         cli.args = binary_args;
         cli.toolchain = toolchain;
         cli
+    }
+
+    /// Strip the cargo subcommand argument when invoked as `cargo-cgx`.
+    ///
+    /// When cgx is invoked as a cargo subcommand (via the `cargo-cgx` binary),
+    /// cargo invokes it with argv like: `["cargo-cgx", "cgx", ...user_args]`.
+    /// This function detects that pattern and removes the redundant "cgx" argument.
+    ///
+    /// This pre-processing happens before all other argument parsing to ensure
+    /// that subsequent parsing logic sees the same argument structure regardless
+    /// of whether the user invoked `cgx` or `cargo cgx`.
+    ///
+    /// The function checks if the binary name (argv\[0\] or `std::env::current_exe()`)
+    /// contains "cargo-cgx". If so, and if argv\[1\] equals "cgx", then argv\[1\] is removed.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// Input:  ["cargo-cgx", "cgx", "ripgrep", "--help"]
+    /// Output: ["cargo-cgx", "ripgrep", "--help"]
+    ///
+    /// Input:  ["cgx", "ripgrep", "--help"]
+    /// Output: ["cgx", "ripgrep", "--help"]
+    ///
+    /// Input:  ["/usr/bin/cargo-cgx", "cgx", "+nightly", "just"]
+    /// Output: ["/usr/bin/cargo-cgx", "+nightly", "just"]
+    /// ```
+    fn strip_cargo_subcommand_arg<I, T>(args: I) -> Vec<String>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let args: Vec<String> = args.into_iter().map(|s| s.into()).collect();
+
+        if args.is_empty() {
+            return args;
+        }
+
+        let is_cargo_subcommand = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().contains("cargo-cgx")))
+            .unwrap_or(false);
+
+        if is_cargo_subcommand && args.len() > 1 && args[1] == "cgx" {
+            let mut filtered = vec![args[0].clone()];
+            filtered.extend_from_slice(&args[2..]);
+            filtered
+        } else {
+            args
+        }
     }
 
     /// Extract `+toolchain` syntax from the first positional argument.
@@ -1439,6 +1490,38 @@ mod tests {
                 binary_args,
                 vec!["--color=always", "-i", "--no-heading", "pattern", "file.txt"]
             );
+        }
+    }
+
+    mod strip_cargo_subcommand_arg {
+        use super::*;
+
+        #[test]
+        fn test_leaves_normal_invocation_unchanged() {
+            let args = vec!["cgx", "ripgrep", "--help"];
+            let result = CliArgs::strip_cargo_subcommand_arg(args.clone());
+            assert_eq!(result, args);
+        }
+
+        #[test]
+        fn test_leaves_cargo_without_cgx_unchanged() {
+            let args = vec!["cargo-cgx", "ripgrep", "--help"];
+            let result = CliArgs::strip_cargo_subcommand_arg(args.clone());
+            assert_eq!(result, args);
+        }
+
+        #[test]
+        fn test_empty_args() {
+            let args: Vec<String> = vec![];
+            let result = CliArgs::strip_cargo_subcommand_arg(args.clone());
+            assert_eq!(result, args);
+        }
+
+        #[test]
+        fn test_single_arg() {
+            let args = vec!["cargo-cgx"];
+            let result = CliArgs::strip_cargo_subcommand_arg(args.clone());
+            assert_eq!(result, args);
         }
     }
 }

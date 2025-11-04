@@ -516,7 +516,7 @@ mod tests {
             ..Default::default()
         };
 
-        let binary_path = cargo.build(temp_dir.path(), None, &options).unwrap();
+        let binary_path = cargo.build(temp_dir.path(), Some("cgx"), &options).unwrap();
 
         // Verify binary exists and is a file
         assert!(binary_path.exists(), "Binary should exist at {:?}", binary_path);
