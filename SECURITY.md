@@ -10,9 +10,12 @@ We take the security of `cgx` very seriously. If you believe you've found a secu
 
 Instead, please use one of these secure channels:
 
-1. **Email** (preferred): Send details to `security@cgx.sh`
-2. **GitHub Security Advisories**: Use the "Report a vulnerability" button in the Security tab
-3. **Backup contact**: If no response within 48 hours, email `anelson@cgx.sh`
+1. **GitHub Security Advisories**: Use the "Report a vulnerability" button in the Security tab. See the [Github
+   guidance on reporting security
+   vulnerabilities](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
+   for additional information.
+1. **Email**: Send details to `security@cgx.sh`
+1. **Backup contact**: If no response within 48 hours, email `anelson@cgx.sh`
 
 ### What to Include
 
