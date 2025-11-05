@@ -90,13 +90,30 @@ pub struct CliArgs {
     #[arg(long, value_name = "TRIPLE")]
     pub target: Option<String>,
 
-    /// Assert that `Cargo.lock` will remain unchanged
-    #[arg(long)]
+    /// Honor Cargo.lock from the crate, equivalent to passing `--locked` to `cargo install`
+    ///
+    /// This is enabled by default; the command-line flag is present only for compatibility with
+    /// `cargo install` command lines.
+    ///
+    /// Unlike `cargo install`, `cgx` defaults to `--locked` behavior because this is almost always
+    /// preferable to re-resoving dependencies to versions that the binary crate author possibly
+    /// didn't test with.
+    ///
+    /// Use --unlocked to ignore Cargo.lock entirely, which is what `cargo install` does if not
+    /// passed the `--locked` flag.
+    #[arg(long, conflicts_with = "unlocked")]
     pub locked: bool,
 
     /// Equivalent to specifying both --locked and --offline
-    #[arg(long)]
+    #[arg(long, conflicts_with = "unlocked")]
     pub frozen: bool,
+
+    /// Ignore Cargo.lock and resolve dependencies fresh
+    ///
+    /// Deletes Cargo.lock from build directory before building,
+    /// forcing fresh dependency resolution. This mimics `cargo install` (without --locked).
+    #[arg(long, conflicts_with_all = ["locked", "frozen"])]
+    pub unlocked: bool,
 
     /// Run without accessing the network
     #[arg(long)]
@@ -1160,7 +1177,7 @@ mod tests {
         #[test]
         fn test_offline_without_frozen() {
             let opts = parse_build_options_from_args(&["--offline", "ripgrep"]).unwrap();
-            assert!(!opts.locked);
+            assert!(opts.locked, "Default should be locked=true");
             assert!(opts.offline);
         }
 

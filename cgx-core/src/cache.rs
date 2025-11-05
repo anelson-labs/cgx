@@ -1,7 +1,6 @@
 use crate::{
     Result,
     builder::BuildOptions,
-    cargo::Metadata,
     config::Config,
     cratespec::{CrateSpec, Forge, RegistrySource},
     downloader::DownloadedCrate,
@@ -393,15 +392,15 @@ impl Cache {
     /// crate identity and the build options. Local directory sources are never cached,
     /// as their source code can change arbitrarily.
     ///
-    /// An SBOM (Software Bill of Materials) is generated and stored alongside the binary
+    /// An SBOM (Software Bill of Materials) is stored alongside the binary
     /// for all cached sources, describing the dependencies and build configuration.
     ///
     /// # Arguments
     ///
     /// * `krate` - The resolved crate to build
     /// * `options` - Build options that affect the output binary
-    /// * `build_fn` - Closure that builds the binary and returns both the binary path and cargo
-    ///   metadata
+    /// * `build_fn` - Closure that builds the binary and returns both the binary path and the
+    ///   generated SBOM
     ///
     /// # Returns
     ///
@@ -410,15 +409,15 @@ impl Cache {
         &self,
         krate: &ResolvedCrate,
         options: &BuildOptions,
-        metadata: &Metadata,
         build_fn: F,
     ) -> Result<PathBuf>
     where
-        F: FnOnce() -> Result<PathBuf>,
+        F: FnOnce() -> Result<(PathBuf, crate::sbom::CycloneDx)>,
     {
         // Don't cache local directories - their source can change
         if matches!(krate.source, ResolvedSource::LocalDir { .. }) {
-            return build_fn();
+            let (binary_path, _sbom) = build_fn()?;
+            return Ok(binary_path);
         }
 
         let source_hash = Self::compute_source_hash(&krate.source);
@@ -441,8 +440,8 @@ impl Cache {
             return Ok(cache_path);
         }
 
-        // Build the binary
-        let built_binary = build_fn()?;
+        // Build the binary and get the SBOM
+        let (built_binary, sbom) = build_fn()?;
 
         // Create cache directory
         fs::create_dir_all(&cache_dir).with_context(|_| error::IoSnafu {
@@ -455,8 +454,8 @@ impl Cache {
             dst: cache_path.clone(),
         })?;
 
-        // Generate and write SBOM
-        let sbom_json = crate::sbom::generate_sbom(metadata, krate, options)?;
+        // Serialize and write SBOM to cache
+        let sbom_json = serde_json::to_string_pretty(&sbom).context(error::JsonSnafu)?;
         fs::write(&sbom_path, sbom_json).with_context(|_| error::IoSnafu {
             path: sbom_path.clone(),
         })?;

@@ -318,9 +318,6 @@ impl CargoRunner for RealCargoRunner {
         }
 
         // Other flags
-        if options.locked {
-            cmd.arg("--locked");
-        }
         if options.offline {
             cmd.arg("--offline");
         }
@@ -329,6 +326,9 @@ impl CargoRunner for RealCargoRunner {
         }
         if options.ignore_rust_version {
             cmd.arg("--ignore-rust-version");
+        }
+        if options.locked {
+            cmd.arg("--locked");
         }
 
         // Verbosity flags
