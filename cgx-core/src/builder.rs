@@ -427,15 +427,16 @@ impl RealCrateBuilder {
     ///
     /// We control whether cargo uses locked dependencies via two mechanisms:
     ///
-    /// - File presence (prepare_build_dir): If options.locked is false, we delete Cargo.lock
-    ///   before building, forcing cargo to resolve dependencies fresh.
+    /// - File presence (`prepare_build_dir`): If options.locked is false, we delete Cargo.lock before
+    ///   building, forcing cargo to resolve dependencies fresh.
     ///
-    /// - --locked flag (passed to `cargo build` in cargo.rs): If options.locked is true,
-    ///   cargo.rs passes --locked to `cargo build`, making it strictly honor the Cargo.lock and
-    ///   fail if inconsistent.
+    /// - --locked flag (passed to `cargo build` in cargo.rs): If options.locked is true, cargo.rs
+    ///   passes --locked to `cargo build`, making it strictly honor the Cargo.lock and fail if
+    ///   inconsistent.
     ///
     /// This two-part approach mimics `cargo install` behavior:
-    /// - `cargo install --locked`: keeps Cargo.lock + enforces strict adherence (via ws.set_ignore_lock(false))
+    /// - `cargo install --locked`: keeps Cargo.lock + enforces strict adherence (via
+    ///   `ws.set_ignore_lock(false)`)
     /// - `cargo install`: ignores/regenerates Cargo.lock with latest compatible versions
     ///
     /// ## Returns
