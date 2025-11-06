@@ -5,32 +5,15 @@ members = ["cargo:cgx", "cargo:cargo-cgx"]
 # Config for 'dist'
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.30.0"
-
-# It would be nice to build binaries with cargo-auditable to embed SBOM data
-#
-# Unfortunately, as of 2025-11-06, there are no `cargo-auditable` releases for aarch64,
-# and cargo-dist doesn't seem to know about that so it tries and fails to download a release on that platform, thus
-# making the release fail.
-#
-# So for now we can't have this nice thing.  See https://github.com/anelson-labs/cgx/issues/27
+cargo-dist-version = "0.30.2"
+# Whether to embed dependency information using cargo-auditable
 cargo-auditable = false
-
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = [
-  "aarch64-apple-darwin",
-  "aarch64-unknown-linux-gnu",
-  "aarch64-unknown-linux-musl",
-  "aarch64-pc-windows-msvc",
-  "x86_64-apple-darwin",
-  "x86_64-unknown-linux-gnu",
-  "x86_64-unknown-linux-musl",
-  "x86_64-pc-windows-msvc",
-]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "aarch64-pc-windows-msvc", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether to install an updater program
