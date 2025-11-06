@@ -3,7 +3,9 @@ use serde_cyclonedx::cyclonedx::v_1_4::{
     Component, ComponentBuilder, CycloneDxBuilder, Dependency, DependencyBuilder, Metadata, MetadataBuilder,
     PropertyBuilder, ToolBuilder,
 };
-use snafu::ResultExt;
+
+// Re-export the CycloneDx type so callers don't depend on third-party crate
+pub(crate) use serde_cyclonedx::cyclonedx::v_1_4::CycloneDx;
 
 /// Generate a `CycloneDX` SBOM from cargo metadata.
 ///
@@ -18,12 +20,12 @@ use snafu::ResultExt;
 ///
 /// # Returns
 ///
-/// A JSON string containing the `CycloneDX` SBOM in version 1.4 format.
+/// A [`CycloneDx`] struct in version 1.4 format.
 pub(crate) fn generate_sbom(
     metadata: &cargo_metadata::Metadata,
     resolved: &ResolvedCrate,
     options: &BuildOptions,
-) -> Result<String> {
+) -> Result<CycloneDx> {
     // Build the main component (the crate being built)
     let main_component = build_main_component(resolved, options)?;
 
@@ -37,7 +39,7 @@ pub(crate) fn generate_sbom(
     let sbom_metadata = build_metadata(&main_component)?;
 
     // Construct the CycloneDX BOM
-    let cyclonedx = CycloneDxBuilder::default()
+    CycloneDxBuilder::default()
         .bom_format("CycloneDX")
         .spec_version("1.4")
         .version(1)
@@ -51,10 +53,7 @@ pub(crate) fn generate_sbom(
                 message: e.to_string(),
             }
             .build()
-        })?;
-
-    // Serialize to JSON
-    serde_json::to_string_pretty(&cyclonedx).context(crate::error::JsonSnafu)
+        })
 }
 
 /// Dependency kind for SBOM classification.
@@ -466,6 +465,7 @@ pub(crate) mod tests {
         testdata::CrateTestCase,
     };
     use serde_cyclonedx::cyclonedx::v_1_4::CycloneDx;
+    use snafu::ResultExt;
     use std::path::Path;
 
     fn test_cargo_runner() -> impl CargoRunner {
@@ -488,7 +488,8 @@ pub(crate) mod tests {
             source: ResolvedSource::CratesIo,
         };
 
-        generate_sbom(&metadata, &resolved, &options)
+        let cyclonedx = generate_sbom(&metadata, &resolved, &options)?;
+        serde_json::to_string_pretty(&cyclonedx).context(crate::error::JsonSnafu)
     }
 
     /// Normalize a [`CycloneDx`] SBOM by removing non-deterministic fields.
@@ -905,7 +906,14 @@ pub(crate) mod tests {
         assert!(lockfile.exists());
         std::fs::remove_file(&lockfile).unwrap();
 
-        let sbom = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
+        let sbom = generate_sbom_for_testcase(
+            &tc,
+            BuildOptions {
+                locked: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let bom: CycloneDx = serde_json::from_str(&sbom).unwrap();
 
         let components = bom.components.unwrap();
@@ -963,7 +971,14 @@ pub(crate) mod tests {
 
         let lockfile = tc.path().join("Cargo.lock");
         std::fs::remove_file(&lockfile).unwrap();
-        let sbom_without_lock = generate_sbom_for_testcase(&tc, BuildOptions::default()).unwrap();
+        let sbom_without_lock = generate_sbom_for_testcase(
+            &tc,
+            BuildOptions {
+                locked: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let path_without_lock = tc.path().join("sbom_without_lock.json");
         std::fs::write(&path_without_lock, sbom_without_lock).unwrap();
 

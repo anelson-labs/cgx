@@ -34,7 +34,7 @@ pub enum BuildTarget {
 /// These options map to flags passed to `cargo build` (or `cargo install`).
 /// They are orthogonal to the crate identity and location (see [`crate::CrateSpec`]),
 /// focusing instead on build configuration, feature selection, and compilation settings.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BuildOptions {
     /// Features to activate (corresponds to `--features`).
     pub features: Vec<String>,
@@ -83,6 +83,25 @@ pub struct BuildOptions {
     pub cargo_verbosity: CargoVerbosity,
 }
 
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            features: Vec::new(),
+            all_features: false,
+            no_default_features: false,
+            profile: None,
+            target: None,
+            locked: true,
+            offline: false,
+            jobs: None,
+            ignore_rust_version: false,
+            build_target: BuildTarget::default(),
+            toolchain: None,
+            cargo_verbosity: CargoVerbosity::default(),
+        }
+    }
+}
+
 impl BuildOptions {
     /// Load build options from config and CLI args, with proper precedence.
     pub fn load(config: &Config, args: &CliArgs) -> Result<Self> {
@@ -110,9 +129,14 @@ impl BuildOptions {
             (None, None) => BuildTarget::default(),
         };
 
-        // Locked/offline: --frozen implies both, otherwise CLI args override config
-        // Priority: CLI explicit flags > --frozen > config > false
-        let locked = args.locked || args.frozen || config.locked;
+        // Locked/offline: --frozen implies both
+        // --unlocked overrides everything to set locked=false
+        // Priority: --unlocked > --frozen/--locked > config > true (default)
+        let locked = if args.unlocked {
+            false
+        } else {
+            args.locked || args.frozen || config.locked
+        };
         let offline = args.offline || args.frozen || config.offline;
 
         // Toolchain: CLI args take precedence over config
@@ -204,6 +228,9 @@ impl CrateBuilder for RealCrateBuilder {
     }
 
     fn build(&self, krate: &DownloadedCrate, options: &BuildOptions) -> Result<PathBuf> {
+        // Gather metadata about the crate in its current source form.
+        // The act of building will re-gather the metadata after the build, but this is needed to
+        // resolve target and package information before building.
         let metadata = self
             .cargo_runner
             .metadata(&krate.crate_path, &CargoMetadataOptions::from(options))?;
@@ -227,11 +254,12 @@ impl CrateBuilder for RealCrateBuilder {
         // build` does), and that doesn't seem worth it.  So local crates are always built directly
         // from their sources, and never cached
         if matches!(krate.resolved.source, ResolvedSource::LocalDir { .. }) {
-            return self.build_uncached(krate, options.as_ref(), &metadata);
+            let (binary_path, _sbom) = self.build_uncached(krate, options.as_ref(), &metadata)?;
+            return Ok(binary_path);
         }
 
         self.cache
-            .get_or_build_binary(&krate.resolved, options.as_ref(), &metadata, || {
+            .get_or_build_binary(&krate.resolved, options.as_ref(), || {
                 self.build_uncached(krate, options.as_ref(), &metadata)
             })
     }
@@ -387,14 +415,43 @@ impl RealCrateBuilder {
         }
     }
 
-    /// Build the crate from source as-is, without any caching.
+    /// Build the crate from source as-is, as well as the SBOM for the as-built crate, without any
+    /// caching.
+    ///
+    /// Uses metadata previously gathered from the crate to resolve the package name containing the
+    /// crate, but beware that the act of building can and often does modify the metadata,
+    /// particularly if there is no Cargo.lock in the source package or if it's out of date and
+    /// needs to be updated.
+    ///
+    /// ## Cargo.lock handling
+    ///
+    /// We control whether cargo uses locked dependencies via two mechanisms:
+    ///
+    /// - File presence (`prepare_build_dir`): If options.locked is false, we delete Cargo.lock before
+    ///   building, forcing cargo to resolve dependencies fresh.
+    ///
+    /// - --locked flag (passed to `cargo build` in cargo.rs): If options.locked is true, cargo.rs
+    ///   passes --locked to `cargo build`, making it strictly honor the Cargo.lock and fail if
+    ///   inconsistent.
+    ///
+    /// This two-part approach mimics `cargo install` behavior:
+    /// - `cargo install --locked`: keeps Cargo.lock + enforces strict adherence (via
+    ///   `ws.set_ignore_lock(false)`)
+    /// - `cargo install`: ignores/regenerates Cargo.lock with latest compatible versions
+    ///
+    /// ## Returns
+    ///
+    /// Returns a tuple of (`binary_path`, `sbom`) where `sbom` is generated from metadata
+    /// read from the build directory AFTER the build completes. This ensures the SBOM
+    /// reflects the actual dependencies that were resolved and built, not what was
+    /// in the source directory's Cargo.lock.
     fn build_uncached(
         &self,
         krate: &DownloadedCrate,
         options: &BuildOptions,
         metadata: &Metadata,
-    ) -> Result<PathBuf> {
-        let build_dir = self.prepare_build_dir(krate)?;
+    ) -> Result<(PathBuf, crate::sbom::CycloneDx)> {
+        let build_dir = self.prepare_build_dir(krate, options)?;
 
         let package_name = Self::resolve_package_name(metadata, &krate.resolved.name)?;
 
@@ -402,7 +459,21 @@ impl RealCrateBuilder {
             .cargo_runner
             .build(&build_dir, package_name.as_deref(), options)?;
 
-        Ok(binary_path)
+        // Re-read metadata from the build directory AFTER building. This is critical for accurate
+        // SBOM generation: if --unlocked was used, Cargo.lock was deleted from the build dir and
+        // cargo created a new one with freshly resolved dependencies. Even absent `--unlocked`, if
+        // the crate didn't ship with a Cargo.lock or it was outdated, the act of building will
+        // update the lock file and resolve potentially different dependencies when building the
+        // crate.  Since the SBOM must reflect those actual dependencies, not the stale ones from
+        // the source directory, we need to re-read the metadata here.
+        let metadata = self
+            .cargo_runner
+            .metadata(&build_dir, &CargoMetadataOptions::from(options))?;
+
+        // Generate SBOM from the post-build metadata
+        let sbom = crate::sbom::generate_sbom(&metadata, &krate.resolved, options)?;
+
+        Ok((binary_path, sbom))
     }
 
     /// Prepare a build directory from which the crate can be build.
@@ -417,7 +488,7 @@ impl RealCrateBuilder {
     /// for inspection.
     ///
     /// TODO: Fix this so that build dirs are cleaned up after successful builds.
-    fn prepare_build_dir(&self, krate: &DownloadedCrate) -> Result<PathBuf> {
+    fn prepare_build_dir(&self, krate: &DownloadedCrate, options: &BuildOptions) -> Result<PathBuf> {
         if let ResolvedSource::LocalDir { .. } = krate.resolved.source {
             return Ok(krate.crate_path.clone());
         }
@@ -435,6 +506,15 @@ impl RealCrateBuilder {
 
         let temp_path = temp_dir.path().to_path_buf();
         crate::helpers::copy_source_tree(&krate.crate_path, &temp_path)?;
+
+        // If locked is false (--unlocked was passed), delete Cargo.lock
+        // to force cargo to resolve dependencies fresh
+        if !options.locked {
+            let lock_path = temp_path.join("Cargo.lock");
+            if lock_path.exists() {
+                std::fs::remove_file(&lock_path).with_context(|_| error::IoSnafu { path: lock_path })?;
+            }
+        }
 
         let _ = temp_dir.keep();
         Ok(temp_path)
@@ -1100,8 +1180,6 @@ mod tests {
                 "With --locked, should use old serde from Cargo.lock"
             );
 
-            fs::remove_file(tc.path().join("Cargo.lock")).unwrap();
-
             let krate2 = fake_downloaded_crate(
                 &tc,
                 FakeSourceType::Registry {
@@ -1246,6 +1324,61 @@ mod tests {
                 output.features.contains(&"frobnulator".to_string()),
                 "Should have frobnulator"
             );
+        }
+
+        #[test]
+        fn default_is_locked_true() {
+            let (builder, _temp) = test_builder();
+            let tc = CrateTestCase::stale_serde();
+
+            let krate = fake_downloaded_crate(
+                &tc,
+                FakeSourceType::Registry {
+                    version: "1.0.0".to_string(),
+                },
+                None,
+            );
+            let options = BuildOptions::default();
+
+            let binary = builder.build(&krate, &options).unwrap();
+            let sbom = read_sbom_for_binary(&binary);
+
+            assert_eq!(
+                get_sbom_component_version(&sbom, "serde"),
+                Some("1.0.5".to_string()),
+                "Default (locked=true) should honor Cargo.lock"
+            );
+        }
+
+        #[test]
+        fn frozen_honors_cargo_lock_and_is_offline() {
+            let (builder, _temp) = test_builder();
+            let tc = CrateTestCase::stale_serde();
+
+            let krate = fake_downloaded_crate(
+                &tc,
+                FakeSourceType::Registry {
+                    version: "1.0.0".to_string(),
+                },
+                None,
+            );
+            let options = BuildOptions {
+                profile: Some("dev".to_string()),
+                locked: true,
+                offline: true,
+                ..Default::default()
+            };
+
+            let binary = builder.build(&krate, &options).unwrap();
+            let sbom = read_sbom_for_binary(&binary);
+
+            assert_eq!(
+                get_sbom_component_version(&sbom, "serde"),
+                Some("1.0.5".to_string()),
+                "Frozen should honor Cargo.lock"
+            );
+
+            assert!(options.offline, "Frozen should set offline mode");
         }
     }
 
@@ -1556,14 +1689,15 @@ mod tests {
         mod locked_offline_precedence {
             use super::*;
 
-            /// Test that with no config and no CLI flags, both locked and offline are false.
+            /// Test that with no config and no CLI flags, locked defaults to true and offline to
+            /// false.
             #[test]
             fn no_config_no_cli() {
                 let config = Config::default();
                 let args = CliArgs::parse_from_test_args(["tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
-                assert!(!options.locked);
+                assert!(options.locked, "Default should be locked=true");
                 assert!(!options.offline);
             }
 
@@ -1591,7 +1725,7 @@ mod tests {
                 let args = CliArgs::parse_from_test_args(["tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
-                assert!(!options.locked);
+                assert!(options.locked, "Default should be locked=true");
                 assert!(options.offline);
             }
 
@@ -1634,7 +1768,7 @@ mod tests {
                 let args = CliArgs::parse_from_test_args(["--offline", "tool"]);
                 let options = BuildOptions::load(&config, &args).unwrap();
 
-                assert!(!options.locked);
+                assert!(options.locked, "Default should be locked=true");
                 assert!(options.offline);
             }
 
@@ -1691,6 +1825,36 @@ mod tests {
 
                 assert!(options.locked);
                 assert!(options.offline);
+            }
+
+            #[test]
+            fn unlocked_sets_locked_false() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["--unlocked", "tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(!options.locked, "unlocked should set locked=false");
+            }
+
+            #[test]
+            fn explicit_locked_is_true() {
+                let config = Config::default();
+                let args = CliArgs::parse_from_test_args(["--locked", "tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(options.locked);
+            }
+
+            #[test]
+            fn unlocked_overrides_config_locked() {
+                let config = Config {
+                    locked: true,
+                    ..Default::default()
+                };
+                let args = CliArgs::parse_from_test_args(["--unlocked", "tool"]);
+                let options = BuildOptions::load(&config, &args).unwrap();
+
+                assert!(!options.locked, "unlocked should override config");
             }
         }
 

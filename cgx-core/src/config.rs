@@ -126,7 +126,7 @@ where
 /// 3. User config file (`$XDG_CONFIG_HOME/cgx/cgx.toml` or platform equivalent)
 /// 4. Directory hierarchy from filesystem root to current directory (each `cgx.toml` found)
 /// 5. Command-line arguments (highest priority)
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Config {
     /// Directory where config files are stored
     #[allow(dead_code)]
@@ -179,6 +179,26 @@ pub struct Config {
     pub aliases: HashMap<String, String>,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            config_dir: PathBuf::default(),
+            cache_dir: PathBuf::default(),
+            bin_dir: PathBuf::default(),
+            build_dir: PathBuf::default(),
+            resolve_cache_timeout: Duration::from_secs(3600),
+            offline: false,
+            locked: true,
+            toolchain: None,
+            log_level: None,
+            default_registry: None,
+            binary_providers: None,
+            tools: HashMap::default(),
+            aliases: HashMap::default(),
+        }
+    }
+}
+
 impl Config {
     /// Load the configuration, honoring config files and command line arguments.
     ///
@@ -207,7 +227,7 @@ impl Config {
 
         let default_config = ConfigFile {
             resolve_cache_timeout: Some(Duration::from_secs(60 * 60)),
-            locked: Some(false),
+            locked: Some(true),
             offline: Some(false),
             ..Default::default()
         };
@@ -219,8 +239,16 @@ impl Config {
         }
 
         let cli_overrides = ConfigFile {
-            locked: Some(args.locked || args.frozen),
-            offline: Some(args.offline || args.frozen),
+            locked: if args.locked || args.frozen {
+                Some(true)
+            } else {
+                None
+            },
+            offline: if args.offline || args.frozen {
+                Some(true)
+            } else {
+                None
+            },
             toolchain: args.toolchain.clone(),
             ..Default::default()
         };
@@ -274,7 +302,7 @@ impl Config {
                 .resolve_cache_timeout
                 .unwrap_or_else(|| Duration::from_secs(60 * 60)),
             offline: config_file.offline.unwrap_or(false),
-            locked: config_file.locked.unwrap_or(false),
+            locked: config_file.locked.unwrap_or(true),
             toolchain: config_file.toolchain,
             log_level: config_file.log_level,
             default_registry: config_file.default_registry,
@@ -378,6 +406,7 @@ pub(crate) fn create_test_env() -> (tempfile::TempDir, Config) {
         bin_dir: temp_dir.path().join("bins"),
         build_dir: temp_dir.path().join("build"),
         resolve_cache_timeout: Duration::from_secs(3600),
+        locked: true,
         ..Default::default()
     };
 
@@ -504,7 +533,7 @@ mod tests {
         let config = Config::load(&args).unwrap();
 
         assert!(!config.offline);
-        assert!(!config.locked);
+        assert!(config.locked); // Default is true per issue #55
         assert_eq!(config.toolchain, None);
         assert_eq!(config.resolve_cache_timeout, Duration::from_secs(60 * 60));
     }
@@ -1285,7 +1314,7 @@ mod tests {
 
             assert_eq!(config.resolve_cache_timeout, Duration::from_secs(60 * 60));
             assert!(!config.offline);
-            assert!(!config.locked);
+            assert!(config.locked); // Default is true per issue #55
             assert_eq!(config.toolchain, None);
             assert_eq!(config.tools.len(), 0);
             assert_eq!(config.aliases.len(), 0);
