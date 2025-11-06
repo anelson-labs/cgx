@@ -9,14 +9,10 @@ changelog_update = true
 # update dependencies with `cargo update`
 dependencies_update = true
 
-# create tags for the releases
-git_tag_enable = true
+# Disable tags globally - only the main package will create a tag
+git_tag_enable = false
 
-# Create a single tag for the version group instead of one tag per package
-# This prevents cargo-dist from creating separate releases for each package
-git_tag_name = "v{{version}}"
-
-# disable GitHub releases
+# disable GitHub releases - cargo-dist handles this
 git_release_enable = false
 
 # labels for the release PR
@@ -28,10 +24,6 @@ allow_dirty = false
 # disallow packaging with uncommitted changes
 publish_allow_dirty = false
 
-# disable running `cargo-semver-checks`
-semver_check = false
-
-
 # Advance all of the packages' versions in sync, to avoid confusion
 #
 # Maintain a single changelog for all packages.  Nearly all functionality will go in `cgx-core`, and yet no users will
@@ -42,6 +34,11 @@ changelog_include = ["cgx-core", "cargo-cgx"]
 changelog_path    = "./CHANGELOG.md"
 name              = "cgx"
 version_group     = "cgx"
+# Create a single tag for the version group instead of one tag per package
+# This prevents cargo-dist from creating separate releases for each package
+# See https://release-plz.dev/docs/extra/single-tag for more details
+git_tag_enable = true
+git_tag_name   = "v{{version}}"
 
 [[package]]
 changelog_update = false
