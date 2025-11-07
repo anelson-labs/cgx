@@ -225,6 +225,15 @@ pub struct CliArgs {
     #[arg(long)]
     pub no_exec: bool,
 
+    /// Force refresh of all cached data for this crate.
+    ///
+    /// When set, cgx will bypass all cache lookups and perform fresh resolution, download, and
+    /// build operations. This also disables the fallback to stale cache entries on network errors,
+    /// so cgx will fail if a network error occurs rather than using potentially outdated cached
+    /// data.
+    #[arg(long)]
+    pub refresh: bool,
+
     /// List the crate's executable targets (bins and examples) without building or executing.
     ///
     /// Performs resolve and download operations, then inspects the crate's Cargo.toml
