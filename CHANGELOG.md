@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.0.7] - 2025-11-07
+
+### 🚀 Features
+
+- Add `--refresh` flag to bypass cache ([#64](https://github.com/anelson-labs/cgx/pull/64))
+
+### ⚙️ Miscellaneous Tasks
+
+- Do not try to use `cargo-auditable` when building `cgx` release bins ([#62](https://github.com/anelson-labs/cgx/pull/62))
 ## [0.0.6] - 2025-11-06
 
 ### 🚀 Features
