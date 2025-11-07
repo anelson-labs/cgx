@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tracing::*;
 
 /// A cache entry wrapping a value with timestamp metadata.
 ///
@@ -90,12 +91,16 @@ impl Cache {
     where
         F: FnOnce() -> Result<ResolvedCrate>,
     {
-        let stale_entry = if let Ok(Some(entry)) = self.get_resolved(spec) {
-            if entry.age() < self.inner.config.resolve_cache_timeout {
-                return Ok(entry.value);
-            }
+        let stale_entry = if !self.inner.config.refresh {
+            if let Ok(Some(entry)) = self.get_resolved(spec) {
+                if entry.age() < self.inner.config.resolve_cache_timeout {
+                    return Ok(entry.value);
+                }
 
-            Some(entry)
+                Some(entry)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -105,7 +110,7 @@ impl Cache {
                 let _ = self.put_resolved(spec, &resolved);
                 Ok(resolved)
             }
-            Err(e) if Self::should_use_stale_cache(&e) => {
+            Err(e) if !self.inner.config.refresh && Self::should_use_stale_cache(&e) => {
                 // If there was already an entry in the cache, but we didn't use it because it was
                 // stale, return it now as a fallback since a stale cache entry is better than
                 // failing with this error
@@ -132,13 +137,24 @@ impl Cache {
     where
         F: FnOnce(&std::path::Path) -> Result<()>,
     {
-        // Check if already cached
-        if let Ok(Some(cached)) = self.get_cached_source(resolved) {
-            return Ok(cached);
-        }
-
         // Compute the target cache path
         let cache_path = self.source_cache_path(resolved)?;
+
+        // Check if already cached
+        if !self.inner.config.refresh {
+            if let Ok(Some(cached)) = self.get_cached_source(resolved) {
+                return Ok(cached);
+            }
+        } else {
+            // When refresh is enabled, delete any existing cache to ensure a fresh download
+            if cache_path.exists() {
+                debug!(
+                    "Refresh mode: removing existing source cache at {}",
+                    cache_path.display()
+                );
+                let _ = fs::remove_dir_all(&cache_path);
+            }
+        }
 
         // Ensure parent directory exists
         let parent = cache_path.parent().expect("BUG: Cache path has no parent");
@@ -435,9 +451,17 @@ impl Cache {
         let cache_path = cache_dir.join(&binary_name);
         let sbom_path = cache_dir.join("sbom.cyclonedx.json");
 
-        // Return cached binary if it exists (SBOM should also exist)
+        // Return cached binary if it exists (SBOM is presumed to also exist in this case)
         if cache_path.exists() {
-            return Ok(cache_path);
+            if !self.inner.config.refresh {
+                return Ok(cache_path);
+            } else {
+                debug!(
+                    cache_dir = %cache_dir.display(),
+                    "Refresh mode: removing existing binary cache",
+                );
+                let _ = fs::remove_dir_all(&cache_dir);
+            }
         }
 
         // Build the binary and get the SBOM
@@ -578,6 +602,14 @@ mod tests {
 
         let (temp_dir, mut config) = crate::config::create_test_env();
         config.resolve_cache_timeout = timeout;
+        (Cache::new(config), temp_dir)
+    }
+
+    fn test_cache_with_refresh() -> (Cache, TempDir) {
+        crate::logging::init_test_logging();
+
+        let (temp_dir, mut config) = crate::config::create_test_env();
+        config.refresh = true;
         (Cache::new(config), temp_dir)
     }
 
@@ -784,6 +816,56 @@ mod tests {
             let cached = cache.get_resolved(&spec).unwrap();
             assert_eq!(cached.map(|e| e.value), Some(new_resolved));
         }
+
+        #[test]
+        fn refresh_bypasses_valid_cache() {
+            let (cache, _temp) = test_cache_with_refresh();
+            let spec = test_spec();
+            let cached_resolved = test_resolved();
+            let new_resolved = test_resolved_alt();
+
+            cache.put_resolved(&spec, &cached_resolved).unwrap();
+
+            let call_count = Rc::new(RefCell::new(0));
+            let call_count_clone = call_count.clone();
+            let new_resolved_clone = new_resolved.clone();
+
+            let resolved_crate = cache
+                .get_or_resolve(&spec, || {
+                    *call_count_clone.borrow_mut() += 1;
+                    Ok(new_resolved_clone.clone())
+                })
+                .unwrap();
+
+            assert_eq!(resolved_crate, new_resolved);
+            assert_eq!(
+                *call_count.borrow(),
+                1,
+                "Resolver should be called even with valid cache"
+            );
+        }
+
+        #[test]
+        fn refresh_disables_stale_cache_fallback() {
+            let (cache, _temp) = test_cache_with_refresh();
+            let spec = test_spec();
+            let stale_resolved = test_resolved();
+
+            cache
+                .insert_stale_resolve_entry(&spec, &stale_resolved, Duration::from_secs(9999))
+                .unwrap();
+
+            let result = cache.get_or_resolve(&spec, || {
+                Err(
+                    error::RegistrySnafu.into_error(tame_index::Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "network error",
+                    ))),
+                )
+            });
+
+            assert_matches!(result, Err(error::Error::Registry { .. }));
+        }
     }
 
     mod get_or_download {
@@ -957,6 +1039,33 @@ mod tests {
             // Verify first download's content is preserved
             let content = fs::read_to_string(cache_path.join("version.txt")).unwrap();
             assert_eq!(content, "download1");
+        }
+
+        #[test]
+        fn refresh_bypasses_source_cache() {
+            let (cache, _temp) = test_cache_with_refresh();
+            let resolved = test_resolved();
+            let cache_path = cache.source_cache_path(&resolved).unwrap();
+
+            fs::create_dir_all(&cache_path).unwrap();
+            fs::write(cache_path.join("cached.txt"), b"cached content").unwrap();
+
+            let call_count = Rc::new(RefCell::new(0));
+            let call_count_clone = call_count.clone();
+
+            let result = cache.get_or_download(&resolved, |download_path| {
+                *call_count_clone.borrow_mut() += 1;
+                fs::create_dir_all(download_path).unwrap();
+                fs::write(download_path.join("fresh.txt"), b"fresh content").unwrap();
+                Ok(())
+            });
+
+            result.unwrap();
+            assert_eq!(
+                *call_count.borrow(),
+                1,
+                "Downloader should be called even with cached source"
+            );
         }
     }
 

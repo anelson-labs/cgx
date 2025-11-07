@@ -151,6 +151,8 @@ pub struct Config {
 
     pub locked: bool,
 
+    pub refresh: bool,
+
     /// Rust toolchain to use for building (e.g., "nightly", "1.70.0", "stable")
     pub toolchain: Option<String>,
 
@@ -189,6 +191,7 @@ impl Default for Config {
             resolve_cache_timeout: Duration::from_secs(3600),
             offline: false,
             locked: true,
+            refresh: false,
             toolchain: None,
             log_level: None,
             default_registry: None,
@@ -303,6 +306,7 @@ impl Config {
                 .unwrap_or_else(|| Duration::from_secs(60 * 60)),
             offline: config_file.offline.unwrap_or(false),
             locked: config_file.locked.unwrap_or(true),
+            refresh: args.refresh,
             toolchain: config_file.toolchain,
             log_level: config_file.log_level,
             default_registry: config_file.default_registry,
