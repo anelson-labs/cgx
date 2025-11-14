@@ -1,0 +1,6 @@
+# Customize cargo-dist handling of this package specifically
+
+[dist]
+# Generate release binaries for this package, and include them in the Github release, but do not mention this package or
+# its install instructions or change log in the Github release text.
+display = false

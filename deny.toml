@@ -63,7 +63,7 @@ skip = [
   { name = "windows-strings", version = "0.4" },
 ]
 skip-tree = [
-  # vergen-gix (build dep) uses gix 0.71, we use 0.73
+  # vergen-gix (build dep) uses older gix 0.71
   # Can't upgrade vergen-gix to 2.x (requires Rust 1.88, we're on 1.85)
   # Can't use [patch] to force version (patch requires different source)
   { name = "gix", version = "0.71" },
