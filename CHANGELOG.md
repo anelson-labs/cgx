@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.0.8] - 2025-11-14
+
+### ⚙️ Miscellaneous Tasks
+
+- Configure cargo-dist to exclude cargo-cgx from release text ([#65](https://github.com/anelson-labs/cgx/pull/65))
 ## [0.0.7] - 2025-11-07
 
 ### 🚀 Features
