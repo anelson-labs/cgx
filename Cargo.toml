@@ -54,8 +54,10 @@ which              = "8.0.0"
 
 # The profile that 'dist' will build with
 [profile.dist]
-inherits = "release"
-lto      = "thin"
+codegen-units = 1
+inherits      = "release"
+lto           = true
+
 
 #
 # Enable some optional lints that are not on by default but we want to enforce
