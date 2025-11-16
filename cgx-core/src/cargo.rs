@@ -6,10 +6,12 @@ use crate::{
 };
 use snafu::{OptionExt, ResultExt};
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread,
 };
+use tracing::debug;
 
 pub(crate) use cargo_metadata::Metadata;
 
@@ -353,58 +355,104 @@ impl CargoRunner for RealCargoRunner {
 
         // Configure pipes for streaming
         cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::inherit());
+        cmd.stderr(Stdio::piped());
 
         // Spawn the process
         let mut child = cmd.spawn().context(error::CommandExecutionSnafu)?;
 
-        // Stream stdout line-by-line as cargo produces output
+        // Take ownership of stdout and stderr pipes
         let stdout = child
             .stdout
             .take()
             .with_context(|| error::BinaryNotFoundInOutputSnafu)?;
-        let reader = BufReader::new(stdout);
-        let mut binary_path = None;
+        let stderr = child
+            .stderr
+            .take()
+            .with_context(|| error::BinaryNotFoundInOutputSnafu)?;
 
-        for line_result in reader.lines() {
-            let line = line_result.context(error::CommandExecutionSnafu)?;
+        // Clone reporter for threads
+        let stdout_reporter = self.reporter.clone();
+        let stderr_reporter = self.reporter.clone();
 
-            if let Ok(cargo_msg) = serde_json::from_str::<cargo_metadata::Message>(&line) {
-                self.reporter
-                    .report(|| BuildMessage::cargo_message(cargo_msg.clone()));
+        // Clone build target for stdout thread
+        let build_target = options.build_target.clone();
 
-                if let cargo_metadata::Message::CompilerArtifact(artifact) = &cargo_msg {
-                    let kinds = &artifact.target.kind;
-                    let name = &artifact.target.name;
+        // Spawn stdout parsing thread
+        let stdout_handle = thread::spawn(move || {
+            debug!("stdout parser thread starting");
+            let reader = BufReader::new(stdout);
+            let mut binary_path = None;
 
-                    let matches = match &options.build_target {
-                        BuildTarget::DefaultBin => {
-                            kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Bin)
-                        }
-                        BuildTarget::Bin(bin_name) => {
-                            kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Bin) && name == bin_name
-                        }
-                        BuildTarget::Example(ex_name) => {
-                            kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Example) && name == ex_name
-                        }
-                    };
+            for line_result in reader.lines() {
+                let line = match line_result {
+                    Ok(l) => l,
+                    Err(_) => break,
+                };
 
-                    if matches {
-                        if let Some(exe) = &artifact.executable {
-                            binary_path = Some(exe.clone().into_std_path_buf());
+                if let Ok(cargo_msg) = serde_json::from_str::<cargo_metadata::Message>(&line) {
+                    stdout_reporter.report(|| BuildMessage::cargo_message(cargo_msg.clone()));
+
+                    if let cargo_metadata::Message::CompilerArtifact(artifact) = &cargo_msg {
+                        let kinds = &artifact.target.kind;
+                        let name = &artifact.target.name;
+
+                        let matches = match &build_target {
+                            BuildTarget::DefaultBin => {
+                                kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Bin)
+                            }
+                            BuildTarget::Bin(bin_name) => {
+                                kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Bin)
+                                    && name == bin_name
+                            }
+                            BuildTarget::Example(ex_name) => {
+                                kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Example)
+                                    && name == ex_name
+                            }
+                        };
+
+                        if matches {
+                            if let Some(exe) = &artifact.executable {
+                                binary_path = Some(exe.clone().into_std_path_buf());
+                            }
                         }
                     }
                 }
             }
-        }
+
+            debug!("stdout parser thread exiting");
+            binary_path
+        });
+
+        // Spawn stderr chunk reading thread
+        let stderr_handle = thread::spawn(move || {
+            debug!("stderr reader thread starting");
+            let mut reader = BufReader::new(stderr);
+            let mut buffer = [0u8; 4096];
+
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let chunk = buffer[..n].to_vec();
+                        stderr_reporter.report(|| BuildMessage::cargo_stderr(chunk));
+                    }
+                }
+            }
+
+            debug!("stderr reader thread exiting");
+        });
 
         // Wait for process completion
         let status = child.wait().context(error::CommandExecutionSnafu)?;
 
+        // Join both threads after wait() returns
+        let binary_path = stdout_handle.join().expect("stdout thread panicked");
+        stderr_handle.join().expect("stderr thread panicked");
+
         if !status.success() {
             return error::CargoBuildFailedSnafu {
                 exit_code: status.code(),
-                stderr: "(stderr was displayed in real-time)".to_string(),
+                stderr: "(stderr was captured as messages)".to_string(),
             }
             .fail();
         }
