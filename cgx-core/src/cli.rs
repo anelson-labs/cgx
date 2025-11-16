@@ -1,5 +1,12 @@
-use clap::{ArgAction, CommandFactory, Parser};
+use clap::{ArgAction, CommandFactory, Parser, ValueEnum};
 use std::{collections::HashSet, path::PathBuf};
+
+/// Output format for structured messages.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum MessageFormat {
+    /// JSON format, one message per line
+    Json,
+}
 
 #[derive(Clone, Debug, Parser)]
 #[command(name = "cgx")]
@@ -233,6 +240,17 @@ pub struct CliArgs {
     /// data.
     #[arg(long)]
     pub refresh: bool,
+
+    /// Output structured messages in the specified format.
+    ///
+    /// When set to "json", cgx will output machine-readable JSON messages to stdout describing
+    /// its operations: cache lookups, resolution results, downloads, builds, and execution plans.
+    /// This is useful for debugging, integration testing, and building tooling on top of cgx.
+    ///
+    /// All tracing/log output goes to stderr, keeping stdout clean for structured messages.
+    /// Each message is a single line of JSON.
+    #[arg(long, value_name = "FMT")]
+    pub message_format: Option<MessageFormat>,
 
     /// List the crate's executable targets (bins and examples) without building or executing.
     ///

@@ -381,6 +381,7 @@ dependencies = [
  "cgx-core",
  "insta",
  "predicates",
+ "serde_json",
  "snafu",
  "tracing",
  "tracing-subscriber",

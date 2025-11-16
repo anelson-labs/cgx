@@ -1,12 +1,28 @@
 pub mod logging;
 
-use cgx_core::{builder::BuildOptions, cli::CliArgs, config::Config, cratespec::CrateSpec, error};
+use cgx_core::{
+    builder::BuildOptions,
+    cli::{CliArgs, MessageFormat},
+    config::Config,
+    cratespec::CrateSpec,
+    error,
+    messages::MessageReporter,
+};
+use tracing::*;
 
 // Re-export key types from cgx-core for convenience
 pub use cgx_core::{
     cli,
     error::{Error, Result},
 };
+
+/// **INTERNAL - DO NOT USE IN PRODUCTION CODE**
+///
+/// Internal messaging types exposed solely for integration testing. This is NOT a stable interface
+/// and WILL break without warning, outside of semver guarantees. If you need a stable messages
+/// interface, please open an issue with your use case for discussion.
+#[doc(hidden)]
+pub use cgx_core::messages;
 
 /// Re-export of the snafu [`snafu::Report`] type so that callers can refer to this type without
 /// taking an explicit snafu dep
@@ -51,7 +67,29 @@ pub fn cgx_main() -> Result<()> {
     let crate_spec = CrateSpec::load(&config, &args)?;
     let build_options = BuildOptions::load(&config, &args)?;
 
-    let cgx = cgx_core::Cgx::new(config)?;
+    const MESSAGE_CHANNEL_SIZE: usize = 100;
+
+    // If JSON message format is requested, set up a channel reporter to run in a separate thread
+    // and continugously serialize messages to JSON and print them to stdout one per line.
+    let (reporter, reporter_thread) = match args.message_format {
+        Some(MessageFormat::Json) => {
+            let (tx, rx) = std::sync::mpsc::sync_channel(MESSAGE_CHANNEL_SIZE);
+            let thread = std::thread::spawn(move || {
+                debug!("Starting JSON message reporter thread");
+                for msg in rx {
+                    match serde_json::to_string(&msg) {
+                        Ok(json) => println!("{}", json),
+                        Err(e) => eprintln!("Failed to serialize message: {}", e),
+                    }
+                }
+                debug!("JSON message reporter thread exiting");
+            });
+            (MessageReporter::channel(tx), Some(thread))
+        }
+        None => (MessageReporter::null(), None),
+    };
+
+    let cgx = cgx_core::Cgx::new(config, reporter.clone())?;
 
     if args.list_targets {
         let (crate_name, default, bins, examples) = cgx.list_targets(&crate_spec, &build_options)?;
@@ -83,14 +121,28 @@ pub fn cgx_main() -> Result<()> {
 
     let bin_path = cgx.run(&crate_spec, &build_options)?;
 
+    // Extract arguments to pass to the binary
+    let binary_args = CrateSpec::get_binary_args(&args);
+
+    // Report the execution plan
+    reporter.report(|| messages::RunnerMessage::execution_plan(&bin_path, &binary_args, args.no_exec));
+
+    // Drop everything that can report messages, once all senders are dropped then the reporter
+    // thread will exit cleanly.
+    drop(reporter);
+    drop(cgx);
+
+    // Wait for reporter thread to finish, if any
+    if let Some(thread) = reporter_thread {
+        debug!("Waiting for reporter thread to finish");
+        let _ = thread.join();
+    }
+
     if args.no_exec {
         // Print path to stdout for scripting (e.g., binary=$(cgx --no-exec tool))
         println!("{}", bin_path.display());
         return Ok(());
     }
-
-    // Extract arguments to pass to the binary
-    let binary_args = CrateSpec::get_binary_args(&args);
 
     // Run the binary - this function never returns on success
     // It either replaces the process (Unix) or exits with the child's code (Windows)

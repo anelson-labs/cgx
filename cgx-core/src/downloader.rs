@@ -311,8 +311,9 @@ mod tests {
         crate::logging::init_test_logging();
 
         let (temp_dir, config) = crate::config::create_test_env();
-        let cache = Cache::new(config.clone());
-        let git_client = GitClient::new(cache.clone());
+        let reporter = crate::messages::MessageReporter::null();
+        let cache = Cache::new(config.clone(), reporter.clone());
+        let git_client = GitClient::new(cache.clone(), reporter);
         (DefaultCrateDownloader::new(cache, config, git_client), temp_dir)
     }
 
@@ -321,15 +322,16 @@ mod tests {
         let (downloader, temp_dir) = test_downloader();
         let mut config = downloader.config;
         config.offline = true;
-        let cache = Cache::new(config.clone());
-        let git_client = GitClient::new(cache.clone());
+        let reporter = crate::messages::MessageReporter::null();
+        let cache = Cache::new(config.clone(), reporter.clone());
+        let git_client = GitClient::new(cache.clone(), reporter);
         (DefaultCrateDownloader::new(cache, config, git_client), temp_dir)
     }
 
     fn test_cargo_runner() -> impl CargoRunner {
         crate::logging::init_test_logging();
 
-        crate::cargo::find_cargo().unwrap()
+        crate::cargo::find_cargo(crate::messages::MessageReporter::null()).unwrap()
     }
 
     fn validate_downloaded_crate(downloaded: &DownloadedCrate) {
@@ -445,8 +447,9 @@ mod tests {
                 offline: true,
                 ..online_downloader.config
             };
-            let cache = Cache::new(offline_config.clone());
-            let git_client = GitClient::new(cache.clone());
+            let reporter = crate::messages::MessageReporter::null();
+            let cache = Cache::new(offline_config.clone(), reporter.clone());
+            let git_client = GitClient::new(cache.clone(), reporter);
             let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
 
             let offline_result = offline_downloader.download(resolved).unwrap();
@@ -561,8 +564,9 @@ mod tests {
                 offline: true,
                 ..online_downloader.config
             };
-            let cache = Cache::new(offline_config.clone());
-            let git_client = GitClient::new(cache.clone());
+            let reporter = crate::messages::MessageReporter::null();
+            let cache = Cache::new(offline_config.clone(), reporter.clone());
+            let git_client = GitClient::new(cache.clone(), reporter);
             let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
 
             let offline_downloaded_crate = offline_downloader.download(resolved).unwrap();
@@ -671,8 +675,9 @@ mod tests {
                 offline: true,
                 ..online_downloader.config
             };
-            let cache = Cache::new(offline_config.clone());
-            let git_client = GitClient::new(cache.clone());
+            let reporter = crate::messages::MessageReporter::null();
+            let cache = Cache::new(offline_config.clone(), reporter.clone());
+            let git_client = GitClient::new(cache.clone(), reporter);
             let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
 
             let offline_result = offline_downloader.download(resolved).unwrap();

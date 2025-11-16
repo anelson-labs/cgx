@@ -2,11 +2,13 @@ use crate::{
     Result,
     builder::{BuildOptions, BuildTarget},
     error,
+    messages::{BuildMessage, MessageReporter},
 };
 use snafu::{OptionExt, ResultExt};
 use std::{
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 pub(crate) use cargo_metadata::Metadata;
@@ -14,7 +16,7 @@ pub(crate) use cargo_metadata::Metadata;
 /// Verbosity level for cargo build operations.
 ///
 /// Maps to cargo's `-v` flags for controlling build output verbosity.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CargoVerbosity {
     /// Normal cargo output (no verbosity flags).
     #[default]
@@ -151,7 +153,7 @@ pub(crate) trait CargoRunner: std::fmt::Debug + Send + Sync + 'static {
 }
 
 /// Locate cargo and construct a runner instance that will use it.
-pub(crate) fn find_cargo() -> Result<impl CargoRunner> {
+pub(crate) fn find_cargo(reporter: MessageReporter) -> Result<impl CargoRunner> {
     // Locate cargo and rustup executables.
     //
     // Searches for cargo in priority order:
@@ -168,6 +170,7 @@ pub(crate) fn find_cargo() -> Result<impl CargoRunner> {
     Ok(RealCargoRunner {
         cargo_path,
         rustup_path,
+        reporter,
     })
 }
 
@@ -175,6 +178,7 @@ pub(crate) fn find_cargo() -> Result<impl CargoRunner> {
 struct RealCargoRunner {
     cargo_path: PathBuf,
     rustup_path: Option<PathBuf>,
+    reporter: MessageReporter,
 }
 
 impl CargoRunner for RealCargoRunner {
@@ -251,6 +255,8 @@ impl CargoRunner for RealCargoRunner {
             }
             .fail();
         }
+
+        self.reporter.report(|| BuildMessage::started(options));
 
         // Build the command
         let mut cmd = if let Some(toolchain) = &options.toolchain {
@@ -345,50 +351,71 @@ impl CargoRunner for RealCargoRunner {
             }
         }
 
-        // Execute the command
-        let output = cmd.output().context(error::CommandExecutionSnafu)?;
+        // Configure pipes for streaming
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::inherit());
 
-        if !output.status.success() {
-            return error::CargoBuildFailedSnafu {
-                exit_code: output.status.code(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            }
-            .fail();
-        }
+        // Spawn the process
+        let mut child = cmd.spawn().context(error::CommandExecutionSnafu)?;
 
-        // Parse JSON output to find the binary
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
-                if msg.get("reason").and_then(|r| r.as_str()) == Some("compiler-artifact") {
-                    let target = msg.get("target");
-                    let kinds = target.and_then(|t| t.get("kind")).and_then(|k| k.as_array());
-                    let name = target.and_then(|t| t.get("name")).and_then(|n| n.as_str());
+        // Stream stdout line-by-line as cargo produces output
+        let stdout = child
+            .stdout
+            .take()
+            .with_context(|| error::BinaryNotFoundInOutputSnafu)?;
+        let reader = BufReader::new(stdout);
+        let mut binary_path = None;
+
+        for line_result in reader.lines() {
+            let line = line_result.context(error::CommandExecutionSnafu)?;
+
+            if let Ok(cargo_msg) = serde_json::from_str::<cargo_metadata::Message>(&line) {
+                self.reporter
+                    .report(|| BuildMessage::cargo_message(cargo_msg.clone()));
+
+                if let cargo_metadata::Message::CompilerArtifact(artifact) = &cargo_msg {
+                    let kinds = &artifact.target.kind;
+                    let name = &artifact.target.name;
 
                     let matches = match &options.build_target {
                         BuildTarget::DefaultBin => {
-                            kinds.is_some_and(|k| k.iter().any(|v| v.as_str() == Some("bin")))
+                            kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Bin)
                         }
                         BuildTarget::Bin(bin_name) => {
-                            kinds.is_some_and(|k| k.iter().any(|v| v.as_str() == Some("bin")))
-                                && name == Some(bin_name.as_str())
+                            kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Bin) && name == bin_name
                         }
                         BuildTarget::Example(ex_name) => {
-                            kinds.is_some_and(|k| k.iter().any(|v| v.as_str() == Some("example")))
-                                && name == Some(ex_name.as_str())
+                            kinds.iter().any(|k| *k == cargo_metadata::TargetKind::Example) && name == ex_name
                         }
                     };
 
                     if matches {
-                        if let Some(exe) = msg.get("executable").and_then(|e| e.as_str()) {
-                            return Ok(PathBuf::from(exe));
+                        if let Some(exe) = &artifact.executable {
+                            binary_path = Some(exe.clone().into_std_path_buf());
                         }
                     }
                 }
             }
         }
 
-        error::BinaryNotFoundInOutputSnafu.fail()
+        // Wait for process completion
+        let status = child.wait().context(error::CommandExecutionSnafu)?;
+
+        if !status.success() {
+            return error::CargoBuildFailedSnafu {
+                exit_code: status.code(),
+                stderr: "(stderr was displayed in real-time)".to_string(),
+            }
+            .fail();
+        }
+
+        match binary_path {
+            Some(path) => {
+                self.reporter.report(|| BuildMessage::completed(&path));
+                Ok(path)
+            }
+            None => error::BinaryNotFoundInOutputSnafu.fail(),
+        }
     }
 }
 
@@ -452,14 +479,14 @@ mod tests {
 
         // This test verifies that we can locate cargo on the system.
         // This should always succeed since cargo is required to run the tests.
-        let _cargo = find_cargo().unwrap();
+        let _cargo = find_cargo(MessageReporter::null()).unwrap();
     }
 
     #[test]
     fn metadata_reads_cgx_crate() {
         crate::logging::init_test_logging();
 
-        let cargo = find_cargo().unwrap();
+        let cargo = find_cargo(MessageReporter::null()).unwrap();
         let cgx_root = cgx_project_root();
 
         let metadata = cargo
@@ -496,7 +523,7 @@ mod tests {
     fn build_compiles_cgx_in_tempdir() {
         crate::logging::init_test_logging();
 
-        let cargo = find_cargo().unwrap();
+        let cargo = find_cargo(MessageReporter::null()).unwrap();
         let cgx_root = cgx_project_root();
         let temp_dir = tempfile::tempdir().unwrap();
 
@@ -535,7 +562,7 @@ mod tests {
     fn metadata_loads_all_testcases() {
         crate::logging::init_test_logging();
 
-        let cargo = find_cargo().unwrap();
+        let cargo = find_cargo(MessageReporter::null()).unwrap();
 
         for testcase in CrateTestCase::all() {
             let result = cargo.metadata(testcase.path(), &CargoMetadataOptions::default());

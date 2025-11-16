@@ -1,6 +1,8 @@
 //! Utility functions to help run our CLI as part of a test
-use assert_cmd::{Command, cargo::cargo_bin_cmd};
+use assert_cmd::{Command, assert::OutputAssertExt, cargo::cargo_bin_cmd};
 use assert_fs::{TempDir, prelude::*};
+use cgx::messages::Message;
+use serde_json::Deserializer;
 
 pub(crate) struct TestFs {
     pub(crate) app_root: TempDir,
@@ -93,5 +95,56 @@ impl Cgx {
         self.cmd.current_dir(test_fs.cwd.path());
 
         self.test_fs = Some(test_fs);
+    }
+}
+
+/// Extension trait to add helper methods to `Command` for testing `cgx`
+pub(crate) trait CommandExt {
+    /// Add the argument to enable JSON message output in `cgx`
+    ///
+    /// NOTE: If this is used, make sure to call [`CommandExt::assert_with_messages`] to capture
+    /// and parse the cgx messages separately from the rest of the stdout output.  If you forget
+    /// tod o this, then assert helpers like `stdout` will see the JSON messages as well as the
+    /// usual output which will likely cause test failures.
+    fn with_json_messages(&mut self) -> &mut Self;
+
+    /// Special case of [`OutputAssertExt::assert`] that filters out any value JSON cgx messages
+    /// from stdout and returns them separately, as well as an [`Assert`] object which DOES NOT see
+    /// the filtered JSON message output.
+    fn assert_with_messages(&mut self) -> (assert_cmd::assert::Assert, Vec<Message>);
+}
+
+impl CommandExt for Command {
+    fn with_json_messages(&mut self) -> &mut Self {
+        self.arg("--message-format").arg("json")
+    }
+
+    fn assert_with_messages(&mut self) -> (assert_cmd::assert::Assert, Vec<Message>) {
+        let output = self.assert().get_output().clone();
+
+        // Parse stdout line-by-line as JSON messages
+        let mut messages = Vec::new();
+        let mut filtered_stdout = Vec::new();
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        for line in stdout_str.lines() {
+            match Deserializer::from_str(line).into_iter::<Message>().next() {
+                Some(Ok(msg)) => messages.push(msg),
+                Some(Err(_)) | None => {
+                    // Not a valid JSON message or an empty line
+                    // Pass this on to the Assert object
+                    filtered_stdout.push(line);
+                }
+            }
+        }
+
+        let filtered_output = std::process::Output {
+            status: output.status,
+            stdout: filtered_stdout.join("\n").into_bytes(),
+            stderr: output.stderr,
+        };
+
+        let assert = filtered_output.assert();
+
+        (assert, messages)
     }
 }

@@ -9,7 +9,10 @@
 //! - Warm cache reuse when multiple commits from the same repo are used over time
 //! - Correct handling of submodules, filters, and line endings via native gix checkout
 
-use crate::cache::Cache;
+use crate::{
+    cache::Cache,
+    messages::{GitMessage, MessageReporter},
+};
 use gix::{ObjectId, remote::Direction};
 use serde::{Deserialize, Serialize};
 use snafu::{IntoError, ResultExt, prelude::*};
@@ -98,12 +101,13 @@ pub enum GitSelector {
 #[derive(Clone, Debug)]
 pub(crate) struct GitClient {
     cache: Cache,
+    reporter: MessageReporter,
 }
 
 impl GitClient {
-    /// Create a new [`GitClient`] with the given cache.
-    pub(crate) fn new(cache: Cache) -> Self {
-        Self { cache }
+    /// Create a new [`GitClient`] with the given cache and message reporter.
+    pub(crate) fn new(cache: Cache, reporter: MessageReporter) -> Self {
+        Self { cache, reporter }
     }
 
     /// Checkout a git ref and return the path to the working tree.
@@ -116,6 +120,8 @@ impl GitClient {
     /// - `checkout_path`: Path to the checked-out working tree (the final source code)
     /// - `commit_hash`: Full 40-character SHA-1 hash of the checked-out commit
     pub(crate) fn checkout_ref(&self, url: &str, selector: GitSelector) -> Result<(PathBuf, String)> {
+        self.reporter.report(|| GitMessage::fetching_repo(url, &selector));
+
         // Step 1: Ensure bare repo database exists
         let db_path = self.ensure_db(url)?;
 
@@ -123,8 +129,13 @@ impl GitClient {
         let commit_oid = Self::ensure_ref(&db_path, url, &selector)?;
         let commit_str = commit_oid.to_string();
 
+        self.reporter.report(|| GitMessage::resolved_ref(&commit_str));
+
         // Step 3: Ensure checkout exists
         let checkout_path = self.ensure_checkout(&db_path, url, &commit_str)?;
+
+        self.reporter
+            .report(|| GitMessage::checkout_complete(&checkout_path));
 
         Ok((checkout_path, commit_str))
     }
@@ -400,8 +411,9 @@ mod tests {
 
     fn test_git_client() -> (GitClient, TempDir) {
         let (temp_dir, config) = crate::config::create_test_env();
-        let cache = Cache::new(config);
-        let git_client = GitClient::new(cache);
+        let reporter = MessageReporter::null();
+        let cache = Cache::new(config, reporter.clone());
+        let git_client = GitClient::new(cache, reporter);
         (git_client, temp_dir)
     }
 

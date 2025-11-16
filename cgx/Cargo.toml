@@ -33,10 +33,11 @@ bin-dir = "{ bin }{ binary-ext }"
 pkg-fmt = "zip"
 
 [dependencies]
-cgx-core           = { workspace = true }
-snafu              = { workspace = true }
-tracing            = { workspace = true }
-tracing-subscriber = { workspace = true }
+cgx-core             = { workspace = true }
+serde_json.workspace = true
+snafu                = { workspace = true }
+tracing              = { workspace = true }
+tracing-subscriber   = { workspace = true }
 
 [build-dependencies]
 vergen-gix = { workspace = true }

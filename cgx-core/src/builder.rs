@@ -13,7 +13,7 @@ use snafu::ResultExt;
 use std::{borrow::Cow, path::PathBuf, sync::Arc};
 
 /// Which executable within a crate to build.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum BuildTarget {
     /// No specific target was specified which means build the one and only binary target, or fail
     /// if there are more than one.  Note that as of this writing, the "default" flag on binaries
@@ -34,7 +34,7 @@ pub enum BuildTarget {
 /// These options map to flags passed to `cargo build` (or `cargo install`).
 /// They are orthogonal to the crate identity and location (see [`crate::CrateSpec`]),
 /// focusing instead on build configuration, feature selection, and compilation settings.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BuildOptions {
     /// Features to activate (corresponds to `--features`).
     pub features: Vec<String>,
@@ -576,8 +576,8 @@ mod tests {
         fs::create_dir_all(&config.bin_dir).unwrap();
         fs::create_dir_all(&config.build_dir).unwrap();
 
-        let cache = Cache::new(config.clone());
-        let cargo_runner = Arc::new(find_cargo().unwrap());
+        let cache = Cache::new(config.clone(), crate::messages::MessageReporter::null());
+        let cargo_runner = Arc::new(find_cargo(crate::messages::MessageReporter::null()).unwrap());
 
         let builder = RealCrateBuilder {
             config,
@@ -768,7 +768,7 @@ mod tests {
         #[test]
         fn builds_all_testcases_with_bins() {
             let (builder, _temp) = test_builder();
-            let cargo = find_cargo().unwrap();
+            let cargo = find_cargo(crate::messages::MessageReporter::null()).unwrap();
 
             for tc in CrateTestCase::all() {
                 let metadata_opts = CargoMetadataOptions::default();
