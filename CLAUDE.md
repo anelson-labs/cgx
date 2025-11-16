@@ -43,6 +43,10 @@ ecosystems, respectively.
   removed or renamed, fields can be changed, all manner of breaking changes during a refactoring or feature implementation
   are allowed. There may be limited exceptions to this rule, but those exceptions will be stated explicitly in the task
   description.
+- When importing types into a scope with `use`, do so at the module level, at the top of that module, without newlines
+  between `use` lines. DO NOT import types at the function or local scope level. When importing types as part of a `mod
+tests` module, the `use` statements should be inside the `mod tests` module, at the top of that module. If not part of
+  a test, the imports should go at the top of the file.
 
 ### Error Reporting
 
@@ -115,7 +119,8 @@ It also offers `ensure!` macros, which are like `assert!` but return an error in
   `unwrap()` on the result and let it panic if it was an error (NOTE THIS IS ONLY IN TESTS! Production code must report
   errors and not panic except in very specific situations where an unreachable panic is appropriate).
 - Likewise when asserting that something failed, DO NOT DO `assert!(result.is_err())`. Instead, use
-  `assert_matches::assert_matches!(result, Err(Error::SpecificErrorVariant { .. }))`
+  `assert_matches!(result, Err(Error::SpecificErrorVariant { .. }))`. `use assert_matches::assert_matches` if needed to
+  bring that macro into scope.
 - Construct asserts so that they provide useful information on failure. Using the `assert_matches` crate is often
   better than using `assert!` to assert some truthy statement, because `assert_matches` will print the actual value on failure,
   which is often very helpful for debugging.

@@ -5,6 +5,7 @@ use crate::{
     cratespec::{CrateSpec, Forge, RegistrySource},
     downloader::DownloadedCrate,
     error,
+    messages::{BinaryMessage, ResolutionMessage, SourceMessage},
     resolver::{ResolvedCrate, ResolvedSource},
 };
 use chrono::{DateTime, Utc};
@@ -72,10 +73,10 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
-    /// Create a new [`Cache`] with the given configuration
-    pub(crate) fn new(config: Config) -> Self {
+    /// Create a new [`Cache`] with the given configuration and message reporter.
+    pub(crate) fn new(config: Config, reporter: crate::messages::MessageReporter) -> Self {
         Self {
-            inner: Arc::new(CacheInner { config }),
+            inner: Arc::new(CacheInner { config, reporter }),
         }
     }
 
@@ -91,30 +92,75 @@ impl Cache {
     where
         F: FnOnce() -> Result<ResolvedCrate>,
     {
+        self.inner
+            .reporter
+            .report(|| ResolutionMessage::cache_lookup(spec));
+
         let stale_entry = if !self.inner.config.refresh {
             if let Ok(Some(entry)) = self.get_resolved(spec) {
-                if entry.age() < self.inner.config.resolve_cache_timeout {
+                let age = entry.age();
+                let ttl = self.inner.config.resolve_cache_timeout;
+
+                if age < ttl {
+                    let cache_path = self.resolve_cache_path(spec).ok();
+                    if let Some(path) = &cache_path {
+                        self.inner
+                            .reporter
+                            .report(|| ResolutionMessage::cache_hit(path, age, ttl.saturating_sub(age)));
+                    }
+                    self.inner
+                        .reporter
+                        .report(|| ResolutionMessage::resolved(&entry.value));
                     return Ok(entry.value);
                 }
 
+                self.inner
+                    .reporter
+                    .report(|| ResolutionMessage::cache_stale(spec, age));
                 Some(entry)
             } else {
+                self.inner.reporter.report(|| ResolutionMessage::cache_miss(spec));
                 None
             }
         } else {
+            self.inner.reporter.report(|| ResolutionMessage::cache_miss(spec));
             None
         };
 
+        self.inner.reporter.report(|| ResolutionMessage::resolving(spec));
+
         match resolver() {
             Ok(resolved) => {
-                let _ = self.put_resolved(spec, &resolved);
+                self.inner
+                    .reporter
+                    .report(|| ResolutionMessage::resolved(&resolved));
+                if let Ok(path) = self.resolve_cache_path(spec) {
+                    let _ = self.put_resolved(spec, &resolved);
+                    self.inner
+                        .reporter
+                        .report(|| ResolutionMessage::cache_stored(&path));
+                } else {
+                    let _ = self.put_resolved(spec, &resolved);
+                }
                 Ok(resolved)
             }
             Err(e) if !self.inner.config.refresh && Self::should_use_stale_cache(&e) => {
                 // If there was already an entry in the cache, but we didn't use it because it was
                 // stale, return it now as a fallback since a stale cache entry is better than
                 // failing with this error
-                stale_entry.map(|entry| entry.into_inner()).ok_or(e)
+                if let Some(entry) = stale_entry {
+                    let age = entry.age();
+                    let resolved = entry.into_inner();
+                    self.inner
+                        .reporter
+                        .report(|| ResolutionMessage::using_stale_fallback(spec, age));
+                    self.inner
+                        .reporter
+                        .report(|| ResolutionMessage::resolved(&resolved));
+                    Ok(resolved)
+                } else {
+                    Err(e)
+                }
             }
             Err(e) => Err(e),
         }
@@ -137,12 +183,19 @@ impl Cache {
     where
         F: FnOnce(&std::path::Path) -> Result<()>,
     {
+        self.inner
+            .reporter
+            .report(|| SourceMessage::cache_lookup(resolved));
+
         // Compute the target cache path
         let cache_path = self.source_cache_path(resolved)?;
 
         // Check if already cached
         if !self.inner.config.refresh {
             if let Ok(Some(cached)) = self.get_cached_source(resolved) {
+                self.inner
+                    .reporter
+                    .report(|| SourceMessage::cache_hit(&cached.crate_path));
                 return Ok(cached);
             }
         } else {
@@ -155,6 +208,12 @@ impl Cache {
                 let _ = fs::remove_dir_all(&cache_path);
             }
         }
+
+        self.inner.reporter.report(|| SourceMessage::cache_miss(resolved));
+
+        self.inner
+            .reporter
+            .report(|| SourceMessage::downloading(resolved));
 
         // Ensure parent directory exists
         let parent = cache_path.parent().expect("BUG: Cache path has no parent");
@@ -169,6 +228,9 @@ impl Cache {
 
         // Call the downloader with the temp path
         downloader(temp_dir.path())?;
+        self.inner
+            .reporter
+            .report(|| SourceMessage::downloaded(temp_dir.path()));
 
         // Success! Try to atomically move the temp dir to the cache location
         // Use keep() to prevent temp_dir cleanup
@@ -176,6 +238,9 @@ impl Cache {
 
         match fs::rename(&temp_path, &cache_path) {
             Ok(()) => {
+                self.inner
+                    .reporter
+                    .report(|| SourceMessage::cache_stored(&cache_path));
                 // Successfully moved to cache
                 Ok(DownloadedCrate {
                     resolved: resolved.clone(),
@@ -186,7 +251,6 @@ impl Cache {
                 // Someone else won the race - that's fine, use their result
                 // Clean up our temp dir
                 let _ = fs::remove_dir_all(&temp_path);
-
                 Ok(DownloadedCrate {
                     resolved: resolved.clone(),
                     crate_path: cache_path,
@@ -432,9 +496,16 @@ impl Cache {
     {
         // Don't cache local directories - their source can change
         if matches!(krate.source, ResolvedSource::LocalDir { .. }) {
+            self.inner
+                .reporter
+                .report(BinaryMessage::skipping_cache_local_dir);
             let (binary_path, _sbom) = build_fn()?;
             return Ok(binary_path);
         }
+
+        self.inner
+            .reporter
+            .report(|| BinaryMessage::cache_lookup(krate, options));
 
         let source_hash = Self::compute_source_hash(&krate.source);
         let build_hash = Self::compute_build_hash(options);
@@ -454,6 +525,9 @@ impl Cache {
         // Return cached binary if it exists (SBOM is presumed to also exist in this case)
         if cache_path.exists() {
             if !self.inner.config.refresh {
+                self.inner
+                    .reporter
+                    .report(|| BinaryMessage::cache_hit(&cache_path, &sbom_path));
                 return Ok(cache_path);
             } else {
                 debug!(
@@ -463,6 +537,8 @@ impl Cache {
                 let _ = fs::remove_dir_all(&cache_dir);
             }
         }
+
+        self.inner.reporter.report(|| BinaryMessage::cache_miss(krate));
 
         // Build the binary and get the SBOM
         let (built_binary, sbom) = build_fn()?;
@@ -483,6 +559,10 @@ impl Cache {
         fs::write(&sbom_path, sbom_json).with_context(|_| error::IoSnafu {
             path: sbom_path.clone(),
         })?;
+
+        self.inner
+            .reporter
+            .report(|| BinaryMessage::cache_stored(&cache_path, &sbom_path));
 
         Ok(cache_path)
     }
@@ -582,6 +662,7 @@ impl Cache {
 #[derive(Debug)]
 struct CacheInner {
     config: Config,
+    reporter: crate::messages::MessageReporter,
 }
 
 #[cfg(test)]
@@ -602,7 +683,10 @@ mod tests {
 
         let (temp_dir, mut config) = crate::config::create_test_env();
         config.resolve_cache_timeout = timeout;
-        (Cache::new(config), temp_dir)
+        (
+            Cache::new(config, crate::messages::MessageReporter::null()),
+            temp_dir,
+        )
     }
 
     fn test_cache_with_refresh() -> (Cache, TempDir) {
@@ -610,7 +694,10 @@ mod tests {
 
         let (temp_dir, mut config) = crate::config::create_test_env();
         config.refresh = true;
-        (Cache::new(config), temp_dir)
+        (
+            Cache::new(config, crate::messages::MessageReporter::null()),
+            temp_dir,
+        )
     }
 
     fn test_spec() -> CrateSpec {

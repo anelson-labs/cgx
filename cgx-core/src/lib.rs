@@ -9,6 +9,7 @@ pub mod error;
 pub mod git;
 pub(crate) mod helpers;
 pub(crate) mod logging;
+pub mod messages;
 pub mod resolver;
 pub mod runner;
 pub(crate) mod sbom;
@@ -41,13 +42,13 @@ impl Cgx {
     /// Create a new instance from a loaded configuration.
     ///
     /// The config should be loaded using [`Config::load()`] with the CLI args.
-    pub fn new(config: Config) -> Result<Self> {
+    pub fn new(config: Config, reporter: messages::MessageReporter) -> Result<Self> {
         tracing::debug!("Using config: {:#?}", config);
 
-        let cache = Cache::new(config.clone());
-        let git_client = git::GitClient::new(cache.clone());
+        let cache = Cache::new(config.clone(), reporter.clone());
+        let git_client = git::GitClient::new(cache.clone(), reporter.clone());
 
-        let cargo_runner = Arc::new(cargo::find_cargo()?);
+        let cargo_runner = Arc::new(cargo::find_cargo(reporter)?);
 
         let resolver = Arc::new(resolver::create_resolver(
             config.clone(),

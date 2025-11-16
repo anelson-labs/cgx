@@ -1,0 +1,92 @@
+use super::Message;
+use crate::{cratespec::CrateSpec, resolver::ResolvedCrate};
+use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, time::Duration};
+
+/// Messages related to crate resolution and resolution cache operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum ResolutionMessage {
+    CacheLookup {
+        spec: CrateSpec,
+    },
+    CacheHit {
+        path: PathBuf,
+        age_secs: u64,
+        ttl_remaining_secs: u64,
+    },
+    CacheMiss {
+        spec: CrateSpec,
+    },
+    CacheStale {
+        spec: CrateSpec,
+        age_secs: u64,
+    },
+    Resolving {
+        spec: CrateSpec,
+    },
+    Resolved {
+        resolved: ResolvedCrate,
+    },
+    CacheStored {
+        path: PathBuf,
+    },
+    UsingStaleFallback {
+        spec: CrateSpec,
+        age_secs: u64,
+    },
+}
+
+impl ResolutionMessage {
+    pub fn cache_lookup(spec: &CrateSpec) -> Self {
+        Self::CacheLookup { spec: spec.clone() }
+    }
+
+    pub fn cache_hit(path: &std::path::Path, age: Duration, ttl_remaining: Duration) -> Self {
+        Self::CacheHit {
+            path: path.to_path_buf(),
+            age_secs: age.as_secs(),
+            ttl_remaining_secs: ttl_remaining.as_secs(),
+        }
+    }
+
+    pub fn cache_miss(spec: &CrateSpec) -> Self {
+        Self::CacheMiss { spec: spec.clone() }
+    }
+
+    pub fn cache_stale(spec: &CrateSpec, age: Duration) -> Self {
+        Self::CacheStale {
+            spec: spec.clone(),
+            age_secs: age.as_secs(),
+        }
+    }
+
+    pub fn resolving(spec: &CrateSpec) -> Self {
+        Self::Resolving { spec: spec.clone() }
+    }
+
+    pub fn resolved(resolved: &ResolvedCrate) -> Self {
+        Self::Resolved {
+            resolved: resolved.clone(),
+        }
+    }
+
+    pub fn cache_stored(path: &std::path::Path) -> Self {
+        Self::CacheStored {
+            path: path.to_path_buf(),
+        }
+    }
+
+    pub fn using_stale_fallback(spec: &CrateSpec, age: Duration) -> Self {
+        Self::UsingStaleFallback {
+            spec: spec.clone(),
+            age_secs: age.as_secs(),
+        }
+    }
+}
+
+impl From<ResolutionMessage> for Message {
+    fn from(msg: ResolutionMessage) -> Self {
+        Message::Resolution(msg)
+    }
+}

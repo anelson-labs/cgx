@@ -456,12 +456,13 @@ mod tests {
         crate::logging::init_test_logging();
 
         let (temp_dir, config) = crate::config::create_test_env();
-        let cache = Cache::new(config.clone());
-        let git_client = GitClient::new(cache.clone());
+        let reporter = crate::messages::MessageReporter::null();
+        let cache = Cache::new(config.clone(), reporter.clone());
+        let git_client = GitClient::new(cache.clone(), reporter.clone());
         let resolver = DefaultCrateResolver::new(
             config.clone(),
             git_client,
-            Arc::new(crate::cargo::find_cargo().unwrap()),
+            Arc::new(crate::cargo::find_cargo(reporter).unwrap()),
         );
         (CachingResolver::new(resolver, cache), temp_dir)
     }
@@ -471,8 +472,9 @@ mod tests {
         let (resolver, temp_dir) = test_resolver();
         let mut config = resolver.inner.config;
         config.offline = true;
-        let cache = Cache::new(config.clone());
-        let git_client = GitClient::new(cache.clone());
+        let reporter = crate::messages::MessageReporter::null();
+        let cache = Cache::new(config.clone(), reporter.clone());
+        let git_client = GitClient::new(cache.clone(), reporter);
         let resolver = DefaultCrateResolver::new(config, git_client, resolver.inner.cargo);
         (CachingResolver::new(resolver, cache), temp_dir)
     }
@@ -792,7 +794,10 @@ mod tests {
                 offline: true,
                 ..online_resolver.inner.config.clone()
             };
-            let git_client = GitClient::new(online_resolver.cache.clone());
+            let git_client = GitClient::new(
+                online_resolver.cache.clone(),
+                crate::messages::MessageReporter::null(),
+            );
             let offline_resolver = CachingResolver::new(
                 DefaultCrateResolver::new(offline_config, git_client, online_resolver.inner.cargo.clone()),
                 online_resolver.cache.clone(),
@@ -845,7 +850,7 @@ mod tests {
                 offline: true,
                 ..resolver.inner.config.clone()
             };
-            let git_client = GitClient::new(resolver.cache.clone());
+            let git_client = GitClient::new(resolver.cache.clone(), crate::messages::MessageReporter::null());
             let offline_resolver = CachingResolver::new(
                 DefaultCrateResolver::new(offline_config, git_client, resolver.inner.cargo.clone()),
                 resolver.cache,

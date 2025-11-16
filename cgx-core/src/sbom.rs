@@ -468,8 +468,12 @@ pub(crate) mod tests {
     use snafu::ResultExt;
     use std::path::Path;
 
+    /// Get a CargoRunner for testing.
+    ///
+    /// Note that for the SBOM tests the actual cargo is needed, so this isn't a mock or dummy it's
+    /// the real runner.
     fn test_cargo_runner() -> impl CargoRunner {
-        crate::cargo::find_cargo().unwrap()
+        crate::cargo::find_cargo(crate::messages::MessageReporter::null()).unwrap()
     }
 
     /// Generate an SBOM for a test case with the given build options.
