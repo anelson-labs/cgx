@@ -249,6 +249,9 @@ pub struct CliArgs {
     ///
     /// All tracing/log output goes to stderr, keeping stdout clean for structured messages.
     /// Each message is a single line of JSON.
+    ///
+    /// NOTE: The format of the JSON messages is considered unstable and may change in future
+    /// releases. This option is primarily intended for debugging and testing purposes.
     #[arg(long, value_name = "FMT")]
     pub message_format: Option<MessageFormat>,
 
