@@ -45,7 +45,7 @@ jobs:
     if: needs.detect-pr-type.outputs.is-dependabot == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -94,7 +94,7 @@ jobs:
             name: Mac ARM64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -114,7 +114,7 @@ jobs:
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       # dtolnay in his infinite wisdom did not think that CI builds should honor
       # rust-toolchain files, so we must specify the toolchain version here AND
@@ -166,7 +166,7 @@ jobs:
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       # dtolnay in his infinite wisdom did not think that CI builds should honor
       # rust-toolchain files, so we must specify the toolchain version here AND
@@ -210,7 +210,7 @@ jobs:
             target: x86_64-unknown-linux-musl
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - *install-rust
 
@@ -268,7 +268,7 @@ jobs:
             name: Mac Intel
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - *install-rust
 
