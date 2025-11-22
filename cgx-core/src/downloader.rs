@@ -2,10 +2,10 @@ use crate::{
     Result,
     cache::Cache,
     config::Config,
+    crate_resolver::{ResolvedCrate, ResolvedSource},
     cratespec::RegistrySource,
     error,
     git::{GitClient, GitSelector},
-    resolver::{ResolvedCrate, ResolvedSource},
 };
 use semver::Version;
 use snafu::{OptionExt, ResultExt};

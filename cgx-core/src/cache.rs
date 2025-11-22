@@ -2,11 +2,11 @@ use crate::{
     Result,
     builder::BuildOptions,
     config::Config,
+    crate_resolver::{ResolvedCrate, ResolvedSource},
     cratespec::{CrateSpec, Forge, RegistrySource},
     downloader::DownloadedCrate,
     error,
     messages::{BinaryMessage, ResolutionMessage, SourceMessage},
-    resolver::{ResolvedCrate, ResolvedSource},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

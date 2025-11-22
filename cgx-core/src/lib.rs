@@ -1,8 +1,10 @@
+pub mod bin_resolver;
 pub mod builder;
 pub(crate) mod cache;
 pub mod cargo;
 pub mod cli;
 pub mod config;
+pub mod crate_resolver;
 pub mod cratespec;
 pub mod downloader;
 pub mod error;
@@ -10,7 +12,6 @@ pub mod git;
 pub(crate) mod helpers;
 pub(crate) mod logging;
 pub mod messages;
-pub mod resolver;
 pub mod runner;
 pub(crate) mod sbom;
 #[cfg(test)]
@@ -19,10 +20,10 @@ pub(crate) mod testdata;
 use builder::{BuildOptions, CrateBuilder};
 use cache::Cache;
 use config::Config;
+use crate_resolver::CrateResolver;
 use cratespec::CrateSpec;
 use downloader::CrateDownloader;
 use error::Result;
-use resolver::CrateResolver;
 use std::sync::Arc;
 
 /// Instance of the engine that powers the `cgx` tool.
@@ -50,7 +51,7 @@ impl Cgx {
 
         let cargo_runner = Arc::new(cargo::find_cargo(reporter)?);
 
-        let resolver = Arc::new(resolver::create_resolver(
+        let resolver = Arc::new(crate_resolver::create_resolver(
             config.clone(),
             cache.clone(),
             git_client.clone(),

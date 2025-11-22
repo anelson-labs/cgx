@@ -4,9 +4,9 @@ use crate::{
     cargo::{CargoMetadataOptions, CargoRunner, CargoVerbosity, Metadata},
     cli::CliArgs,
     config::Config,
+    crate_resolver::ResolvedSource,
     downloader::DownloadedCrate,
     error,
-    resolver::ResolvedSource,
 };
 use cargo_metadata::Target;
 use snafu::ResultExt;
@@ -559,8 +559,8 @@ mod tests {
     use super::*;
     use crate::{
         cargo::find_cargo,
+        crate_resolver::{ResolvedCrate, ResolvedSource},
         error::Error,
-        resolver::{ResolvedCrate, ResolvedSource},
         testdata::CrateTestCase,
     };
     use assert_matches::assert_matches;
