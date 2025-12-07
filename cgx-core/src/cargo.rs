@@ -452,7 +452,6 @@ impl CargoRunner for RealCargoRunner {
         if !status.success() {
             return error::CargoBuildFailedSnafu {
                 exit_code: status.code(),
-                stderr: "(stderr was captured as messages)".to_string(),
             }
             .fail();
         }

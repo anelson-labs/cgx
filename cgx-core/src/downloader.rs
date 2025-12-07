@@ -258,7 +258,7 @@ impl CrateDownloader for DefaultCrateDownloader {
                 // cached copies and atomically downloading if not present
                 let cached_krate_path = self
                     .cache
-                    .get_or_download(&krate, |download_path| {
+                    .get_or_download_crate(&krate, |download_path| {
                         // The cache check happens before this closure is called, so if we're here
                         // it means we need to actually download the crate.
                         //

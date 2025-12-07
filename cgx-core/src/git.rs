@@ -13,6 +13,7 @@ use crate::{
     cache::Cache,
     messages::{GitMessage, MessageReporter},
 };
+use backon::{BlockingRetryable, ExponentialBuilder};
 use gix::{ObjectId, remote::Direction};
 use serde::{Deserialize, Serialize};
 use snafu::{IntoError, ResultExt, prelude::*};
@@ -20,7 +21,17 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
+    time::Duration,
 };
+
+/// Minimum delay before first retry
+const GIT_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
+
+/// Maximum delay between retries
+const GIT_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+
+/// Maximum number of retry attempts
+const GIT_RETRY_MAX_TIMES: usize = 10;
 
 /// Errors specific to git operations
 #[derive(Debug, Snafu)]
@@ -120,23 +131,30 @@ impl GitClient {
     /// - `checkout_path`: Path to the checked-out working tree (the final source code)
     /// - `commit_hash`: Full 40-character SHA-1 hash of the checked-out commit
     pub(crate) fn checkout_ref(&self, url: &str, selector: GitSelector) -> Result<(PathBuf, String)> {
-        self.reporter.report(|| GitMessage::fetching_repo(url, &selector));
-
-        // Step 1: Ensure bare repo database exists
         let db_path = self.ensure_db(url)?;
 
-        // Step 2: Ensure ref is fetched into database (with targeted refspec!)
-        let commit_oid = Self::ensure_ref(&db_path, url, &selector)?;
-        let commit_str = commit_oid.to_string();
-
-        self.reporter.report(|| GitMessage::resolved_ref(&commit_str));
-
-        // Step 3: Ensure checkout exists
-        let checkout_path = self.ensure_checkout(&db_path, url, &commit_str)?;
-
+        // About to check if ref exists locally
         self.reporter
-            .report(|| GitMessage::checkout_complete(&checkout_path));
+            .report(|| GitMessage::resolving_ref(url, &selector));
 
+        let commit_str = if let Ok(oid) = resolve_selector(&db_path, &selector) {
+            // Ref found locally - no network needed
+            let commit_str = oid.to_string();
+            self.reporter
+                .report(|| GitMessage::ref_found_locally(url, &selector, &commit_str));
+            commit_str
+        } else {
+            // Ref not present - need to fetch from network
+            self.reporter
+                .report(|| GitMessage::fetching_repo(url, &selector));
+            fetch_ref(&db_path, url, &selector)?;
+            let oid = resolve_selector(&db_path, &selector)?;
+            let commit_str = oid.to_string();
+            self.reporter.report(|| GitMessage::resolved_ref(&commit_str));
+            commit_str
+        };
+
+        let checkout_path = self.ensure_checkout(&db_path, url, &commit_str)?;
         Ok((checkout_path, commit_str))
     }
 
@@ -153,26 +171,20 @@ impl GitClient {
         Ok(db_path)
     }
 
-    fn ensure_ref(db_path: &Path, url: &str, selector: &GitSelector) -> Result<ObjectId> {
-        // Try to resolve locally first (cache hit at DB level)
-        if let Ok(oid) = resolve_selector(db_path, selector) {
-            return Ok(oid);
-        }
-
-        // Cache miss: fetch with targeted refspec
-        fetch_ref(db_path, url, selector)?;
-        resolve_selector(db_path, selector)
-    }
-
     fn ensure_checkout(&self, db_path: &Path, url: &str, commit: &str) -> Result<PathBuf> {
         let checkout_path = self.cache.git_checkout_path(url, commit);
 
         // Check if valid checkout exists (use .cgx-ok marker like cargo's .cargo-ok)
         if checkout_path.exists() && checkout_path.join(".cgx-ok").exists() {
+            self.reporter
+                .report(|| GitMessage::checkout_exists(commit, &checkout_path));
             return Ok(checkout_path);
         }
 
-        // Need to perform checkout
+        // Need to perform checkout - emit CheckingOut before extraction
+        self.reporter
+            .report(|| GitMessage::checking_out(commit, &checkout_path));
+
         fs::create_dir_all(&checkout_path).with_context(|_| CreateDirectorySnafu {
             path: checkout_path.clone(),
         })?;
@@ -188,6 +200,10 @@ impl GitClient {
         fs::write(&marker_path, "").with_context(|_| WriteMarkerFileSnafu {
             path: marker_path.clone(),
         })?;
+
+        // Extraction complete
+        self.reporter
+            .report(|| GitMessage::checkout_complete(&checkout_path));
 
         Ok(checkout_path)
     }
@@ -207,6 +223,32 @@ fn init_bare_repo(path: &Path) -> Result<()> {
 }
 
 fn fetch_ref(db_path: &Path, url: &str, selector: &GitSelector) -> Result<()> {
+    let backoff = ExponentialBuilder::default()
+        .with_min_delay(GIT_RETRY_MIN_DELAY)
+        .with_max_delay(GIT_RETRY_MAX_DELAY)
+        .with_max_times(GIT_RETRY_MAX_TIMES)
+        .with_jitter();
+
+    (|| fetch_ref_impl(db_path, url, selector))
+        .retry(backoff)
+        .when(is_retryable_error)
+        .sleep(std::thread::sleep)
+        .call()
+}
+
+fn is_retryable_error(e: &Error) -> bool {
+    let msg = format!("{e:?}");
+    msg.contains("403")
+        || msg.contains("429")
+        || msg.contains("500")
+        || msg.contains("502")
+        || msg.contains("503")
+        || msg.contains("504")
+        || msg.contains("timed out")
+        || msg.contains("connection")
+}
+
+fn fetch_ref_impl(db_path: &Path, url: &str, selector: &GitSelector) -> Result<()> {
     let repo = gix::open(db_path).map_err(|e| {
         OpenRepoSnafu {
             path: db_path.to_path_buf(),

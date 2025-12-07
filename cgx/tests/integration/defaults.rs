@@ -1,18 +1,25 @@
 //! Tests that do not override any config settings and verify the default behavior of cgx
 
 use crate::utils::{Cgx, CommandExt};
-use cgx::messages::{BinaryMessage, Message, ResolutionMessage, RunnerMessage, SourceMessage};
+use cgx::messages::{
+    BinResolutionMessage, BinaryMessage, CrateResolutionMessage, Message, RunnerMessage, SourceMessage,
+};
+use predicates::prelude::*;
 
+/// Test running a crate that publishes pre-built binaries (eza).
+///
+/// With default settings, cgx should download the pre-built binary instead of building from source.
+///
 /// ```sh
 /// cgx eza@=0.23.1 --version
 /// cgx --no-exec eza@=0.23.1
 /// ```
 #[test]
-fn run_exact_version() {
+fn run_with_prebuilt_binary() {
     let mut cgx = Cgx::with_test_fs();
 
-    // First invocation will download eza 0.23.1 into the cache and build it
-    // `cargo build` output is expected on stderr
+    // First invocation should download eza pre-built binary
+    // Should NOT see "Compiling" since we're using a pre-built binary
     cgx.cmd
         .arg("eza@=0.23.1")
         .arg("--version")
@@ -24,11 +31,9 @@ v0.23.1 [+git]
 https://github.com/eza-community/eza
 "##,
         ))
-        .stderr(predicates::str::contains("Compiling"));
+        .stderr(predicates::str::contains("Compiling").not());
 
-    // Second will be served from cache, so it should be fast.
-    // There should not be any stderr output since `cargo build` is not run again.
-    // Confirm that the binary is where we expect it to be
+    // Second invocation should be served from cache
     let mut cgx = cgx.reset();
     cgx.cmd
         .arg("--no-exec")
@@ -42,15 +47,50 @@ https://github.com/eza-community/eza
         .stderr(predicates::str::is_empty());
 }
 
-/// Test that message reporting works correctly when JSON messages are enabled.
+/// Test running a crate that does NOT publish pre-built binaries.
 ///
-/// This verifies that the various subsystems emit messages and that these messages
-/// are correctly serialized and can be parsed back.
+/// With default settings, cgx should fall back to building from source.
+///
+/// ```sh
+/// cgx cargo-expand@1.0.88 --version
+/// cgx --no-exec cargo-expand@1.0.88
+/// ```
 #[test]
-fn messages_with_cache_hit() {
+fn run_without_prebuilt_binary() {
     let mut cgx = Cgx::with_test_fs();
 
-    // First invocation downloads and builds - verify cache misses
+    // First invocation should build from source since cargo-expand doesn't publish binaries
+    // Should see "Compiling" in stderr
+    cgx.cmd
+        .arg("cargo-expand@=1.0.88")
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("cargo-expand"))
+        .stderr(predicates::str::contains("Compiling"));
+
+    // Second invocation should be served from cache
+    let mut cgx = cgx.reset();
+    cgx.cmd
+        .arg("--no-exec")
+        .arg("cargo-expand@=1.0.88")
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with(
+            cgx.test_fs_app_root().join("bins").to_string_lossy(),
+        ))
+        .stdout(predicates::str::contains("cargo-expand"))
+        .stderr(predicates::str::is_empty());
+}
+
+/// Test message reporting for a crate WITH pre-built binaries (uses default settings).
+///
+/// Verifies that binary resolution messages are emitted correctly when a pre-built binary is found.
+#[test]
+fn messages_with_prebuilt_binary() {
+    let mut cgx = Cgx::with_test_fs();
+
+    // First invocation should find and download pre-built binary
     let (assert, messages) = cgx
         .cmd
         .with_json_messages()
@@ -60,27 +100,16 @@ fn messages_with_cache_hit() {
 
     assert.success().stdout(predicates::str::contains("eza"));
 
-    // Verify first run sees cache misses (not hits)
+    // Verify cache misses on first run
     assert!(
-        messages
-            .iter()
-            .any(|m| matches!(m, Message::Resolution(ResolutionMessage::CacheMiss { .. }))),
-        "Expected ResolutionMessage::CacheMiss on first run"
-    );
-    assert!(
-        messages
-            .iter()
-            .any(|m| matches!(m, Message::Source(SourceMessage::CacheMiss { .. }))),
-        "Expected SourceMessage::CacheMiss on first run"
-    );
-    assert!(
-        messages
-            .iter()
-            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheMiss { .. }))),
-        "Expected BinaryMessage::CacheMiss on first run"
+        messages.iter().any(|m| matches!(
+            m,
+            Message::CrateResolution(CrateResolutionMessage::CacheMiss { .. })
+        )),
+        "Expected CrateResolution::CacheMiss on first run"
     );
 
-    // Second invocation should hit cache
+    // Second invocation should hit all caches
     let mut cgx = cgx.reset();
     let (assert, messages) = cgx
         .cmd
@@ -89,34 +118,21 @@ fn messages_with_cache_hit() {
         .arg("eza@=0.23.1")
         .assert_with_messages();
 
-    // Since `eza` wasn't built from source on the second run, there should be no compilation
-    // output on stderr
     assert.success().stderr(predicates::str::is_empty());
 
-    // Verify second run sees cache hits
+    // Verify cache hits on second run
     assert!(
-        messages
-            .iter()
-            .any(|m| matches!(m, Message::Resolution(ResolutionMessage::CacheLookup { .. }))),
-        "Expected ResolutionMessage::CacheLookup"
+        messages.iter().any(|m| matches!(
+            m,
+            Message::CrateResolution(CrateResolutionMessage::CacheHit { .. })
+        )),
+        "Expected CrateResolution::CacheHit on second run"
     );
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::Resolution(ResolutionMessage::CacheHit { .. }))),
-        "Expected ResolutionMessage::CacheHit"
-    );
-    assert!(
-        messages
-            .iter()
-            .any(|m| matches!(m, Message::Source(SourceMessage::CacheHit { .. }))),
-        "Expected SourceMessage::CacheHit"
-    );
-    assert!(
-        messages
-            .iter()
-            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheHit { .. }))),
-        "Expected BinaryMessage::CacheHit"
+            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::CacheHit { .. }))),
+        "Expected BinResolution::CacheHit on second run (pre-built binary cached)"
     );
     assert!(
         messages.iter().any(|m| matches!(
@@ -124,5 +140,78 @@ fn messages_with_cache_hit() {
             Message::Runner(RunnerMessage::ExecutionPlan { no_exec: true, .. })
         )),
         "Expected RunnerMessage::ExecutionPlan"
+    );
+}
+
+/// Test message reporting for a crate WITHOUT pre-built binaries (uses default settings).
+///
+/// Verifies that source build messages are emitted when no pre-built binary is available.
+#[test]
+fn messages_without_prebuilt_binary() {
+    let mut cgx = Cgx::with_test_fs();
+
+    // First invocation should build from source (cargo-expand doesn't publish binaries)
+    let (assert, messages) = cgx
+        .cmd
+        .with_json_messages()
+        .arg("cargo-expand@=1.0.88")
+        .arg("--version")
+        .assert_with_messages();
+
+    assert
+        .success()
+        .stdout(predicates::str::starts_with("cargo-expand"));
+
+    // Verify cache misses on first run
+    assert!(
+        messages.iter().any(|m| matches!(
+            m,
+            Message::CrateResolution(CrateResolutionMessage::CacheMiss { .. })
+        )),
+        "Expected CrateResolution::CacheMiss on first run"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::Source(SourceMessage::CacheMiss { .. }))),
+        "Expected Source::CacheMiss on first run (no prebuilt binary, building from source)"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheMiss { .. }))),
+        "Expected Binary::CacheMiss on first run (building from source)"
+    );
+
+    // Second invocation should hit all caches
+    let mut cgx = cgx.reset();
+    let (assert, messages) = cgx
+        .cmd
+        .with_json_messages()
+        .arg("--no-exec")
+        .arg("cargo-expand@=1.0.88")
+        .assert_with_messages();
+
+    assert.success().stderr(predicates::str::is_empty());
+
+    // Verify cache hits on second run
+    assert!(
+        messages.iter().any(|m| matches!(
+            m,
+            Message::CrateResolution(CrateResolutionMessage::CacheHit { .. })
+        )),
+        "Expected CrateResolution::CacheHit on second run"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::Source(SourceMessage::CacheHit { .. }))),
+        "Expected Source::CacheHit on second run"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheHit { .. }))),
+        "Expected Binary::CacheHit on second run"
     );
 }

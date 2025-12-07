@@ -7,13 +7,47 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use strum::{Display, EnumIter, EnumString, IntoStaticStr, VariantNames};
+
+const DEFAULT_RESOLVE_CACHE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
+
+/// The user's preference for using pre-built binaries.
+#[derive(
+    Default, Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, EnumString, Display, VariantNames,
+)]
+#[strum(serialize_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum UsePrebuiltBinaries {
+    /// Use pre-built binaries when possible (subject to the configured allowed binary providers),
+    /// fall back to building from source when no suitable binary is found.
+    #[default]
+    Auto,
+    /// Only ever use pre-built binaries.  If a particular crate invocation cannot be satisfied
+    /// with a pre-built binary then fail the invocation rather than building from source
+    Always,
+    /// Never look for or use pre-built binaries, always build from source.
+    Never,
+}
 
 /// Represents the sources to check for pre-built binaries before building from source.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    EnumString,
+    Display,
+    IntoStaticStr,
+    EnumIter,
+    VariantNames,
+)]
+#[strum(serialize_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub enum BinaryProvider {
-    /// Use the same logic as cargo-binstall
-    Binstall,
     /// Check GitHub releases on the crate's repository
     GithubReleases,
     /// Check GitLab releases on the crate's repository
@@ -22,12 +56,56 @@ pub enum BinaryProvider {
     Quickinstall,
 }
 
+/// Configuration for how (and whether) to look for pre-built binaries when running a crate.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PrebuiltBinariesConfig {
+    /// Whether and how to use pre-built binaries.
+    pub use_prebuilt_binaries: UsePrebuiltBinaries,
+
+    /// List of sources to check for pre-built binaries before building from source.
+    ///
+    /// If this list is empty and [`Self::use_prebuilt_binaries`] is not set to `Never`, config
+    /// loading will fail with an error. To disable prebuilt binaries, set
+    /// [`Self::use_prebuilt_binaries`] to `Never` rather than using an empty provider list.
+    pub binary_providers: Vec<BinaryProvider>,
+
+    /// If enabled, when downloading a binary check for a checksum file and if found verify that
+    /// the download matches the checksum.
+    ///
+    /// This adds minimal overhead and is recommended for security, therefore is on by default.
+    pub verify_checksums: bool,
+
+    /// If enabled, when dowloading a binary check for a signature file and if found verify that
+    /// the download matches the signature.
+    ///
+    /// This is not quite as simple as [`Self::verify_checksums`] since it requires having the
+    /// minisign tooling  available to perform verification.  However it adds stronger security
+    /// against malicious binaries.
+    pub verify_signatures: bool,
+}
+
+impl Default for PrebuiltBinariesConfig {
+    fn default() -> Self {
+        Self {
+            use_prebuilt_binaries: UsePrebuiltBinaries::Auto,
+            binary_providers: vec![
+                BinaryProvider::GithubReleases,
+                BinaryProvider::GitlabReleases,
+                BinaryProvider::Quickinstall,
+            ],
+            verify_checksums: true,
+            verify_signatures: true,
+        }
+    }
+}
+
 /// Configuration for a specific tool, matching Cargo.toml dependency format.
 ///
 /// This can be a simple version string like `"1.0"` or a more complex specification
 /// with version, features, registry, git repo, etc.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(untagged)]
+#[serde(deny_unknown_fields, untagged)]
 pub enum ToolConfig {
     /// Simple version specification (e.g., "1.0", "*")
     Version(String),
@@ -57,7 +135,7 @@ pub enum ToolConfig {
 /// This matches the structure of cgx.toml files and is used during the deserialization
 /// process. Fields are then mapped to the final [`Config`] struct.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "deserialize_optional_expanded_path")]
@@ -91,13 +169,39 @@ pub struct ConfigFile {
     pub default_registry: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub binary_providers: Option<Vec<BinaryProvider>>,
+    pub prebuilt_binaries: Option<PrebuiltBinariesConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<HashMap<String, ToolConfig>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aliases: Option<HashMap<String, String>>,
+}
+
+impl ConfigFile {
+    /// Returns the base configuration with sensible defaults.
+    ///
+    /// This is distinct from [`Default`] which returns all `None` values. The `Default` impl
+    /// is used by serde to represent fields missing from a config file, so it must be all `None`.
+    ///
+    /// This method provides the actual default values that serve as the lowest-precedence layer
+    /// in the config hierarchy, before any config files are applied.
+    pub fn base_config() -> Self {
+        Self {
+            bin_dir: None,
+            build_dir: None,
+            cache_dir: None,
+            locked: Some(true),
+            log_level: None,
+            offline: Some(false),
+            resolve_cache_timeout: Some(DEFAULT_RESOLVE_CACHE_TIMEOUT),
+            toolchain: None,
+            default_registry: None,
+            prebuilt_binaries: Some(PrebuiltBinariesConfig::default()),
+            tools: None,
+            aliases: None,
+        }
+    }
 }
 
 /// Custom deserializer for optional [`PathBuf`] that expands ~ to home directory.
@@ -162,11 +266,8 @@ pub struct Config {
     /// Default registry to use instead of crates.io when no registry is explicitly specified
     pub default_registry: Option<String>,
 
-    /// List of sources to check for pre-built binaries before building from source.
-    ///
-    /// If None or empty, pre-built binaries are not used and everything is built from source.
-    #[allow(dead_code)]
-    pub binary_providers: Option<Vec<BinaryProvider>>,
+    /// How or whether to look for pre-built binaries published for the crates being run.
+    pub prebuilt_binaries: PrebuiltBinariesConfig,
 
     /// Pinned tool versions and configurations.
     ///
@@ -195,7 +296,7 @@ impl Default for Config {
             toolchain: None,
             log_level: None,
             default_registry: None,
-            binary_providers: None,
+            prebuilt_binaries: PrebuiltBinariesConfig::default(),
             tools: HashMap::default(),
             aliases: HashMap::default(),
         }
@@ -228,37 +329,36 @@ impl Config {
 
         let strategy = Self::get_user_dirs()?;
 
-        let default_config = ConfigFile {
-            resolve_cache_timeout: Some(Duration::from_secs(60 * 60)),
-            locked: Some(true),
-            offline: Some(false),
-            ..Default::default()
-        };
-
-        let mut figment = Figment::new().merge(Serialized::defaults(default_config));
+        // Start with base config defaults, then merge config files
+        let mut figment = Figment::new().merge(Serialized::defaults(ConfigFile::base_config()));
 
         for config_file in Self::discover_config_files(cwd, args)? {
             figment = figment.merge(Toml::file(config_file));
         }
 
-        let cli_overrides = ConfigFile {
-            locked: if args.locked || args.frozen {
-                Some(true)
-            } else {
-                None
-            },
-            offline: if args.offline || args.frozen {
-                Some(true)
-            } else {
-                None
-            },
-            toolchain: args.toolchain.clone(),
-            ..Default::default()
+        // Extract merged config file values (no CLI overrides applied yet via Figment)
+        let config_file: ConfigFile = figment.extract().context(crate::error::ConfigExtractSnafu)?;
+
+        // Override the config file values using any CLI args that were specified
+
+        // locked: --unlocked > --locked/--frozen > config > default(true)
+        let locked = if args.unlocked {
+            false
+        } else if args.locked || args.frozen {
+            true
+        } else {
+            config_file.locked.unwrap_or(true)
         };
 
-        figment = figment.merge(Serialized::defaults(cli_overrides));
+        // offline: --offline/--frozen > config > default(false)
+        let offline = if args.offline || args.frozen {
+            true
+        } else {
+            config_file.offline.unwrap_or(false)
+        };
 
-        let config_file: ConfigFile = figment.extract().context(crate::error::ConfigExtractSnafu)?;
+        // toolchain: CLI > config
+        let toolchain = args.toolchain.clone().or(config_file.toolchain);
 
         // Determine config_dir based on override precedence
         let config_dir = if let Some(user_config_dir) = &args.user_config_dir {
@@ -269,32 +369,53 @@ impl Config {
             strategy.config_dir()
         };
 
-        // Determine cache_dir: config file > app-dir > strategy
-        let cache_dir = config_file.cache_dir.unwrap_or_else(|| {
-            if let Some(app_dir) = &args.app_dir {
-                app_dir.join("cache")
-            } else {
-                strategy.cache_dir()
-            }
-        });
+        // Determine cache_dir: CLI (app-dir) > config file > strategy
+        let cache_dir = if let Some(app_dir) = &args.app_dir {
+            app_dir.join("cache")
+        } else {
+            config_file.cache_dir.unwrap_or_else(|| strategy.cache_dir())
+        };
 
-        // Determine bin_dir: config file > app-dir > strategy
-        let bin_dir = config_file.bin_dir.unwrap_or_else(|| {
-            if let Some(app_dir) = &args.app_dir {
-                app_dir.join("bins")
-            } else {
-                strategy.in_data_dir("bins")
-            }
-        });
+        // Determine bin_dir: CLI (app-dir) > config file > strategy
+        let bin_dir = if let Some(app_dir) = &args.app_dir {
+            app_dir.join("bins")
+        } else {
+            config_file
+                .bin_dir
+                .unwrap_or_else(|| strategy.in_data_dir("bins"))
+        };
 
-        // Determine build_dir: config file > app-dir > strategy
-        let build_dir = config_file.build_dir.unwrap_or_else(|| {
-            if let Some(app_dir) = &args.app_dir {
-                app_dir.join("build")
-            } else {
-                strategy.in_data_dir("build")
-            }
-        });
+        // Determine build_dir: CLI (app-dir) > config file > strategy
+        let build_dir = if let Some(app_dir) = &args.app_dir {
+            app_dir.join("build")
+        } else {
+            config_file
+                .build_dir
+                .unwrap_or_else(|| strategy.in_data_dir("build"))
+        };
+
+        let mut prebuilt_binaries = config_file.prebuilt_binaries.unwrap_or_default();
+
+        // Apply CLI overrides for prebuilt binaries
+        if let Some(mode) = args.prebuilt_binary {
+            prebuilt_binaries.use_prebuilt_binaries = mode;
+        }
+        if let Some(ref providers) = args.prebuilt_binary_sources {
+            prebuilt_binaries.binary_providers = providers.clone();
+        }
+        if args.prebuilt_binary_no_verify_checksums {
+            prebuilt_binaries.verify_checksums = false;
+        }
+        if args.prebuilt_binary_no_verify_signatures {
+            prebuilt_binaries.verify_signatures = false;
+        }
+
+        // Validate prebuilt binaries configuration
+        if prebuilt_binaries.binary_providers.is_empty()
+            && prebuilt_binaries.use_prebuilt_binaries != UsePrebuiltBinaries::Never
+        {
+            return crate::error::NoProvidersConfiguredSnafu.fail();
+        }
 
         Ok(Self {
             config_dir,
@@ -303,14 +424,14 @@ impl Config {
             build_dir,
             resolve_cache_timeout: config_file
                 .resolve_cache_timeout
-                .unwrap_or_else(|| Duration::from_secs(60 * 60)),
-            offline: config_file.offline.unwrap_or(false),
-            locked: config_file.locked.unwrap_or(true),
+                .unwrap_or(DEFAULT_RESOLVE_CACHE_TIMEOUT),
+            offline,
+            locked,
             refresh: args.refresh,
-            toolchain: config_file.toolchain,
+            toolchain,
             log_level: config_file.log_level,
             default_registry: config_file.default_registry,
-            binary_providers: config_file.binary_providers,
+            prebuilt_binaries,
             tools: config_file.tools.unwrap_or_default(),
             aliases: config_file.aliases.unwrap_or_default(),
         })
@@ -467,17 +588,14 @@ mod tests {
     #[test]
     fn test_deserialize_binary_providers() {
         let toml_content = r#"
-            binary_providers = ["binstall", "github-releases", "quickinstall"]
+            [prebuilt_binaries]
+            binary_providers = ["github-releases", "quickinstall"]
         "#;
 
         let config: ConfigFile = toml::from_str(toml_content).unwrap();
         assert_eq!(
-            config.binary_providers,
-            Some(vec![
-                BinaryProvider::Binstall,
-                BinaryProvider::GithubReleases,
-                BinaryProvider::Quickinstall,
-            ])
+            config.prebuilt_binaries.unwrap().binary_providers,
+            vec![BinaryProvider::GithubReleases, BinaryProvider::Quickinstall,]
         );
     }
 
@@ -573,7 +691,9 @@ mod tests {
             resolve_cache_timeout = "1h"
             toolchain = "stable"
             default_registry = "my-registry"
-            binary_providers = ["binstall", "github-releases", "gitlab-releases", "quickinstall"]
+
+            [prebuilt_binaries]
+            binary_providers = ["github-releases", "gitlab-releases", "quickinstall"]
 
             [tools]
             ripgrep = "*"
@@ -593,14 +713,76 @@ mod tests {
         assert_eq!(config.offline, Some(false));
         assert_eq!(config.resolve_cache_timeout, Some(Duration::from_secs(60 * 60)));
 
-        let binary_providers = config.binary_providers.unwrap();
-        assert_eq!(binary_providers.len(), 4);
+        let prebuilt_binaries = config.prebuilt_binaries.unwrap();
+
+        assert_eq!(prebuilt_binaries.binary_providers.len(), 3);
+
+        // Other prebuild binary settings should be defaults
+        assert_eq!(prebuilt_binaries.use_prebuilt_binaries, UsePrebuiltBinaries::Auto);
+        assert!(prebuilt_binaries.verify_checksums);
+        assert!(prebuilt_binaries.verify_signatures);
 
         let tools = config.tools.unwrap();
         assert_eq!(tools.len(), 2);
 
         let aliases = config.aliases.unwrap();
         assert_eq!(aliases.len(), 2);
+    }
+
+    mod prebuilt_validation_tests {
+        use super::*;
+        use assert_matches::assert_matches;
+        use std::io::Write;
+
+        fn create_temp_config(toml_content: &str) -> tempfile::TempDir {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let config_path = temp_dir.path().join("cgx.toml");
+            let mut file = std::fs::File::create(&config_path).unwrap();
+            file.write_all(toml_content.as_bytes()).unwrap();
+            temp_dir
+        }
+
+        #[test]
+        fn test_empty_providers_with_auto_fails() {
+            let toml_content = r#"
+                [prebuilt_binaries]
+                use_prebuilt_binaries = "auto"
+                binary_providers = []
+            "#;
+
+            let temp_dir = create_temp_config(toml_content);
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let result = Config::load_from_dir(temp_dir.path(), &args);
+            assert_matches!(result, Err(crate::error::Error::NoProvidersConfigured));
+        }
+
+        #[test]
+        fn test_empty_providers_with_always_fails() {
+            let toml_content = r#"
+                [prebuilt_binaries]
+                use_prebuilt_binaries = "always"
+                binary_providers = []
+            "#;
+
+            let temp_dir = create_temp_config(toml_content);
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let result = Config::load_from_dir(temp_dir.path(), &args);
+            assert_matches!(result, Err(crate::error::Error::NoProvidersConfigured));
+        }
+
+        #[test]
+        fn test_empty_providers_with_never_ok() {
+            let toml_content = r#"
+                [prebuilt_binaries]
+                use_prebuilt_binaries = "never"
+                binary_providers = []
+            "#;
+
+            let temp_dir = create_temp_config(toml_content);
+            let args = CliArgs::parse_from_test_args(["test-crate"]);
+            let result = Config::load_from_dir(temp_dir.path(), &args);
+            assert!(result.is_ok(), "Empty providers with 'never' mode should succeed");
+        }
     }
 
     /// Test the config loading logic that traverses up a directory hierarchy looking for config
@@ -1230,7 +1412,7 @@ mod tests {
             }
 
             #[test]
-            fn test_config_file_overrides_take_precedence_over_app_dir() {
+            fn test_app_dir_takes_precedence_over_config_file() {
                 let temp_dir = tempfile::tempdir().unwrap();
 
                 // App dir
@@ -1238,7 +1420,7 @@ mod tests {
                 let app_config_dir = app_dir.join("config");
                 fs::create_dir_all(&app_config_dir).unwrap();
 
-                // Config file with explicit settings
+                // Config file with explicit settings that should be overridden
                 let config_file = temp_dir.path().join("explicit.toml");
                 let test_config = ConfigFile {
                     cache_dir: Some(temp_dir.path().join("my-cache")),
@@ -1257,7 +1439,36 @@ mod tests {
 
                 let config = Config::load_from_dir(&cwd, &args).unwrap();
 
-                // Explicit config file settings should win over app_dir
+                // CLI --app-dir should win over config file settings
+                assert_eq!(config.cache_dir, app_dir.join("cache"));
+                assert_eq!(config.bin_dir, app_dir.join("bins"));
+                assert_eq!(config.build_dir, app_dir.join("build"));
+            }
+
+            #[test]
+            fn test_config_file_paths_used_when_no_app_dir() {
+                let temp_dir = tempfile::tempdir().unwrap();
+
+                // Config file with explicit path settings
+                let config_file = temp_dir.path().join("explicit.toml");
+                let test_config = ConfigFile {
+                    cache_dir: Some(temp_dir.path().join("my-cache")),
+                    bin_dir: Some(temp_dir.path().join("my-bins")),
+                    build_dir: Some(temp_dir.path().join("my-build")),
+                    ..Default::default()
+                };
+                fs::write(&config_file, toml::to_string(&test_config).unwrap()).unwrap();
+
+                let cwd = temp_dir.path().join("work");
+                fs::create_dir_all(&cwd).unwrap();
+
+                let mut args = CliArgs::parse_from_test_args(["test-crate"]);
+                // No --app-dir specified
+                args.config_file = Some(config_file);
+
+                let config = Config::load_from_dir(&cwd, &args).unwrap();
+
+                // Config file paths should be used when --app-dir is not specified
                 assert_eq!(config.cache_dir, temp_dir.path().join("my-cache"));
                 assert_eq!(config.bin_dir, temp_dir.path().join("my-bins"));
                 assert_eq!(config.build_dir, temp_dir.path().join("my-build"));
@@ -1281,14 +1492,14 @@ mod tests {
         }
 
         #[test]
-        fn test_invalid_config_options_ignored() {
+        fn test_invalid_config_options_raise_error() {
             let test_case = crate::testdata::ConfigTestCase::invalid_options();
 
             let mut args = CliArgs::parse_from_test_args(["test-crate"]);
             args.config_file = Some(test_case.path().to_path_buf());
 
             let result = Config::load(&args);
-            result.unwrap();
+            assert_matches!(result, Err(crate::error::Error::ConfigExtract { .. }));
         }
 
         #[test]

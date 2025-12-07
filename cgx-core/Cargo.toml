@@ -18,6 +18,7 @@ ignored = [
 ]
 
 [dependencies]
+backon          = { workspace = true }
 build-context   = { workspace = true }
 cargo_metadata  = { workspace = true }
 chrono          = { workspace = true }
@@ -37,14 +38,17 @@ serde_json      = { workspace = true }
 sha2            = { workspace = true }
 shellexpand     = { workspace = true }
 snafu           = { workspace = true }
+strum           = { workspace = true, features = ["derive"] }
 tame-index      = { workspace = true }
 tar             = { workspace = true }
 tempfile        = { workspace = true }
-tokio           = { workspace = true }
 tracing         = { workspace = true }
 url             = { workspace = true }
 uuid            = { workspace = true }
 which           = { workspace = true }
+xz2.workspace   = true
+zip.workspace   = true
+zstd.workspace  = true
 
 [target.'cfg(windows)'.dependencies]
 ctrlc = { workspace = true }

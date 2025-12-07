@@ -6,7 +6,7 @@ use std::{path::PathBuf, time::Duration};
 /// Messages related to crate resolution and resolution cache operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
-pub enum ResolutionMessage {
+pub enum CrateResolutionMessage {
     CacheLookup {
         spec: CrateSpec,
     },
@@ -37,7 +37,7 @@ pub enum ResolutionMessage {
     },
 }
 
-impl ResolutionMessage {
+impl CrateResolutionMessage {
     pub fn cache_lookup(spec: &CrateSpec) -> Self {
         Self::CacheLookup { spec: spec.clone() }
     }
@@ -85,8 +85,8 @@ impl ResolutionMessage {
     }
 }
 
-impl From<ResolutionMessage> for Message {
-    fn from(msg: ResolutionMessage) -> Self {
-        Message::Resolution(msg)
+impl From<CrateResolutionMessage> for Message {
+    fn from(msg: CrateResolutionMessage) -> Self {
+        Message::CrateResolution(msg)
     }
 }

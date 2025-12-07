@@ -39,6 +39,7 @@ allow = [
   "Zlib",
   "MPL-2.0",
   "CDLA-Permissive-2.0",
+  "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
 exceptions = []
