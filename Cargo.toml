@@ -44,7 +44,7 @@ tame-index         = { version = "0.24.1", features = ["sparse"] }
 tar                = "0.4.44"
 tempfile           = "3.23.0"
 tokio              = { version = "1", features = ["rt", "rt-multi-thread"] }
-toml               = "0.9.8"
+toml               = "0.9.10"
 tracing            = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 url                = { version = "2.5.7", features = ["serde"] }
