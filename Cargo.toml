@@ -46,7 +46,7 @@ tempfile           = "3.23.0"
 tokio              = { version = "1", features = ["rt", "rt-multi-thread"] }
 toml               = "0.9.8"
 tracing            = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 url                = { version = "2.5.7", features = ["serde"] }
 uuid               = { version = "1.18.1", features = ["v4"] }
 vergen-gix         = { version = "1.0.9", default-features = false }
