@@ -134,8 +134,7 @@ impl GitClient {
         let db_path = self.ensure_db(url)?;
 
         // About to check if ref exists locally
-        self.reporter
-            .report(|| GitMessage::resolving_ref(url, &selector));
+        self.reporter.report(|| GitMessage::resolving_ref(url, &selector));
 
         let commit_str = if let Ok(oid) = resolve_selector(&db_path, &selector) {
             // Ref found locally - no network needed
@@ -145,8 +144,7 @@ impl GitClient {
             commit_str
         } else {
             // Ref not present - need to fetch from network
-            self.reporter
-                .report(|| GitMessage::fetching_repo(url, &selector));
+            self.reporter.report(|| GitMessage::fetching_repo(url, &selector));
             fetch_ref(&db_path, url, &selector)?;
             let oid = resolve_selector(&db_path, &selector)?;
             let commit_str = oid.to_string();
