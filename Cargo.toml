@@ -42,7 +42,7 @@ shellexpand        = "3.1.1"
 snafu              = "0.8.9"
 tame-index         = { version = "0.25.0", features = ["sparse"] }
 tar                = "0.4.44"
-tempfile           = "3.23.0"
+tempfile           = "3.24.0"
 tokio              = { version = "1", features = ["rt", "rt-multi-thread"] }
 toml               = "0.9.10"
 tracing            = "0.1.41"
