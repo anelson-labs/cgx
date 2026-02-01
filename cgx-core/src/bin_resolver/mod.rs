@@ -256,7 +256,7 @@ impl BinaryResolver for DefaultBinaryResolver {
                         .try_resolve(krate, platform)
                 }
                 BinaryProvider::Quickinstall => {
-                    QuickinstallProvider::new(reporter.clone(), cache_dir.clone(), verify)
+                    QuickinstallProvider::new(reporter.clone(), cache_dir.clone())
                         .try_resolve(krate, platform)
                 }
             };

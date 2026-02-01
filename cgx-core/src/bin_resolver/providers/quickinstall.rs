@@ -9,27 +9,20 @@ use std::path::PathBuf;
 pub(in crate::bin_resolver) struct QuickinstallProvider {
     reporter: crate::messages::MessageReporter,
     cache_dir: PathBuf,
-    verify_checksums: bool,
 }
 
 impl QuickinstallProvider {
     pub(in crate::bin_resolver) fn new(
         reporter: crate::messages::MessageReporter,
         cache_dir: PathBuf,
-        verify_checksums: bool,
     ) -> Self {
-        Self {
-            reporter,
-            cache_dir,
-            verify_checksums,
-        }
+        Self { reporter, cache_dir }
     }
 
     fn construct_url(krate: &ResolvedCrate, platform: &str) -> String {
-        format!(
-            "https://github.com/cargo-bins/cargo-quickinstall/releases/download/{}-{}-{}.tar.gz",
-            krate.name, krate.version, platform
-        )
+        let base = "https://github.com/cargo-bins/cargo-quickinstall/releases/download";
+        let tag = format!("{}-{}", krate.name, krate.version);
+        format!("{base}/{tag}/{tag}-{platform}.tar.gz")
     }
 
     fn download_file(url: &str) -> Result<Vec<u8>> {
@@ -41,52 +34,14 @@ impl QuickinstallProvider {
         let response = client
             .get(url)
             .send()
+            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?
+            .error_for_status()
             .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        if !response.status().is_success() {
-            return Err(error::Error::BinaryDownloadFailed {
-                url: url.to_string(),
-                source: response.error_for_status().unwrap_err(),
-            });
-        }
 
         response
             .bytes()
             .map(|b| b.to_vec())
             .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })
-    }
-
-    fn verify_checksum(&self, data: &[u8], checksum_url: &str) -> Result<()> {
-        use sha2::{Digest, Sha256};
-
-        let checksum_data = Self::download_file(checksum_url)?;
-        let checksum_str = String::from_utf8_lossy(&checksum_data);
-        let expected_hash = checksum_str.split_whitespace().next().ok_or_else(|| {
-            error::ChecksumMismatchSnafu {
-                expected: checksum_str.to_string(),
-                actual: "invalid checksum format".to_string(),
-            }
-            .build()
-        })?;
-
-        self.reporter
-            .report(|| BinResolutionMessage::verifying_checksum(expected_hash));
-
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        let actual_hash = format!("{:x}", hasher.finalize());
-
-        if expected_hash != actual_hash {
-            return error::ChecksumMismatchSnafu {
-                expected: expected_hash.to_string(),
-                actual: actual_hash,
-            }
-            .fail();
-        }
-
-        self.reporter.report(BinResolutionMessage::checksum_verified);
-
-        Ok(())
     }
 }
 
@@ -98,7 +53,6 @@ impl Provider for QuickinstallProvider {
         self.reporter
             .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::Quickinstall));
 
-        // Try to download the archive
         let data = if let Ok(data) = Self::download_file(&url) {
             data
         } else {
@@ -111,11 +65,7 @@ impl Provider for QuickinstallProvider {
             return Ok(None);
         };
 
-        // Quickinstall always has checksums
-        let checksum_url = format!("{}.sha256", url);
-        if self.verify_checksums {
-            self.verify_checksum(&data, &checksum_url)?;
-        }
+        // TODO(#80): verify .sig (minisign) signatures when support is added
 
         // Extract to temporary directory
         let temp_dir = tempfile::tempdir().with_context(|_| error::TempDirCreationSnafu {
