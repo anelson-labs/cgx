@@ -20,9 +20,15 @@ feature-depth = 1
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-ignore  = []
+ignore = [
+  # gix-date < 0.12.0 advisory. Runtime copy fixed by gix 0.77 bump.
+  # Remaining instance is in vergen-gix 1.0.9 build dep (gix 0.71 -> gix-date 0.9.4).
+  # Can't upgrade vergen-gix past 1.0.9 without Rust 1.88 (we're on 1.85.1).
+  # Build-dep only, never processes untrusted data at runtime.
+  "RUSTSEC-2025-0140",
+]
 version = 2
-yanked  = "warn"
+yanked = "warn"
 
 # License compliance
 [licenses]
@@ -38,7 +44,7 @@ allow = [
   "0BSD",
   "Zlib",
   "MPL-2.0",
-  "CDLA-Permissive-2.0",
+  "OpenSSL",
   "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
@@ -59,9 +65,14 @@ external-default-features = "allow"
 highlight = "all"
 multiple-versions = "warn"
 skip = [
-  # windows-registry (via hyper-util→reqwest) on older windows-* crates
-  { name = "windows-result", version = "0.3" },
-  { name = "windows-strings", version = "0.4" },
+  # figment 0.10.19 (latest) depends on toml 0.8; project uses 0.9.
+  # No newer figment version exists. Unavoidable until upstream upgrades.
+  { name = "toml", version = "0.8" },
+  { name = "serde_spanned", version = "0.6" },
+  { name = "toml_datetime", version = "0.6" },
+  # system-configuration (via hyper-util) uses core-foundation 0.9;
+  # rustls-platform-verifier and security-framework use 0.10. macOS only.
+  { name = "core-foundation", version = "0.9" },
 ]
 skip-tree = [
   # vergen-gix (build dep) uses older gix 0.71

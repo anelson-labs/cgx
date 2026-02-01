@@ -1,7 +1,7 @@
 use super::Provider;
 use crate::{
-    Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedCrate, error,
-    messages::BinResolutionMessage,
+    Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedCrate,
+    downloader::DownloadedCrate, error, messages::BinResolutionMessage,
 };
 use snafu::ResultExt;
 use std::path::PathBuf;
@@ -91,7 +91,8 @@ impl QuickinstallProvider {
 }
 
 impl Provider for QuickinstallProvider {
-    fn try_resolve(&self, krate: &ResolvedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
+    fn try_resolve(&self, krate: &DownloadedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
+        let krate = &krate.resolved;
         let url = Self::construct_url(krate, platform);
 
         self.reporter

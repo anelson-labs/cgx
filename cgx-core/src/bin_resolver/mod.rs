@@ -6,10 +6,11 @@ use crate::{
     cache::Cache,
     config::{BinaryProvider, Config, UsePrebuiltBinaries},
     crate_resolver::ResolvedCrate,
+    downloader::DownloadedCrate,
     error,
     messages::BinResolutionMessage,
 };
-use providers::{GithubProvider, GitlabProvider, Provider, QuickinstallProvider};
+use providers::{BinstallProvider, GithubProvider, GitlabProvider, Provider, QuickinstallProvider};
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
@@ -45,7 +46,11 @@ pub trait BinaryResolver {
     /// - If build options disqualify pre-built binaries (custom features, target, etc.), returns
     ///   `Ok(None)`
     /// - If `UsePrebuiltBinaries::Always` is set and no binary is found, returns an error
-    fn resolve(&self, krate: &ResolvedCrate, build_options: &BuildOptions) -> Result<Option<ResolvedBinary>>;
+    fn resolve(
+        &self,
+        krate: &DownloadedCrate,
+        build_options: &BuildOptions,
+    ) -> Result<Option<ResolvedBinary>>;
 }
 
 /// Create the default [`BinaryResolver`] implementation, repecting the given config and using the
@@ -208,113 +213,79 @@ impl DefaultBinaryResolver {
 }
 
 impl BinaryResolver for DefaultBinaryResolver {
-    fn resolve(&self, krate: &ResolvedCrate, build_options: &BuildOptions) -> Result<Option<ResolvedBinary>> {
-        // Note: disqualification and Never mode are handled by CachingResolver and Cache
-        // respectively. This method is only called when those checks have passed.
-        let _ = build_options; // Suppress unused warning - checked by CachingResolver
+    fn resolve(
+        &self,
+        krate: &DownloadedCrate,
+        _build_options: &BuildOptions,
+    ) -> Result<Option<ResolvedBinary>> {
+        let resolved = &krate.resolved;
 
         tracing::debug!(
             "BinaryResolver::resolve called for {}@{}",
-            krate.name,
-            krate.version
+            resolved.name,
+            resolved.version
         );
 
-        // Error if no providers are configured
         if self.config.prebuilt_binaries.binary_providers.is_empty() {
             return error::NoProvidersConfiguredSnafu.fail();
         }
 
-        // Get the current platform triple
-        let platform = build_context::TARGET;
+        // Always use the build target platform for pre-built binaries
+        // If the user overrides this by specifying a custom target, execution is not supposed to
+        // make it to this point.
+        let platform: &'static str = build_context::TARGET;
 
-        // Race all enabled providers using threads
-        use std::{sync::mpsc, thread};
-
-        let (tx, rx) = mpsc::channel();
-        let mut handles = Vec::new();
+        let reporter = &self.reporter;
+        let cache_dir = &self.config.cache_dir;
+        let verify = self.config.prebuilt_binaries.verify_checksums;
 
         for provider_type in &self.config.prebuilt_binaries.binary_providers {
-            let provider: Box<dyn Provider + Send + Sync> = match provider_type {
-                BinaryProvider::GithubReleases => Box::new(GithubProvider::new(
-                    self.reporter.clone(),
-                    self.config.cache_dir.clone(),
-                    self.config.prebuilt_binaries.verify_checksums,
-                )),
-                BinaryProvider::Quickinstall => Box::new(QuickinstallProvider::new(
-                    self.reporter.clone(),
-                    self.config.cache_dir.clone(),
-                    self.config.prebuilt_binaries.verify_checksums,
-                )),
-                BinaryProvider::GitlabReleases => Box::new(GitlabProvider::new(
-                    self.reporter.clone(),
-                    self.config.cache_dir.clone(),
-                    self.config.prebuilt_binaries.verify_checksums,
-                )),
+            reporter.report(|| BinResolutionMessage::checking_provider(resolved, *provider_type));
+
+            let result = match provider_type {
+                BinaryProvider::Binstall => {
+                    BinstallProvider::new(reporter.clone(), cache_dir.clone(), verify)
+                        .try_resolve(krate, platform)
+                }
+                BinaryProvider::GithubReleases => {
+                    GithubProvider::new(reporter.clone(), cache_dir.clone(), verify)
+                        .try_resolve(krate, platform)
+                }
+                BinaryProvider::GitlabReleases => {
+                    GitlabProvider::new(reporter.clone(), cache_dir.clone(), verify)
+                        .try_resolve(krate, platform)
+                }
+                BinaryProvider::Quickinstall => {
+                    QuickinstallProvider::new(reporter.clone(), cache_dir.clone(), verify)
+                        .try_resolve(krate, platform)
+                }
             };
 
-            self.reporter
-                .report(|| BinResolutionMessage::checking_provider(krate, *provider_type));
-
-            let krate_clone = krate.clone();
-            let platform_str = platform.to_string();
-            let tx_clone = tx.clone();
-
-            let handle = thread::spawn(move || {
-                let result = provider.try_resolve(&krate_clone, &platform_str);
-                let _ = tx_clone.send(result);
-            });
-
-            handles.push(handle);
-        }
-
-        // Drop the original sender so rx.iter() will terminate
-        drop(tx);
-
-        // Collect results from all threads - first success wins
-        let mut first_success = None;
-        for result in rx {
             match result {
                 Ok(Some(binary)) => {
-                    if first_success.is_none() {
-                        first_success = Some(binary);
-                        // Found a binary, but continue collecting to clean up threads
-                    }
+                    let relocated_binary = self.relocate_to_bin_dir(binary, resolved, platform)?;
+                    reporter.report(|| BinResolutionMessage::resolved(&relocated_binary));
+                    return Ok(Some(relocated_binary));
                 }
-                Ok(None) => {
-                    // Provider didn't have the binary, continue
-                }
+                Ok(None) => continue,
                 Err(e) => {
-                    // Provider encountered an error
-                    tracing::debug!("Provider error: {:?}", e);
+                    tracing::debug!("Provider {:?} error: {:?}", provider_type, e);
+                    continue;
                 }
             }
         }
 
-        // Wait for all threads to complete
-        for handle in handles {
-            let _ = handle.join();
-        }
-
-        // Return first success if found, but first move it to bin_dir
-        if let Some(binary) = first_success {
-            let relocated_binary = self.relocate_to_bin_dir(binary, krate, platform)?;
-            self.reporter
-                .report(|| BinResolutionMessage::resolved(&relocated_binary));
-            return Ok(Some(relocated_binary));
-        }
-
-        // No provider succeeded
         if self.config.prebuilt_binaries.use_prebuilt_binaries == UsePrebuiltBinaries::Always {
             return error::PrebuiltBinaryRequiredSnafu {
-                name: krate.name.clone(),
-                version: krate.version.to_string(),
+                name: resolved.name.clone(),
+                version: resolved.version.to_string(),
             }
             .fail();
         }
 
         self.reporter.report(|| {
             BinResolutionMessage::no_binary_found(
-                krate,
+                resolved,
                 vec!["no binary found from any configured provider".to_string()],
             )
         });
@@ -340,7 +311,11 @@ impl<R: BinaryResolver> CachingResolver<R> {
 }
 
 impl<R: BinaryResolver> BinaryResolver for CachingResolver<R> {
-    fn resolve(&self, krate: &ResolvedCrate, build_options: &BuildOptions) -> Result<Option<ResolvedBinary>> {
+    fn resolve(
+        &self,
+        krate: &DownloadedCrate,
+        build_options: &BuildOptions,
+    ) -> Result<Option<ResolvedBinary>> {
         // Check build options disqualification BEFORE touching cache
         if let Some(reason) = is_disqualified(build_options) {
             self.reporter
@@ -348,9 +323,9 @@ impl<R: BinaryResolver> BinaryResolver for CachingResolver<R> {
             return Ok(None);
         }
 
-        // Delegate to cache (which handles Never mode and caching)
+        // Delegate to cache (which handles Never mode and caching), keyed on the resolved crate
         self.cache
-            .get_or_resolve_binary(krate, || self.inner.resolve(krate, build_options))
+            .get_or_resolve_binary(&krate.resolved, || self.inner.resolve(krate, build_options))
     }
 }
 

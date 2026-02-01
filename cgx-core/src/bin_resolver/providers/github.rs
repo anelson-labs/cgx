@@ -5,9 +5,11 @@ use crate::{
     config::BinaryProvider,
     crate_resolver::{ResolvedCrate, ResolvedSource},
     cratespec::Forge,
+    downloader::DownloadedCrate,
     error,
     messages::BinResolutionMessage,
 };
+use serde::Deserialize;
 use snafu::ResultExt;
 use std::path::PathBuf;
 
@@ -15,6 +17,17 @@ pub(in crate::bin_resolver) struct GithubProvider {
     reporter: crate::messages::MessageReporter,
     cache_dir: PathBuf,
     verify_checksums: bool,
+}
+
+#[derive(Deserialize)]
+struct ReleaseResponse {
+    assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseAsset {
+    name: String,
+    browser_download_url: String,
 }
 
 impl GithubProvider {
@@ -47,128 +60,94 @@ impl GithubProvider {
                     let base = base.trim_end_matches('/');
                     Some(format!("{}/{}/{}", base, owner, repo))
                 }
-                Forge::GitLab { .. } => None, // GitLab not supported yet
+                Forge::GitLab { .. } => None,
             },
             ResolvedSource::CratesIo | ResolvedSource::Registry { .. } => {
-                // Query crates.io registry for repository field
                 Self::get_crates_io_repo_url(&krate.name)
             }
             _ => None,
         }
     }
 
-    /// Query crates.io API to get the repository URL for a crate.
+    /// Query crates.io API to get the repository URL for a crate, filtering for github.com.
     fn get_crates_io_repo_url(crate_name: &str) -> Option<String> {
-        use serde::Deserialize;
-
-        #[derive(Deserialize)]
-        struct CrateResponse {
-            #[serde(rename = "crate")]
-            krate: CrateInfo,
-        }
-
-        #[derive(Deserialize)]
-        struct CrateInfo {
-            repository: Option<String>,
-        }
-
-        let url = format!("https://crates.io/api/v1/crates/{}", crate_name);
-
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
-            .build()
-            .ok()?;
-
-        let response = client.get(&url).send().ok()?;
-
-        if !response.status().is_success() {
-            return None;
-        }
-
-        let text = response.text().ok()?;
-        let crate_response: CrateResponse = serde_json::from_str(&text).ok()?;
-        let repo_url = crate_response.krate.repository?;
-
+        let repo_url = super::get_crates_io_repo_url(crate_name)?;
         if repo_url.starts_with("https://github.com/") {
-            Some(
-                repo_url
-                    .trim_end_matches('/')
-                    .trim_end_matches(".git")
-                    .to_string(),
-            )
+            Some(repo_url)
         } else {
             None
         }
     }
 
-    /// Generate all URL template combinations to try.
+    /// Parse owner and repo from a GitHub repository URL.
     ///
-    /// Returns a vec of (url, `archive_suffix`) pairs to race.
-    fn generate_urls(repo_url: &str, name: &str, version: &str, platform: &str) -> Vec<String> {
-        let version_patterns = [format!("v{}", version), version.to_string()];
+    /// Given `https://github.com/owner/repo` (or a custom GHE base), returns `("owner", "repo")`.
+    fn parse_owner_repo(repo_url: &str) -> Option<(&str, &str)> {
+        let path = repo_url.strip_prefix("https://")?.split_once('/')?.1;
+        let (owner, rest) = path.split_once('/')?;
+        let repo = rest.split('/').next()?;
+        if owner.is_empty() || repo.is_empty() {
+            return None;
+        }
+        Some((owner, repo))
+    }
 
-        let name_patterns = [
-            format!("{}-{}-", name, platform),
-            format!("{}_{}_", name, platform),
-            format!("{}_", name),
-        ];
+    /// Determine the API base URL for a given repository URL.
+    ///
+    /// For `github.com`, returns `https://api.github.com`.
+    /// For GitHub Enterprise (`github.example.com`), returns `https://github.example.com/api/v3`.
+    fn api_base(repo_url: &str) -> Option<String> {
+        let host = repo_url.strip_prefix("https://")?.split('/').next()?;
+        if host == "github.com" {
+            Some("https://api.github.com".to_string())
+        } else {
+            Some(format!("https://{}/api/v3", host))
+        }
+    }
 
-        let suffixes = [".tar.gz", ".tar.xz", ".tar.zst", ".zip", ""];
+    /// List release assets for a given tag from the GitHub Releases API.
+    ///
+    /// Returns a vec of `(asset_name, download_url)` pairs.
+    /// On any failure (network, non-200, parse error), returns an empty vec.
+    fn list_release_assets(api_base: &str, owner: &str, repo: &str, tag: &str) -> Vec<(String, String)> {
+        let url = format!("{}/repos/{}/{}/releases/tags/{}", api_base, owner, repo, tag);
 
-        let mut urls = Vec::new();
+        let client = match reqwest::blocking::Client::builder()
+            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
 
-        for ver_pat in &version_patterns {
-            for name_pat in &name_patterns {
-                for suffix in &suffixes {
-                    // Pattern: {repo}/releases/download/{version}/{name_pattern}{version}{suffix}
-                    if name_pat.contains(&format!("{}_", name)) && name_pat.contains('_') {
-                        // underscore pattern
-                        urls.push(format!(
-                            "{}/releases/download/{}/{}{}{}",
-                            repo_url, ver_pat, name_pat, version, suffix
-                        ));
-                        if ver_pat.starts_with('v') {
-                            urls.push(format!(
-                                "{}/releases/download/{}/{}v{}{}",
-                                repo_url, ver_pat, name_pat, version, suffix
-                            ));
-                        }
-                    } else {
-                        // dash pattern
-                        urls.push(format!(
-                            "{}/releases/download/{}/{}{}{}",
-                            repo_url, ver_pat, name_pat, version, suffix
-                        ));
-                        if ver_pat.starts_with('v') {
-                            urls.push(format!(
-                                "{}/releases/download/{}/{}v{}{}",
-                                repo_url, ver_pat, name_pat, version, suffix
-                            ));
-                        }
-                    }
-                }
-            }
+        let response = match client
+            .get(&url)
+            .header("Accept", "application/vnd.github+json")
+            .send()
+        {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+
+        if !response.status().is_success() {
+            return Vec::new();
         }
 
-        // Also try patterns WITHOUT version in filename (e.g., eza_x86_64-unknown-linux-gnu.tar.gz)
-        // This is common for projects that don't include version in the asset filename
-        for ver_pat in &version_patterns {
-            for suffix in &suffixes {
-                // Pattern: {name}_{platform}{suffix} (no version)
-                urls.push(format!(
-                    "{}/releases/download/{}/{}_{}{}",
-                    repo_url, ver_pat, name, platform, suffix
-                ));
+        let text = match response.text() {
+            Ok(t) => t,
+            Err(_) => return Vec::new(),
+        };
 
-                // Pattern: {name}-{platform}{suffix} (no version)
-                urls.push(format!(
-                    "{}/releases/download/{}/{}-{}{}",
-                    repo_url, ver_pat, name, platform, suffix
-                ));
-            }
-        }
+        let release: ReleaseResponse = match serde_json::from_str(&text) {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
 
-        urls
+        release
+            .assets
+            .into_iter()
+            .map(|a| (a.name, a.browser_download_url))
+            .collect()
     }
 
     fn try_download(url: &str) -> Result<Option<Vec<u8>>> {
@@ -201,10 +180,9 @@ impl GithubProvider {
 
         let checksum_url = format!("{}.sha256", url);
 
-        // Try to download checksum file
         let checksum_data = match Self::try_download(&checksum_url)? {
             Some(data) => data,
-            None => return Ok(()), // No checksum file available, skip verification
+            None => return Ok(()),
         };
 
         let checksum_str = String::from_utf8_lossy(&checksum_data);
@@ -238,7 +216,9 @@ impl GithubProvider {
 }
 
 impl Provider for GithubProvider {
-    fn try_resolve(&self, krate: &ResolvedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
+    fn try_resolve(&self, krate: &DownloadedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
+        let krate = &krate.resolved;
+
         let repo_url = if let Some(url) = Self::get_repo_url(krate) {
             url
         } else {
@@ -251,54 +231,103 @@ impl Provider for GithubProvider {
             return Ok(None);
         };
 
-        let urls = Self::generate_urls(&repo_url, &krate.name, &krate.version.to_string(), platform);
-
-        // Try URLs sequentially - first successful download wins
-        let mut first_success = None;
-        for url in urls {
-            match Self::try_download(&url) {
-                Ok(Some(data)) => {
-                    first_success = Some((url, data));
-                    break;
-                }
-                Ok(None) | Err(_) => continue,
-            }
-        }
-
-        // Find the first successful download
-        let (url, data) = if let Some(result) = first_success {
-            result
-        } else {
+        let Some((owner, repo)) = Self::parse_owner_repo(&repo_url) else {
             self.reporter.report(|| {
                 BinResolutionMessage::provider_has_no_binary(
                     BinaryProvider::GithubReleases,
-                    "no matching release found",
+                    format!("could not parse owner/repo from URL: {}", repo_url),
                 )
             });
             return Ok(None);
         };
 
-        self.reporter
-            .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::GithubReleases));
+        let Some(api_base) = Self::api_base(&repo_url) else {
+            self.reporter.report(|| {
+                BinResolutionMessage::provider_has_no_binary(
+                    BinaryProvider::GithubReleases,
+                    format!("could not determine API base for URL: {}", repo_url),
+                )
+            });
+            return Ok(None);
+        };
 
-        // Verify checksum if available
-        if self.verify_checksums {
-            self.verify_checksum(&data, &url)?;
+        let version = krate.version.to_string();
+
+        // Try both v{version} and {version} tags; stop at the first that returns assets.
+        let tags = [format!("v{}", version), version.clone()];
+        let mut assets = Vec::new();
+        for tag in &tags {
+            assets = Self::list_release_assets(&api_base, owner, repo, tag);
+            if !assets.is_empty() {
+                break;
+            }
         }
 
-        // Extract to temporary directory
+        if assets.is_empty() {
+            self.reporter.report(|| {
+                BinResolutionMessage::provider_has_no_binary(
+                    BinaryProvider::GithubReleases,
+                    "no release found for any tag variant",
+                )
+            });
+            return Ok(None);
+        }
+
+        let candidates = super::generate_candidate_filenames(&krate.name, &version, platform);
+
+        // Build a lookup set from asset names for O(1) matching.
+        let asset_map: std::collections::HashMap<&str, &str> = assets
+            .iter()
+            .map(|(name, url)| (name.as_str(), url.as_str()))
+            .collect();
+
+        let matched = candidates
+            .iter()
+            .find_map(|c| asset_map.get(c.as_str()).map(|url| (c.as_str(), *url)));
+
+        let (matched_name, download_url) = if let Some(m) = matched {
+            m
+        } else {
+            self.reporter.report(|| {
+                BinResolutionMessage::provider_has_no_binary(
+                    BinaryProvider::GithubReleases,
+                    "no matching asset found in release",
+                )
+            });
+            return Ok(None);
+        };
+
+        self.reporter.report(|| {
+            BinResolutionMessage::downloading_binary(download_url, BinaryProvider::GithubReleases)
+        });
+
+        let data = if let Some(data) = Self::try_download(download_url)? {
+            data
+        } else {
+            self.reporter.report(|| {
+                BinResolutionMessage::provider_has_no_binary(
+                    BinaryProvider::GithubReleases,
+                    format!("failed to download asset: {}", download_url),
+                )
+            });
+            return Ok(None);
+        };
+
+        if self.verify_checksums {
+            self.verify_checksum(&data, download_url)?;
+        }
+
         let temp_dir = tempfile::tempdir().with_context(|_| error::TempDirCreationSnafu {
             parent: self.cache_dir.clone(),
         })?;
 
-        // Determine archive extension from URL to ensure proper extraction
-        let archive_name = if url.ends_with(".tar.gz") {
+        let archive_name = if matched_name.ends_with(".tar.gz") {
             "archive.tar.gz"
-        } else if url.ends_with(".tar.xz") {
+        } else if matched_name.ends_with(".tar.xz") {
             "archive.tar.xz"
-        } else if url.ends_with(".tar.zst") {
+        } else if matched_name.ends_with(".tar.zst") {
             "archive.tar.zst"
-        } else if url.ends_with(".zip") {
+        } else if matched_name.ends_with(".zip") {
             "archive.zip"
         } else {
             "archive"
@@ -312,7 +341,6 @@ impl Provider for GithubProvider {
         let extract_dir = temp_dir.path().join("extracted");
         let binary_path = super::extract_binary(&archive_path, &krate.name, &extract_dir)?;
 
-        // Move binary to cache directory
         let final_dir = self
             .cache_dir
             .join("binaries")
@@ -357,59 +385,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_url_generation_includes_version_patterns() {
-        let urls = GithubProvider::generate_urls(
-            "https://github.com/owner/repo",
-            "mytool",
-            "1.2.3",
-            "x86_64-unknown-linux-gnu",
-        );
-
-        // Should include both v1.2.3 and 1.2.3 patterns
-        assert!(urls.iter().any(|url| url.contains("/download/v1.2.3/")));
-        assert!(urls.iter().any(|url| url.contains("/download/1.2.3/")));
+    fn test_parse_owner_repo_standard() {
+        let (owner, repo) = GithubProvider::parse_owner_repo("https://github.com/eza-community/eza").unwrap();
+        assert_eq!(owner, "eza-community");
+        assert_eq!(repo, "eza");
     }
 
     #[test]
-    fn test_url_generation_includes_name_patterns() {
-        let urls = GithubProvider::generate_urls(
-            "https://github.com/owner/repo",
-            "mytool",
-            "1.2.3",
-            "x86_64-unknown-linux-gnu",
-        );
-
-        // Should include various naming conventions
-        assert!(
-            urls.iter()
-                .any(|url| url.contains("mytool-x86_64-unknown-linux-gnu-"))
-        );
-        assert!(
-            urls.iter()
-                .any(|url| url.contains("mytool_x86_64-unknown-linux-gnu_"))
-        );
-        assert!(urls.iter().any(|url| url.contains("mytool_")));
+    fn test_parse_owner_repo_enterprise() {
+        let (owner, repo) =
+            GithubProvider::parse_owner_repo("https://github.enterprise.com/myorg/myrepo").unwrap();
+        assert_eq!(owner, "myorg");
+        assert_eq!(repo, "myrepo");
     }
 
     #[test]
-    fn test_url_generation_includes_archive_formats() {
-        let urls = GithubProvider::generate_urls(
-            "https://github.com/owner/repo",
-            "mytool",
-            "1.2.3",
-            "x86_64-unknown-linux-gnu",
-        );
+    fn test_parse_owner_repo_invalid() {
+        assert!(GithubProvider::parse_owner_repo("https://github.com/").is_none());
+        assert!(GithubProvider::parse_owner_repo("not-a-url").is_none());
+    }
 
-        // Should include all supported archive formats
-        assert!(urls.iter().any(|url| url.ends_with(".tar.gz")));
-        assert!(urls.iter().any(|url| url.ends_with(".tar.xz")));
-        assert!(urls.iter().any(|url| url.ends_with(".tar.zst")));
-        assert!(urls.iter().any(|url| url.ends_with(".zip")));
-        // Also naked binaries (no suffix)
-        assert!(urls.iter().any(|url| !url.ends_with(".tar.gz")
-            && !url.ends_with(".tar.xz")
-            && !url.ends_with(".tar.zst")
-            && !url.ends_with(".zip")));
+    #[test]
+    fn test_api_base_github_com() {
+        assert_eq!(
+            GithubProvider::api_base("https://github.com/owner/repo"),
+            Some("https://api.github.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_api_base_enterprise() {
+        assert_eq!(
+            GithubProvider::api_base("https://github.enterprise.com/owner/repo"),
+            Some("https://github.enterprise.com/api/v3".to_string())
+        );
     }
 
     #[test]
@@ -472,7 +481,6 @@ mod tests {
         };
 
         let url = GithubProvider::get_repo_url(&krate);
-        // Should query the API and return the GitHub URL for serde
         assert_eq!(url, Some("https://github.com/serde-rs/serde".to_string()));
     }
 }

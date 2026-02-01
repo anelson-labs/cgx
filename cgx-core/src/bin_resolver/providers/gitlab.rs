@@ -5,6 +5,7 @@ use crate::{
     config::BinaryProvider,
     crate_resolver::{ResolvedCrate, ResolvedSource},
     cratespec::Forge,
+    downloader::DownloadedCrate,
     error,
     messages::BinResolutionMessage,
 };
@@ -47,10 +48,9 @@ impl GitlabProvider {
                     let base = base.trim_end_matches('/');
                     Some(format!("{}/{}/{}", base, owner, repo))
                 }
-                Forge::GitHub { .. } => None, // GitHub handled by GithubProvider
+                Forge::GitHub { .. } => None,
             },
             ResolvedSource::CratesIo | ResolvedSource::Registry { .. } => {
-                // Query crates.io registry for repository field
                 Self::get_crates_io_repo_url(&krate.name)
             }
             _ => None,
@@ -59,116 +59,48 @@ impl GitlabProvider {
 
     /// Query crates.io API to get the repository URL for a crate, filtering for gitlab.com.
     fn get_crates_io_repo_url(crate_name: &str) -> Option<String> {
-        use serde::Deserialize;
-
-        #[derive(Deserialize)]
-        struct CrateResponse {
-            #[serde(rename = "crate")]
-            krate: CrateInfo,
-        }
-
-        #[derive(Deserialize)]
-        struct CrateInfo {
-            repository: Option<String>,
-        }
-
-        let url = format!("https://crates.io/api/v1/crates/{}", crate_name);
-
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
-            .build()
-            .ok()?;
-
-        let response = client.get(&url).send().ok()?;
-
-        if !response.status().is_success() {
-            return None;
-        }
-
-        let text = response.text().ok()?;
-        let crate_response: CrateResponse = serde_json::from_str(&text).ok()?;
-        let repo_url = crate_response.krate.repository?;
-
+        let repo_url = super::get_crates_io_repo_url(crate_name)?;
         if repo_url.starts_with("https://gitlab.com/") {
-            Some(
-                repo_url
-                    .trim_end_matches('/')
-                    .trim_end_matches(".git")
-                    .to_string(),
-            )
+            Some(repo_url)
         } else {
             None
         }
     }
 
-    /// Generate all URL template combinations to try for GitLab releases.
+    /// Generate candidate URLs for GitLab releases.
     ///
-    /// GitLab release URL pattern:
-    /// `{repo}/-/releases/{version}/downloads/binaries/{filename}`
+    /// Uses the shared filename generator and constructs full GitLab release download URLs
+    /// for both `v{version}` and `{version}` tags.
     fn generate_urls(repo_url: &str, name: &str, version: &str, platform: &str) -> Vec<String> {
-        let version_patterns = [format!("v{}", version), version.to_string()];
-
-        let name_patterns = [
-            format!("{}-{}-", name, platform),
-            format!("{}_{}_", name, platform),
-            format!("{}_", name),
-        ];
-
-        let suffixes = [".tar.gz", ".tar.xz", ".tar.zst", ".zip", ""];
+        let filenames = super::generate_candidate_filenames(name, version, platform);
+        let tags = [format!("v{}", version), version.to_string()];
 
         let mut urls = Vec::new();
-
-        for ver_pat in &version_patterns {
-            for name_pat in &name_patterns {
-                for suffix in &suffixes {
-                    // Pattern: {repo}/-/releases/{version}/downloads/binaries/{name_pattern}{version}{suffix}
-                    if name_pat.contains(&format!("{}_", name)) && name_pat.contains('_') {
-                        // underscore pattern
-                        urls.push(format!(
-                            "{}/-/releases/{}/downloads/binaries/{}{}{}",
-                            repo_url, ver_pat, name_pat, version, suffix
-                        ));
-                        if ver_pat.starts_with('v') {
-                            urls.push(format!(
-                                "{}/-/releases/{}/downloads/binaries/{}v{}{}",
-                                repo_url, ver_pat, name_pat, version, suffix
-                            ));
-                        }
-                    } else {
-                        // dash pattern
-                        urls.push(format!(
-                            "{}/-/releases/{}/downloads/binaries/{}{}{}",
-                            repo_url, ver_pat, name_pat, version, suffix
-                        ));
-                        if ver_pat.starts_with('v') {
-                            urls.push(format!(
-                                "{}/-/releases/{}/downloads/binaries/{}v{}{}",
-                                repo_url, ver_pat, name_pat, version, suffix
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Also try patterns WITHOUT version in filename
-        for ver_pat in &version_patterns {
-            for suffix in &suffixes {
-                // Pattern: {name}_{platform}{suffix} (no version)
+        for tag in &tags {
+            for filename in &filenames {
                 urls.push(format!(
-                    "{}/-/releases/{}/downloads/binaries/{}_{}{}",
-                    repo_url, ver_pat, name, platform, suffix
-                ));
-
-                // Pattern: {name}-{platform}{suffix} (no version)
-                urls.push(format!(
-                    "{}/-/releases/{}/downloads/binaries/{}-{}{}",
-                    repo_url, ver_pat, name, platform, suffix
+                    "{}/-/releases/{}/downloads/binaries/{}",
+                    repo_url, tag, filename
                 ));
             }
         }
-
         urls
+    }
+
+    /// Probe a URL with a HEAD request to check if the asset exists.
+    fn head_probe(url: &str) -> bool {
+        let client = match reqwest::blocking::Client::builder()
+            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        match client.head(url).send() {
+            Ok(response) => response.status().is_success(),
+            Err(_) => false,
+        }
     }
 
     fn try_download(url: &str) -> Result<Option<Vec<u8>>> {
@@ -201,10 +133,9 @@ impl GitlabProvider {
 
         let checksum_url = format!("{}.sha256", url);
 
-        // Try to download checksum file
         let checksum_data = match Self::try_download(&checksum_url)? {
             Some(data) => data,
-            None => return Ok(()), // No checksum file available, skip verification
+            None => return Ok(()),
         };
 
         let checksum_str = String::from_utf8_lossy(&checksum_data);
@@ -238,7 +169,9 @@ impl GitlabProvider {
 }
 
 impl Provider for GitlabProvider {
-    fn try_resolve(&self, krate: &ResolvedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
+    fn try_resolve(&self, krate: &DownloadedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
+        let krate = &krate.resolved;
+
         let repo_url = if let Some(url) = Self::get_repo_url(krate) {
             url
         } else {
@@ -253,22 +186,8 @@ impl Provider for GitlabProvider {
 
         let urls = Self::generate_urls(&repo_url, &krate.name, &krate.version.to_string(), platform);
 
-        // Try URLs sequentially - first successful download wins
-        let mut first_success = None;
-        for url in urls {
-            match Self::try_download(&url) {
-                Ok(Some(data)) => {
-                    first_success = Some((url, data));
-                    break;
-                }
-                Ok(None) | Err(_) => continue,
-            }
-        }
-
-        // Find the first successful download
-        let (url, data) = if let Some(result) = first_success {
-            result
-        } else {
+        // Probe sequentially with HEAD requests; stop at the first 200.
+        let Some(url) = urls.iter().find(|url| Self::head_probe(url)) else {
             self.reporter.report(|| {
                 BinResolutionMessage::provider_has_no_binary(
                     BinaryProvider::GitlabReleases,
@@ -277,21 +196,31 @@ impl Provider for GitlabProvider {
             });
             return Ok(None);
         };
+        let url = url.clone();
 
         self.reporter
             .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::GitlabReleases));
 
-        // Verify checksum if available
+        let data = if let Some(data) = Self::try_download(&url)? {
+            data
+        } else {
+            self.reporter.report(|| {
+                BinResolutionMessage::provider_has_no_binary(
+                    BinaryProvider::GitlabReleases,
+                    format!("failed to download asset: {}", url),
+                )
+            });
+            return Ok(None);
+        };
+
         if self.verify_checksums {
             self.verify_checksum(&data, &url)?;
         }
 
-        // Extract to temporary directory
         let temp_dir = tempfile::tempdir().with_context(|_| error::TempDirCreationSnafu {
             parent: self.cache_dir.clone(),
         })?;
 
-        // Determine archive extension from URL to ensure proper extraction
         let archive_name = if url.ends_with(".tar.gz") {
             "archive.tar.gz"
         } else if url.ends_with(".tar.xz") {
@@ -312,7 +241,6 @@ impl Provider for GitlabProvider {
         let extract_dir = temp_dir.path().join("extracted");
         let binary_path = super::extract_binary(&archive_path, &krate.name, &extract_dir)?;
 
-        // Move binary to cache directory
         let final_dir = self
             .cache_dir
             .join("binaries")
@@ -365,7 +293,6 @@ mod tests {
             "x86_64-unknown-linux-gnu",
         );
 
-        // Should include both v1.2.3 and 1.2.3 patterns
         assert!(urls.iter().any(|url| url.contains("/-/releases/v1.2.3/")));
         assert!(urls.iter().any(|url| url.contains("/-/releases/1.2.3/")));
     }
@@ -379,7 +306,6 @@ mod tests {
             "x86_64-unknown-linux-gnu",
         );
 
-        // All URLs should use GitLab's release path format
         assert!(urls.iter().all(|url| url.contains("/-/releases/")));
         assert!(urls.iter().all(|url| url.contains("/downloads/binaries/")));
     }
@@ -393,16 +319,10 @@ mod tests {
             "x86_64-unknown-linux-gnu",
         );
 
-        // Should include all supported archive formats
         assert!(urls.iter().any(|url| url.ends_with(".tar.gz")));
         assert!(urls.iter().any(|url| url.ends_with(".tar.xz")));
         assert!(urls.iter().any(|url| url.ends_with(".tar.zst")));
         assert!(urls.iter().any(|url| url.ends_with(".zip")));
-        // Also naked binaries (no suffix)
-        assert!(urls.iter().any(|url| !url.ends_with(".tar.gz")
-            && !url.ends_with(".tar.xz")
-            && !url.ends_with(".tar.zst")
-            && !url.ends_with(".zip")));
     }
 
     #[test]

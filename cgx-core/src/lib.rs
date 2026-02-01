@@ -86,9 +86,9 @@ impl Cgx {
     ///
     /// This is the main execution path that:
     /// - Resolves the crate spec to a concrete version
+    /// - Downloads the crate source to the cache
     /// - Attempts to find a pre-built binary (if enabled)
-    /// - If no pre-built binary, downloads the crate to the cache
-    /// - Builds the crate binary from source
+    /// - If no pre-built binary, builds the crate binary from source
     /// - Returns the path to the binary
     ///
     /// This method does NOT execute the binary - that's left to the caller.
@@ -108,9 +108,13 @@ impl Cgx {
             resolved_crate.version
         );
 
-        // Try to resolve a pre-built binary first
+        let downloaded_crate = self.downloader.download(resolved_crate)?;
+
+        tracing::debug!("Downloaded crate to cache: {:#?}", downloaded_crate);
+
+        // Try to resolve a pre-built binary, now with access to the downloaded source
         tracing::debug!("Attempting to resolve pre-built binary");
-        if let Some(resolved_binary) = self.bin_resolver.resolve(&resolved_crate, build_options)? {
+        if let Some(resolved_binary) = self.bin_resolver.resolve(&downloaded_crate, build_options)? {
             tracing::info!(
                 "Found pre-built binary from {:?} at: {}",
                 resolved_binary.provider,
@@ -120,13 +124,9 @@ impl Cgx {
         }
 
         // No pre-built binary available, fall back to building from source
-        tracing::info!("Proceeding to download and build from source");
-
-        let downloaded_crate = self.downloader.download(resolved_crate)?;
-
-        tracing::debug!("Downloaded crate to cache: {:#?}", downloaded_crate);
-
-        tracing::info!("Building crate...");
+        tracing::info!(
+            "Pre-built binary not found, excluded by config, or or disabled; building crate from source..."
+        );
 
         let bin_path = self.builder.build(&downloaded_crate, build_options)?;
 

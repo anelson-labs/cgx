@@ -48,6 +48,9 @@ pub enum UsePrebuiltBinaries {
 #[strum(serialize_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub enum BinaryProvider {
+    /// Use the crate's declared `[package.metadata.binstall]` metadata (if present) to find
+    /// pre-built binaries
+    Binstall,
     /// Check GitHub releases on the crate's repository
     GithubReleases,
     /// Check GitLab releases on the crate's repository
@@ -90,6 +93,7 @@ impl Default for PrebuiltBinariesConfig {
         Self {
             use_prebuilt_binaries: UsePrebuiltBinaries::Auto,
             binary_providers: vec![
+                BinaryProvider::Binstall,
                 BinaryProvider::GithubReleases,
                 BinaryProvider::GitlabReleases,
                 BinaryProvider::Quickinstall,

@@ -1,10 +1,11 @@
 use crate::{Result, error};
+use bzip2::read::BzDecoder;
 use snafu::ResultExt;
 use std::path::{Path, PathBuf};
 
 /// Extract a binary from an archive or naked binary file.
 ///
-/// Supports: .tar.gz, .tar.xz, .tar.zst, .zip, and naked executables.
+/// Supports: .tar.gz, .tar.xz, .tar.zst, .tar.bz2, .zip, and naked executables.
 ///
 /// # Arguments
 ///
@@ -31,6 +32,9 @@ pub(in crate::bin_resolver) fn extract_binary(
         }
         "zst" if archive_path.to_string_lossy().ends_with(".tar.zst") => {
             extract_tar_zst(archive_path, expected_binary_name, dest_dir)
+        }
+        "bz2" if archive_path.to_string_lossy().ends_with(".tar.bz2") => {
+            extract_tar_bz2(archive_path, expected_binary_name, dest_dir)
         }
         "zip" => extract_zip(archive_path, expected_binary_name, dest_dir),
         _ => {
@@ -68,6 +72,14 @@ fn extract_tar_zst(archive_path: &Path, binary_name: &str, dest_dir: &Path) -> R
         zstd::stream::read::Decoder::new(file).map_err(|e| error::Error::ArchiveExtractionFailed {
             source: Box::new(e) as Box<dyn std::error::Error + Send + Sync>,
         })?;
+    extract_tar_archive(decoder, binary_name, dest_dir)
+}
+
+fn extract_tar_bz2(archive_path: &Path, binary_name: &str, dest_dir: &Path) -> Result<PathBuf> {
+    let file = std::fs::File::open(archive_path).with_context(|_| error::IoSnafu {
+        path: archive_path.to_path_buf(),
+    })?;
+    let decoder = BzDecoder::new(file);
     extract_tar_archive(decoder, binary_name, dest_dir)
 }
 
@@ -189,7 +201,12 @@ fn is_executable(_path: &Path) -> bool {
 mod tests {
     use super::*;
     use crate::error::Error;
-    use std::{fs, io::Write};
+    use flate2::{Compression, write::GzEncoder};
+    use std::{
+        fs,
+        io::{Cursor, Write},
+    };
+    use zip::write::SimpleFileOptions;
 
     #[derive(Debug, Clone, Copy)]
     enum BinaryLocation {
@@ -277,9 +294,6 @@ mod tests {
     }
 
     fn create_test_zip(binary_name: &str, location: BinaryLocation) -> Vec<u8> {
-        use std::io::Cursor;
-        use zip::write::SimpleFileOptions;
-
         let temp_dir = tempfile::tempdir().unwrap();
         let binary_path = create_test_binary(temp_dir.path(), binary_name, location);
         let relative_path = location.relative_path(binary_name);
@@ -453,8 +467,6 @@ mod tests {
 
     #[test]
     fn test_binary_not_found_in_archive() {
-        use flate2::{Compression, write::GzEncoder};
-
         let temp_src = tempfile::tempdir().unwrap();
         let binary_path = temp_src.path().join("otherbinary");
         fs::write(&binary_path, b"#!/bin/sh\necho test").unwrap();
@@ -555,8 +567,6 @@ mod tests {
 
     #[test]
     fn test_empty_tar_gz() {
-        use flate2::{Compression, write::GzEncoder};
-
         let mut archive_data = Vec::new();
         {
             let encoder = GzEncoder::new(&mut archive_data, Compression::default());
@@ -578,7 +588,6 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_non_executable_file_in_archive() {
-        use flate2::{Compression, write::GzEncoder};
         use std::os::unix::fs::PermissionsExt;
 
         let temp_src = tempfile::tempdir().unwrap();
