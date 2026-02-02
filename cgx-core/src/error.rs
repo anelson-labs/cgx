@@ -1,3 +1,4 @@
+pub use reqwest::StatusCode;
 use snafu::prelude::*;
 use std::path::PathBuf;
 
@@ -228,6 +229,13 @@ pub enum Error {
 
     #[snafu(display("Failed to download prebuilt binary from {url}: {source}"))]
     BinaryDownloadFailed { url: String, source: reqwest::Error },
+
+    #[snafu(display("HTTP {} downloading prebuilt binary from {url}: {source}", status.as_u16()))]
+    BinaryDownloadHttpError {
+        url: String,
+        status: StatusCode,
+        source: reqwest::Error,
+    },
 
     #[snafu(display("Failed to extract binary archive: {source}"))]
     ArchiveExtractionFailed {

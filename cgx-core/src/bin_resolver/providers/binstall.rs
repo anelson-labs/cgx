@@ -68,6 +68,30 @@ fn archive_format_from_pkg_fmt(pkg_fmt: Option<&str>) -> Result<ArchiveFormat> {
     }
 }
 
+/// Return the list of `{ archive-suffix }` values to try for a given `pkg-fmt`.
+///
+/// Matches the behavior of cargo-binstall's `PkgFmt::extensions()`: each pkg-fmt has a
+/// primary (short) suffix and may have an expanded alias. The caller should try each suffix
+/// in order until a download succeeds.
+fn binstall_archive_suffixes(pkg_fmt: Option<&str>) -> &'static [&'static str] {
+    match pkg_fmt {
+        Some("tar") => &[".tar"],
+        Some("tgz") | None => &[".tgz", ".tar.gz"],
+        Some("txz") => &[".txz", ".tar.xz"],
+        Some("tzstd") => &[".tzstd", ".tzst", ".tar.zst"],
+        Some("tbz2") => &[".tbz2", ".tar.bz2"],
+        Some("zip") => &[".zip"],
+        Some("bin") => {
+            if cfg!(windows) {
+                &[".bin", "", ".exe"]
+            } else {
+                &[".bin", ""]
+            }
+        }
+        Some(_) => &[""],
+    }
+}
+
 /// Render a binstall template string by replacing `{ variable }` placeholders.
 fn render_template(template: &str, ctx: &TemplateContext<'_>) -> String {
     let mut result = template.to_string();
@@ -143,29 +167,39 @@ impl BinstallProvider {
         }
     }
 
+    /// Download a file from the given URL.
+    ///
+    /// Returns `Ok(Some(bytes))` on success, `Ok(None)` if the server returned 404 (resource
+    /// does not exist), or `Err` for any other failure (network errors, non-404 HTTP errors).
     fn try_download(url: &str) -> Result<Option<Vec<u8>>> {
         let client = reqwest::blocking::Client::builder()
             .user_agent("cgx (https://github.com/anelson-labs/cgx)")
             .build()
-            .ok();
+            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
 
-        let client = match client {
-            Some(c) => c,
-            None => return Ok(None),
-        };
+        let response = client
+            .get(url)
+            .send()
+            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
 
-        match client.get(url).send() {
-            Ok(response) => {
-                if response.status().is_success() {
-                    Ok(Some(response.bytes().map(|b| b.to_vec()).with_context(|_| {
-                        error::BinaryDownloadFailedSnafu { url: url.to_string() }
-                    })?))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(_) => Ok(None),
+        let status = response.status();
+
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
         }
+
+        let response = response
+            .error_for_status()
+            .with_context(|_| error::BinaryDownloadHttpSnafu {
+                url: url.to_string(),
+                status,
+            })?;
+
+        let bytes = response
+            .bytes()
+            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
+
+        Ok(Some(bytes.to_vec()))
     }
 
     fn verify_checksum(&self, data: &[u8], url: &str) -> Result<()> {
@@ -234,31 +268,47 @@ impl Provider for BinstallProvider {
         let format = archive_format_from_pkg_fmt(pkg_fmt)?;
         let binary_ext = if cfg!(windows) { ".exe" } else { "" };
         let repo_url = Self::get_repo_url(krate)?;
+        let version_string = resolved.version.to_string();
+        let suffixes = binstall_archive_suffixes(pkg_fmt);
 
-        let ctx = TemplateContext {
-            name: &resolved.name,
-            version: &resolved.version.to_string(),
-            target: platform,
-            archive_suffix: format.suffix(),
-            binary_ext,
-            bin: &resolved.name,
-            repo: repo_url.as_deref(),
-        };
+        let mut last_url = String::new();
+        let mut data = None;
 
-        let url = render_template(pkg_url_template, &ctx);
+        for suffix in suffixes {
+            let ctx = TemplateContext {
+                name: &resolved.name,
+                version: &version_string,
+                target: platform,
+                archive_suffix: suffix,
+                binary_ext,
+                bin: &resolved.name,
+                repo: repo_url.as_deref(),
+            };
 
-        self.reporter
-            .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::Binstall));
+            let url = render_template(pkg_url_template, &ctx);
 
-        let Some(data) = Self::try_download(&url)? else {
+            self.reporter
+                .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::Binstall));
+
+            if let Some(bytes) = Self::try_download(&url)? {
+                data = Some(bytes);
+                last_url = url;
+                break;
+            }
+
+            last_url = url;
+        }
+
+        let Some(data) = data else {
             self.reporter.report(|| {
                 BinResolutionMessage::provider_has_no_binary(
                     BinaryProvider::Binstall,
-                    format!("download failed: {}", url),
+                    format!("download failed: {}", last_url),
                 )
             });
             return Ok(None);
         };
+        let url = last_url;
 
         if self.verify_checksums {
             self.verify_checksum(&data, &url)?;
@@ -447,24 +497,6 @@ mod tests {
             archive_format_from_pkg_fmt(Some("bin")).unwrap(),
             ArchiveFormat::NakedBinary
         );
-    }
-
-    #[test]
-    fn archive_format_suffix_consistency() {
-        assert_eq!(
-            archive_format_from_pkg_fmt(Some("txz")).unwrap().suffix(),
-            ".tar.xz"
-        );
-        assert_eq!(
-            archive_format_from_pkg_fmt(Some("tzstd")).unwrap().suffix(),
-            ".tar.zst"
-        );
-        assert_eq!(
-            archive_format_from_pkg_fmt(Some("tbz2")).unwrap().suffix(),
-            ".tar.bz2"
-        );
-        assert_eq!(archive_format_from_pkg_fmt(Some("zip")).unwrap().suffix(), ".zip");
-        assert_eq!(archive_format_from_pkg_fmt(None).unwrap().suffix(), ".tar.gz");
     }
 
     #[test]
@@ -771,5 +803,19 @@ version = "1.0.0"
 
         let url = BinstallProvider::get_repo_url(&krate).unwrap();
         assert_eq!(url, None);
+    }
+
+    #[test]
+    fn binstall_archive_suffixes_match_cargo_binstall() {
+        assert_eq!(binstall_archive_suffixes(Some("tgz")), &[".tgz", ".tar.gz"]);
+        assert_eq!(binstall_archive_suffixes(None), &[".tgz", ".tar.gz"]);
+        assert_eq!(binstall_archive_suffixes(Some("txz")), &[".txz", ".tar.xz"]);
+        assert_eq!(
+            binstall_archive_suffixes(Some("tzstd")),
+            &[".tzstd", ".tzst", ".tar.zst"]
+        );
+        assert_eq!(binstall_archive_suffixes(Some("tbz2")), &[".tbz2", ".tar.bz2"]);
+        assert_eq!(binstall_archive_suffixes(Some("zip")), &[".zip"]);
+        assert_eq!(binstall_archive_suffixes(Some("tar")), &[".tar"]);
     }
 }

@@ -203,6 +203,9 @@ jobs:
         include:
           - os: windows-2025
             name: Windows amd64
+          - os: windows-2025
+            name: Windows GNU amd64
+            target: x86_64-pc-windows-gnu
           - os: macos-15
             name: Mac ARM64
           - os: ubuntu-24.04

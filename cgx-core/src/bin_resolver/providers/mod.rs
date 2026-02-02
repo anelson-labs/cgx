@@ -45,47 +45,68 @@ pub(super) fn generate_candidate_filenames(
     let mut candidates = Vec::new();
 
     for &(format, suffix) in formats {
-        candidates.push(CandidateFilename {
-            filename: format!("{}-{}-v{}{}", name, platform, version, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}-{}-{}{}", name, platform, version, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}-v{}-{}{}", name, version, platform, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}-{}-{}{}", name, version, platform, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}_{}_v{}{}", name, platform, version, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}_{}_{}{}", name, platform, version, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}_v{}_{}{}", name, version, platform, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}_{}_{}{}", name, version, platform, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}-{}{}", name, platform, suffix),
-            format,
-        });
-        candidates.push(CandidateFilename {
-            filename: format!("{}_{}{}", name, platform, suffix),
-            format,
-        });
+        push_candidate_patterns(&mut candidates, name, version, platform, format, suffix);
+    }
+
+    // Some projects (e.g. eza) publish Windows release assets with the binary extension baked
+    // into the archive name: `eza.exe_x86_64-pc-windows-gnu.tar.gz`. Generate additional
+    // candidates with `{name}.exe` as the name component.
+    if platform.contains("windows") {
+        let exe_name = format!("{}.exe", name);
+        for &(format, suffix) in formats {
+            push_candidate_patterns(&mut candidates, &exe_name, version, platform, format, suffix);
+        }
     }
 
     candidates
+}
+
+fn push_candidate_patterns(
+    candidates: &mut Vec<CandidateFilename>,
+    name: &str,
+    version: &str,
+    platform: &str,
+    format: ArchiveFormat,
+    suffix: &str,
+) {
+    candidates.push(CandidateFilename {
+        filename: format!("{}-{}-v{}{}", name, platform, version, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}-{}-{}{}", name, platform, version, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}-v{}-{}{}", name, version, platform, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}-{}-{}{}", name, version, platform, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}_{}_v{}{}", name, platform, version, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}_{}_{}{}", name, platform, version, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}_v{}_{}{}", name, version, platform, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}_{}_{}{}", name, version, platform, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}-{}{}", name, platform, suffix),
+        format,
+    });
+    candidates.push(CandidateFilename {
+        filename: format!("{}_{}{}", name, platform, suffix),
+        format,
+    });
 }

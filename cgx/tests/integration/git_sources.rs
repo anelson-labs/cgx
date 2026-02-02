@@ -21,6 +21,8 @@ fn run_from_git_source_with_tag() {
     let (assert, messages) = cgx
         .cmd
         .with_json_messages()
+        .arg("--prebuilt-binary")
+        .arg("never")
         .arg("--github")
         .arg("cargo-bins/cargo-binstall")
         .arg("--tag")
@@ -106,6 +108,8 @@ fn run_from_git_source_with_tag() {
     let (assert, messages) = cgx
         .cmd
         .with_json_messages()
+        .arg("--prebuilt-binary")
+        .arg("never")
         .arg("--github")
         .arg("cargo-bins/cargo-binstall")
         .arg("--tag")

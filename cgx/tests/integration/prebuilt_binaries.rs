@@ -4,7 +4,9 @@
 //! disqualification scenarios, cache interactions, and config overrides.
 
 use crate::utils::{Cgx, CommandExt};
-use cgx::messages::{BinResolutionMessage, BinaryMessage, BuildMessage, Message};
+use cgx::messages::{
+    BinResolutionMessage, BinaryMessage, BuildMessage, CrateResolutionMessage, Message, SourceMessage,
+};
 use cgx_core::config::BinaryProvider;
 use predicates::prelude::*;
 
@@ -468,8 +470,11 @@ fn refresh_bypasses_binary_cache() {
 /// Uses git-gamble because it has binstall metadata with an override for x86_64-unknown-linux-gnu.
 /// The `--no-exec` flag is required because git-gamble's pre-built binary is linked against NixOS
 /// glibc and won't execute on non-Nix systems.
+///
+/// Gated to `target_env = "gnu"` because git-gamble's binstall `pkg-url` override only covers
+/// `x86_64-unknown-linux-gnu`, not musl.
 #[test]
-#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+#[cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))]
 fn binstall_provider_resolves_binary() {
     let mut cgx = Cgx::with_test_fs();
 
@@ -521,7 +526,11 @@ fn binstall_provider_resolves_binary() {
 }
 
 /// Test that `--prebuilt-binary-sources github-releases` resolves via the GitHub provider only.
+///
+/// eza publishes GitHub release assets for Linux targets and `x86_64-pc-windows-gnu` only
+/// (no macOS, no windows-msvc).
 #[test]
+#[cfg(any(target_os = "linux", all(target_os = "windows", target_env = "gnu")))]
 fn github_provider_resolves_binary() {
     let mut cgx = Cgx::with_test_fs();
 
@@ -573,6 +582,36 @@ fn github_provider_resolves_binary() {
             .any(|m| matches!(m, Message::Build(BuildMessage::Started { .. }))),
         "Should not have BuildMessage::Started when using prebuilt binary"
     );
+}
+
+/// Test that `.tgz` archive suffix is matched by the GitHub provider.
+///
+/// cargo-binstall publishes Linux releases as `.tgz` files, exercising the `.tgz` candidate
+/// generation added alongside `.tar.gz`.
+#[test]
+#[cfg(target_os = "linux")]
+fn github_provider_resolves_tgz_binary() {
+    let mut cgx = Cgx::with_test_fs();
+
+    let (assert, messages) = cgx
+        .cmd
+        .with_json_messages()
+        .arg("--prebuilt-binary")
+        .arg("always")
+        .arg("--prebuilt-binary-sources")
+        .arg("github-releases")
+        .arg("--no-exec")
+        .arg("cargo-binstall@=1.14.0")
+        .assert_with_messages();
+
+    assert.success();
+
+    let resolved = messages.iter().find_map(|m| match m {
+        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        _ => None,
+    });
+    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    assert_eq!(binary.provider, BinaryProvider::GithubReleases);
 }
 
 /// Test that `--prebuilt-binary-sources quickinstall` resolves via the Quickinstall provider only.
@@ -759,8 +798,11 @@ fn sources_flag_restricts_to_specified_providers() {
 /// Test that the default provider order resolves git-gamble via Binstall (the first provider
 /// tried), since git-gamble has binstall metadata with a `pkg-url` override for
 /// `x86_64-unknown-linux-gnu`.
+///
+/// Gated to `target_env = "gnu"` because git-gamble's binstall `pkg-url` override only covers
+/// `x86_64-unknown-linux-gnu`, not musl.
 #[test]
-#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+#[cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))]
 fn default_resolves_via_binstall() {
     let mut cgx = Cgx::with_test_fs();
 
@@ -790,7 +832,11 @@ fn default_resolves_via_binstall() {
 
 /// Test that the default provider order resolves eza via GitHub Releases. Binstall is tried
 /// first but fails (no binstall metadata), then GitHub Releases finds a matching release asset.
+///
+/// eza publishes GitHub release assets for Linux targets and `x86_64-pc-windows-gnu` only
+/// (no macOS, no windows-msvc).
 #[test]
+#[cfg(any(target_os = "linux", all(target_os = "windows", target_env = "gnu")))]
 fn default_resolves_via_github() {
     let mut cgx = Cgx::with_test_fs();
 
@@ -815,6 +861,111 @@ fn default_resolves_via_github() {
             .iter()
             .any(|m| matches!(m, Message::Build(BuildMessage::Started { .. }))),
         "Should not have BuildMessage::Started when using prebuilt binary"
+    );
+}
+
+/// Test that the second invocation of a prebuilt binary is fully cached at every layer.
+///
+/// This is the prebuilt-binary equivalent of `run_from_git_source_with_tag()` in `git_sources.rs`:
+/// invoke once to populate all caches, invoke again and assert that every cache layer reports a
+/// hit AND that every network/download/build indicator is absent.
+#[test]
+fn prebuilt_binary_second_invocation_fully_cached() {
+    let mut cgx = Cgx::with_test_fs();
+
+    // First run: resolve and download a prebuilt binary
+    let (assert, messages) = cgx
+        .cmd
+        .with_json_messages()
+        .arg("eza@=0.23.1")
+        .arg("--version")
+        .assert_with_messages();
+
+    assert.success().stdout(predicates::str::contains("eza"));
+
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::Resolved { .. }))),
+        "Expected BinResolutionMessage::Resolved on first run"
+    );
+
+    // Second run: everything should come from cache
+    let mut cgx = cgx.reset();
+    let (assert, messages) = cgx
+        .cmd
+        .with_json_messages()
+        .arg("eza@=0.23.1")
+        .arg("--version")
+        .assert_with_messages();
+
+    assert
+        .success()
+        .stdout(predicates::str::contains("eza"))
+        .stderr(predicates::str::is_empty());
+
+    // --- Positive cache hits: what SHOULD be present ---
+
+    assert!(
+        messages.iter().any(|m| matches!(
+            m,
+            Message::CrateResolution(CrateResolutionMessage::CacheHit { .. })
+        )),
+        "Expected CrateResolutionMessage::CacheHit: proves crate resolution was served from cache"
+    );
+
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::Source(SourceMessage::CacheHit { .. }))),
+        "Expected SourceMessage::CacheHit: proves source download was served from cache"
+    );
+
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::CacheHit { .. }))),
+        "Expected BinResolutionMessage::CacheHit: proves binary resolution was served from cache"
+    );
+
+    // --- Absence of network activity: what MUST NOT be present ---
+
+    assert!(
+        !messages.iter().any(|m| matches!(
+            m,
+            Message::CrateResolution(CrateResolutionMessage::Resolving { .. })
+        )),
+        "Should not see CrateResolutionMessage::Resolving: proves no registry/index lookup"
+    );
+
+    assert!(
+        !messages
+            .iter()
+            .any(|m| matches!(m, Message::Source(SourceMessage::Downloading { .. }))),
+        "Should not see SourceMessage::Downloading: proves no source code download"
+    );
+
+    assert!(
+        !messages.iter().any(|m| matches!(
+            m,
+            Message::BinResolution(BinResolutionMessage::CheckingProvider { .. })
+        )),
+        "Should not see BinResolutionMessage::CheckingProvider: proves no provider HTTP probing"
+    );
+
+    assert!(
+        !messages.iter().any(|m| matches!(
+            m,
+            Message::BinResolution(BinResolutionMessage::DownloadingBinary { .. })
+        )),
+        "Should not see BinResolutionMessage::DownloadingBinary: proves no binary download"
+    );
+
+    assert!(
+        !messages
+            .iter()
+            .any(|m| matches!(m, Message::Build(BuildMessage::Started { .. }))),
+        "Should not see BuildMessage::Started: proves no compilation"
     );
 }
 

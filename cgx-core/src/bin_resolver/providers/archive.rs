@@ -17,27 +17,6 @@ pub(in crate::bin_resolver) enum ArchiveFormat {
 }
 
 impl ArchiveFormat {
-    /// File suffix used in URLs and candidate filename generation.
-    ///
-    /// [`NakedBinary`](ArchiveFormat::NakedBinary) returns `".exe"` on Windows and `""` on Unix.
-    pub(in crate::bin_resolver) fn suffix(&self) -> &'static str {
-        match self {
-            Self::Tar => ".tar",
-            Self::TarGz => ".tar.gz",
-            Self::TarXz => ".tar.xz",
-            Self::TarZst => ".tar.zst",
-            Self::TarBz2 => ".tar.bz2",
-            Self::Zip => ".zip",
-            Self::NakedBinary => {
-                if cfg!(windows) {
-                    ".exe"
-                } else {
-                    ""
-                }
-            }
-        }
-    }
-
     /// Canonical filename for writing downloads to disk.
     pub(in crate::bin_resolver) fn canonical_filename(&self) -> &'static str {
         match self {
@@ -64,6 +43,7 @@ impl ArchiveFormat {
             &[
                 (Self::Tar, ".tar"),
                 (Self::TarGz, ".tar.gz"),
+                (Self::TarGz, ".tgz"),
                 (Self::TarXz, ".tar.xz"),
                 (Self::TarZst, ".tar.zst"),
                 (Self::TarBz2, ".tar.bz2"),
@@ -76,6 +56,7 @@ impl ArchiveFormat {
             &[
                 (Self::Tar, ".tar"),
                 (Self::TarGz, ".tar.gz"),
+                (Self::TarGz, ".tgz"),
                 (Self::TarXz, ".tar.xz"),
                 (Self::TarZst, ".tar.zst"),
                 (Self::TarBz2, ".tar.bz2"),
@@ -273,6 +254,26 @@ mod tests {
     };
     use xz2::write::XzEncoder;
     use zip::write::SimpleFileOptions;
+
+    impl ArchiveFormat {
+        fn suffix(&self) -> &'static str {
+            match self {
+                Self::Tar => ".tar",
+                Self::TarGz => ".tar.gz",
+                Self::TarXz => ".tar.xz",
+                Self::TarZst => ".tar.zst",
+                Self::TarBz2 => ".tar.bz2",
+                Self::Zip => ".zip",
+                Self::NakedBinary => {
+                    if cfg!(windows) {
+                        ".exe"
+                    } else {
+                        ""
+                    }
+                }
+            }
+        }
+    }
 
     #[derive(Debug, Clone, Copy)]
     enum BinaryLocation {
@@ -752,5 +753,15 @@ mod tests {
         let result = find_binary_in_dir(temp_dir.path(), binary_name);
         assert!(result.is_ok(), "Should find binary in target/release");
         assert_eq!(result.unwrap(), binary_path);
+    }
+
+    #[test]
+    fn archive_format_suffix_consistency() {
+        assert_eq!(ArchiveFormat::Tar.suffix(), ".tar");
+        assert_eq!(ArchiveFormat::TarGz.suffix(), ".tar.gz");
+        assert_eq!(ArchiveFormat::TarXz.suffix(), ".tar.xz");
+        assert_eq!(ArchiveFormat::TarZst.suffix(), ".tar.zst");
+        assert_eq!(ArchiveFormat::TarBz2.suffix(), ".tar.bz2");
+        assert_eq!(ArchiveFormat::Zip.suffix(), ".zip");
     }
 }

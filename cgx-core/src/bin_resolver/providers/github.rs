@@ -131,29 +131,39 @@ impl GithubProvider {
             .collect()
     }
 
+    /// Download a file from the given URL.
+    ///
+    /// Returns `Ok(Some(bytes))` on success, `Ok(None)` if the server returned 404 (resource
+    /// does not exist), or `Err` for any other failure (network errors, non-404 HTTP errors).
     fn try_download(url: &str) -> Result<Option<Vec<u8>>> {
         let client = reqwest::blocking::Client::builder()
             .user_agent("cgx (https://github.com/anelson-labs/cgx)")
             .build()
-            .ok();
+            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
 
-        let client = match client {
-            Some(c) => c,
-            None => return Ok(None),
-        };
+        let response = client
+            .get(url)
+            .send()
+            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
 
-        match client.get(url).send() {
-            Ok(response) => {
-                if response.status().is_success() {
-                    Ok(Some(response.bytes().map(|b| b.to_vec()).with_context(|_| {
-                        error::BinaryDownloadFailedSnafu { url: url.to_string() }
-                    })?))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(_) => Ok(None),
+        let status = response.status();
+
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
         }
+
+        let response = response
+            .error_for_status()
+            .with_context(|_| error::BinaryDownloadHttpSnafu {
+                url: url.to_string(),
+                status,
+            })?;
+
+        let bytes = response
+            .bytes()
+            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
+
+        Ok(Some(bytes.to_vec()))
     }
 
     fn verify_checksum(&self, data: &[u8], url: &str) -> Result<()> {
