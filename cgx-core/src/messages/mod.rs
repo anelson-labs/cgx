@@ -1,19 +1,19 @@
-pub mod bin_resolution;
-pub mod binary;
 pub mod build;
+pub mod build_cache;
 pub mod crate_resolution;
 pub mod git;
+pub mod prebuilt_binary;
 pub mod runner;
 pub mod source;
 
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc;
 
-pub use bin_resolution::BinResolutionMessage;
-pub use binary::BinaryMessage;
 pub use build::BuildMessage;
+pub use build_cache::BuildCacheMessage;
 pub use crate_resolution::CrateResolutionMessage;
 pub use git::GitMessage;
+pub use prebuilt_binary::PrebuiltBinaryMessage;
 pub use runner::RunnerMessage;
 pub use source::SourceMessage;
 
@@ -28,9 +28,9 @@ pub use crate::git::GitSelector;
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Message {
     CrateResolution(CrateResolutionMessage),
-    BinResolution(BinResolutionMessage),
+    PrebuiltBinary(PrebuiltBinaryMessage),
     Source(SourceMessage),
-    Binary(BinaryMessage),
+    BuildCache(BuildCacheMessage),
     Git(GitMessage),
     Build(BuildMessage),
     Runner(RunnerMessage),

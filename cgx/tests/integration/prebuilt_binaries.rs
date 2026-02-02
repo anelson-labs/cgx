@@ -5,7 +5,7 @@
 
 use crate::utils::{Cgx, CommandExt};
 use cgx::messages::{
-    BinResolutionMessage, BinaryMessage, BuildMessage, CrateResolutionMessage, Message, SourceMessage,
+    BuildCacheMessage, BuildMessage, CrateResolutionMessage, Message, PrebuiltBinaryMessage, SourceMessage,
 };
 use cgx_core::config::BinaryProvider;
 use predicates::prelude::*;
@@ -34,9 +34,9 @@ fn never_mode_forces_source_build() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::PrebuiltBinariesDisabled)
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::PrebuiltBinariesDisabled)
         )),
-        "Expected BinResolutionMessage::PrebuiltBinariesDisabled"
+        "Expected PrebuiltBinaryMessage::PrebuiltBinariesDisabled"
     );
 
     // Verify build was initiated
@@ -72,8 +72,8 @@ fn always_mode_succeeds_with_available_binary() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::Resolved { .. }))),
-        "Expected BinResolutionMessage::Resolved"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { .. }))),
+        "Expected PrebuiltBinaryMessage::Resolved"
     );
 
     // Verify no build was initiated
@@ -121,9 +121,9 @@ fn custom_features_disqualifies() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::DisqualifiedDueToCustomization { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::DisqualifiedDueToCustomization { .. })
         )),
-        "Expected BinResolutionMessage::DisqualifiedDueToCustomization"
+        "Expected PrebuiltBinaryMessage::DisqualifiedDueToCustomization"
     );
 
     // Verify build was initiated
@@ -155,9 +155,9 @@ fn all_features_disqualifies() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::DisqualifiedDueToCustomization { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::DisqualifiedDueToCustomization { .. })
         )),
-        "Expected BinResolutionMessage::DisqualifiedDueToCustomization"
+        "Expected PrebuiltBinaryMessage::DisqualifiedDueToCustomization"
     );
 
     // Verify build was initiated
@@ -189,9 +189,9 @@ fn no_default_features_disqualifies() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::DisqualifiedDueToCustomization { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::DisqualifiedDueToCustomization { .. })
         )),
-        "Expected BinResolutionMessage::DisqualifiedDueToCustomization"
+        "Expected PrebuiltBinaryMessage::DisqualifiedDueToCustomization"
     );
 
     // Verify build was initiated
@@ -224,8 +224,8 @@ fn cache_flow_switching_modes() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::Resolved { .. }))),
-        "Expected BinResolutionMessage::Resolved on first run"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { .. }))),
+        "Expected PrebuiltBinaryMessage::Resolved on first run"
     );
     assert!(
         !messages
@@ -251,9 +251,9 @@ fn cache_flow_switching_modes() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::PrebuiltBinariesDisabled)
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::PrebuiltBinariesDisabled)
         )),
-        "Expected BinResolutionMessage::PrebuiltBinariesDisabled on second run"
+        "Expected PrebuiltBinaryMessage::PrebuiltBinariesDisabled on second run"
     );
     assert!(
         messages
@@ -277,8 +277,8 @@ fn cache_flow_switching_modes() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::CacheHit { .. }))),
-        "Expected BinResolutionMessage::CacheHit on third run"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::CacheHit { .. }))),
+        "Expected PrebuiltBinaryMessage::CacheHit on third run"
     );
     assert!(
         !messages
@@ -309,9 +309,9 @@ fn custom_features_uses_separate_cache() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::DisqualifiedDueToCustomization { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::DisqualifiedDueToCustomization { .. })
         )),
-        "Expected BinResolutionMessage::DisqualifiedDueToCustomization on first run"
+        "Expected PrebuiltBinaryMessage::DisqualifiedDueToCustomization on first run"
     );
     assert!(
         messages
@@ -322,8 +322,8 @@ fn custom_features_uses_separate_cache() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheMiss { .. }))),
-        "Expected BinaryMessage::CacheMiss on first run"
+            .any(|m| matches!(m, Message::BuildCache(BuildCacheMessage::CacheMiss { .. }))),
+        "Expected BuildCacheMessage::CacheMiss on first run"
     );
 
     // Second run with defaults - should use pre-built binary (different cache entry)
@@ -343,8 +343,8 @@ fn custom_features_uses_separate_cache() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::Resolved { .. }))),
-        "Expected BinResolutionMessage::Resolved on second run (different cache entry from first run)"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { .. }))),
+        "Expected PrebuiltBinaryMessage::Resolved on second run (different cache entry from first run)"
     );
     assert!(
         !messages
@@ -370,8 +370,8 @@ fn custom_features_uses_separate_cache() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheHit { .. }))),
-        "Expected BinaryMessage::CacheHit on third run (reusing build from first run)"
+            .any(|m| matches!(m, Message::BuildCache(BuildCacheMessage::CacheHit { .. }))),
+        "Expected BuildCacheMessage::CacheHit on third run (reusing build from first run)"
     );
     assert!(
         !messages
@@ -398,10 +398,11 @@ fn negative_cache_persists() {
 
     // Should see binary resolution cache miss on first run
     assert!(
-        messages
-            .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::CacheMiss { .. }))),
-        "Expected BinResolution::CacheMiss on first run"
+        messages.iter().any(|m| matches!(
+            m,
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CacheMiss { .. })
+        )),
+        "Expected PrebuiltBinary::CacheMiss on first run"
     );
 
     // Second run - should use cached negative result (no provider checks)
@@ -419,16 +420,16 @@ fn negative_cache_persists() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::CacheLookup { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CacheLookup { .. })
         )),
-        "Expected BinResolution::CacheLookup on second run"
+        "Expected PrebuiltBinary::CacheLookup on second run"
     );
 
     // Should NOT see provider checking messages (proves we used the cache)
     assert!(
         !messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { .. })
         )),
         "Should not check providers on second run (negative result cached)"
     );
@@ -459,7 +460,7 @@ fn refresh_bypasses_binary_cache() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { .. })
         )),
         "Expected CheckingProvider on refresh (proves cache was bypassed)"
     );
@@ -494,7 +495,7 @@ fn binstall_provider_resolves_binary() {
     let providers: Vec<_> = messages
         .iter()
         .filter_map(|m| match m {
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { provider, .. }) => {
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { provider, .. }) => {
                 Some(*provider)
             }
             _ => None,
@@ -511,10 +512,10 @@ fn binstall_provider_resolves_binary() {
     );
 
     let resolved = messages.iter().find_map(|m| match m {
-        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
         _ => None,
     });
-    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::Binstall);
 
     assert!(
@@ -553,7 +554,7 @@ fn github_provider_resolves_binary() {
     let providers: Vec<_> = messages
         .iter()
         .filter_map(|m| match m {
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { provider, .. }) => {
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { provider, .. }) => {
                 Some(*provider)
             }
             _ => None,
@@ -570,10 +571,10 @@ fn github_provider_resolves_binary() {
     );
 
     let resolved = messages.iter().find_map(|m| match m {
-        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
         _ => None,
     });
-    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::GithubReleases);
 
     assert!(
@@ -607,10 +608,10 @@ fn github_provider_resolves_tgz_binary() {
     assert.success();
 
     let resolved = messages.iter().find_map(|m| match m {
-        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
         _ => None,
     });
-    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::GithubReleases);
 }
 
@@ -638,7 +639,7 @@ fn quickinstall_provider_resolves_binary() {
     let providers: Vec<_> = messages
         .iter()
         .filter_map(|m| match m {
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { provider, .. }) => {
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { provider, .. }) => {
                 Some(*provider)
             }
             _ => None,
@@ -655,10 +656,10 @@ fn quickinstall_provider_resolves_binary() {
     );
 
     let resolved = messages.iter().find_map(|m| match m {
-        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
         _ => None,
     });
-    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::Quickinstall);
 
     assert!(
@@ -706,7 +707,7 @@ fn gitlab_provider_reports_no_binary_for_github_crate() {
     let providers: Vec<_> = messages
         .iter()
         .filter_map(|m| match m {
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { provider, .. }) => {
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { provider, .. }) => {
                 Some(*provider)
             }
             _ => None,
@@ -725,7 +726,7 @@ fn gitlab_provider_reports_no_binary_for_github_crate() {
     assert!(
         messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::ProviderHasNoBinary {
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::ProviderHasNoBinary {
                 provider: BinaryProvider::GitlabReleases,
                 ..
             })
@@ -736,7 +737,7 @@ fn gitlab_provider_reports_no_binary_for_github_crate() {
     assert!(
         !messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::Resolved { .. }))),
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { .. }))),
         "Should not have Resolved when GitLab provider can't find a GitHub crate"
     );
 
@@ -769,7 +770,7 @@ fn sources_flag_restricts_to_specified_providers() {
     let providers: Vec<_> = messages
         .iter()
         .filter_map(|m| match m {
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { provider, .. }) => {
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { provider, .. }) => {
                 Some(*provider)
             }
             _ => None,
@@ -790,8 +791,8 @@ fn sources_flag_restricts_to_specified_providers() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::Resolved { .. }))),
-        "Expected BinResolutionMessage::Resolved"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { .. }))),
+        "Expected PrebuiltBinaryMessage::Resolved"
     );
 }
 
@@ -816,10 +817,10 @@ fn default_resolves_via_binstall() {
     assert.success();
 
     let resolved = messages.iter().find_map(|m| match m {
-        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
         _ => None,
     });
-    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::Binstall);
 
     assert!(
@@ -850,10 +851,10 @@ fn default_resolves_via_github() {
     assert.success();
 
     let resolved = messages.iter().find_map(|m| match m {
-        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
         _ => None,
     });
-    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::GithubReleases);
 
     assert!(
@@ -886,8 +887,8 @@ fn prebuilt_binary_second_invocation_fully_cached() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::Resolved { .. }))),
-        "Expected BinResolutionMessage::Resolved on first run"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { .. }))),
+        "Expected PrebuiltBinaryMessage::Resolved on first run"
     );
 
     // Second run: everything should come from cache
@@ -924,8 +925,8 @@ fn prebuilt_binary_second_invocation_fully_cached() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::CacheHit { .. }))),
-        "Expected BinResolutionMessage::CacheHit: proves binary resolution was served from cache"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::CacheHit { .. }))),
+        "Expected PrebuiltBinaryMessage::CacheHit: proves binary resolution was served from cache"
     );
 
     // --- Absence of network activity: what MUST NOT be present ---
@@ -948,17 +949,17 @@ fn prebuilt_binary_second_invocation_fully_cached() {
     assert!(
         !messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::CheckingProvider { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { .. })
         )),
-        "Should not see BinResolutionMessage::CheckingProvider: proves no provider HTTP probing"
+        "Should not see PrebuiltBinaryMessage::CheckingProvider: proves no provider HTTP probing"
     );
 
     assert!(
         !messages.iter().any(|m| matches!(
             m,
-            Message::BinResolution(BinResolutionMessage::DownloadingBinary { .. })
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::DownloadingBinary { .. })
         )),
-        "Should not see BinResolutionMessage::DownloadingBinary: proves no binary download"
+        "Should not see PrebuiltBinaryMessage::DownloadingBinary: proves no binary download"
     );
 
     assert!(
@@ -986,10 +987,10 @@ fn default_resolves_via_quickinstall() {
     assert.success();
 
     let resolved = messages.iter().find_map(|m| match m {
-        Message::BinResolution(BinResolutionMessage::Resolved { binary }) => Some(binary),
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
         _ => None,
     });
-    let binary = resolved.expect("Expected BinResolutionMessage::Resolved");
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::Quickinstall);
 
     assert!(

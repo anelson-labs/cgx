@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// Messages related to prebuilt binary resolution and binary resolution cache operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
-pub enum BinResolutionMessage {
+pub enum PrebuiltBinaryMessage {
     /// Looking up prebuilt binary resolution in cache
     CacheLookup { krate: ResolvedCrate },
     /// Found cached prebuilt binary resolution
@@ -44,7 +44,7 @@ pub enum BinResolutionMessage {
     PrebuiltBinariesDisabled,
 }
 
-impl BinResolutionMessage {
+impl PrebuiltBinaryMessage {
     pub fn cache_lookup(krate: &ResolvedCrate) -> Self {
         Self::CacheLookup { krate: krate.clone() }
     }
@@ -121,8 +121,8 @@ impl BinResolutionMessage {
     }
 }
 
-impl From<BinResolutionMessage> for Message {
-    fn from(msg: BinResolutionMessage) -> Self {
-        Message::BinResolution(msg)
+impl From<PrebuiltBinaryMessage> for Message {
+    fn from(msg: PrebuiltBinaryMessage) -> Self {
+        Message::PrebuiltBinary(msg)
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     cratespec::{CrateSpec, Forge, RegistrySource},
     downloader::DownloadedCrate,
     error,
-    messages::{BinResolutionMessage, BinaryMessage, CrateResolutionMessage, SourceMessage},
+    messages::{BuildCacheMessage, CrateResolutionMessage, PrebuiltBinaryMessage, SourceMessage},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -205,7 +205,7 @@ impl Cache {
         if self.inner.config.prebuilt_binaries.use_prebuilt_binaries == UsePrebuiltBinaries::Never {
             self.inner
                 .reporter
-                .report(BinResolutionMessage::prebuilt_binaries_disabled);
+                .report(PrebuiltBinaryMessage::prebuilt_binaries_disabled);
             return Ok(None);
         }
 
@@ -215,19 +215,19 @@ impl Cache {
         if use_cache {
             self.inner
                 .reporter
-                .report(|| BinResolutionMessage::cache_lookup(krate));
+                .report(|| PrebuiltBinaryMessage::cache_lookup(krate));
 
             if let Ok(Some(entry)) = self.get_cached_binary(krate) {
                 match &entry.value {
                     Some(binary) => {
                         self.inner
                             .reporter
-                            .report(|| BinResolutionMessage::cache_hit(&binary.path, binary.provider));
+                            .report(|| PrebuiltBinaryMessage::cache_hit(&binary.path, binary.provider));
                     }
                     None => {
                         // Negative cache hit - we previously determined no binary was available
                         self.inner.reporter.report(|| {
-                            BinResolutionMessage::no_binary_found(
+                            PrebuiltBinaryMessage::no_binary_found(
                                 krate,
                                 vec!["negative cache hit - no binary available".to_string()],
                             )
@@ -240,7 +240,7 @@ impl Cache {
 
             self.inner
                 .reporter
-                .report(|| BinResolutionMessage::cache_miss(krate));
+                .report(|| PrebuiltBinaryMessage::cache_miss(krate));
         }
 
         // Call the resolver to attempt finding a binary
@@ -253,14 +253,14 @@ impl Cache {
                     if let Ok(cache_path) = self.binary_cache_path(krate) {
                         self.inner
                             .reporter
-                            .report(|| BinResolutionMessage::cache_stored(&cache_path));
+                            .report(|| PrebuiltBinaryMessage::cache_stored(&cache_path));
                     }
                 } else {
                     // Also report when we cache a negative result
                     if let Ok(cache_path) = self.binary_cache_path(krate) {
                         self.inner
                             .reporter
-                            .report(|| BinResolutionMessage::cache_stored(&cache_path));
+                            .report(|| PrebuiltBinaryMessage::cache_stored(&cache_path));
                     }
                 }
 
@@ -688,14 +688,14 @@ impl Cache {
         if matches!(krate.source, ResolvedSource::LocalDir { .. }) {
             self.inner
                 .reporter
-                .report(BinaryMessage::skipping_cache_local_dir);
+                .report(BuildCacheMessage::skipping_cache_local_dir);
             let (binary_path, _sbom) = build_fn()?;
             return Ok(binary_path);
         }
 
         self.inner
             .reporter
-            .report(|| BinaryMessage::cache_lookup(krate, options));
+            .report(|| BuildCacheMessage::cache_lookup(krate, options));
 
         let source_hash = Self::compute_source_hash(&krate.source);
         let build_hash = Self::compute_build_hash(options);
@@ -717,7 +717,7 @@ impl Cache {
             if !self.inner.config.refresh {
                 self.inner
                     .reporter
-                    .report(|| BinaryMessage::cache_hit(&cache_path, &sbom_path));
+                    .report(|| BuildCacheMessage::cache_hit(&cache_path, &sbom_path));
                 return Ok(cache_path);
             } else {
                 debug!(
@@ -728,7 +728,9 @@ impl Cache {
             }
         }
 
-        self.inner.reporter.report(|| BinaryMessage::cache_miss(krate));
+        self.inner
+            .reporter
+            .report(|| BuildCacheMessage::cache_miss(krate));
 
         // Build the binary and get the SBOM
         let (built_binary, sbom) = build_fn()?;
@@ -752,7 +754,7 @@ impl Cache {
 
         self.inner
             .reporter
-            .report(|| BinaryMessage::cache_stored(&cache_path, &sbom_path));
+            .report(|| BuildCacheMessage::cache_stored(&cache_path, &sbom_path));
 
         Ok(cache_path)
     }

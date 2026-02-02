@@ -1,7 +1,7 @@
 use super::{ArchiveFormat, CandidateFilename, Provider};
 use crate::{
     Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedSource,
-    cratespec::Forge, downloader::DownloadedCrate, error, messages::BinResolutionMessage,
+    cratespec::Forge, downloader::DownloadedCrate, error, messages::PrebuiltBinaryMessage,
 };
 use sha2::{Digest, Sha256};
 use snafu::ResultExt;
@@ -142,7 +142,7 @@ impl GitlabProvider {
         })?;
 
         self.reporter
-            .report(|| BinResolutionMessage::verifying_checksum(expected_hash));
+            .report(|| PrebuiltBinaryMessage::verifying_checksum(expected_hash));
 
         let mut hasher = Sha256::new();
         hasher.update(data);
@@ -156,7 +156,7 @@ impl GitlabProvider {
             .fail();
         }
 
-        self.reporter.report(BinResolutionMessage::checksum_verified);
+        self.reporter.report(PrebuiltBinaryMessage::checksum_verified);
 
         Ok(())
     }
@@ -168,7 +168,7 @@ impl Provider for GitlabProvider {
             url
         } else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GitlabReleases,
                     "no repository URL available",
                 )
@@ -186,7 +186,7 @@ impl Provider for GitlabProvider {
         // Probe sequentially with HEAD requests; stop at the first 200.
         let Some((url, format)) = urls.iter().find(|(url, _)| Self::head_probe(url)) else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GitlabReleases,
                     "no matching release found",
                 )
@@ -197,13 +197,13 @@ impl Provider for GitlabProvider {
         let format = *format;
 
         self.reporter
-            .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::GitlabReleases));
+            .report(|| PrebuiltBinaryMessage::downloading_binary(&url, BinaryProvider::GitlabReleases));
 
         let data = if let Some(data) = Self::try_download(&url)? {
             data
         } else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GitlabReleases,
                     format!("failed to download asset: {}", url),
                 )

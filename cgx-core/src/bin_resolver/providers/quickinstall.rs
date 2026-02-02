@@ -1,7 +1,7 @@
 use super::{ArchiveFormat, Provider};
 use crate::{
     Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedCrate,
-    downloader::DownloadedCrate, error, messages::BinResolutionMessage,
+    downloader::DownloadedCrate, error, messages::PrebuiltBinaryMessage,
 };
 use snafu::ResultExt;
 use std::path::PathBuf;
@@ -50,13 +50,13 @@ impl Provider for QuickinstallProvider {
         let url = Self::construct_url(&krate.resolved, platform);
 
         self.reporter
-            .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::Quickinstall));
+            .report(|| PrebuiltBinaryMessage::downloading_binary(&url, BinaryProvider::Quickinstall));
 
         let data = if let Ok(data) = Self::download_file(&url) {
             data
         } else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::Quickinstall,
                     "download failed or binary not found",
                 )

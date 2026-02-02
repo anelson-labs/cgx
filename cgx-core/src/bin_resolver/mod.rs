@@ -8,7 +8,7 @@ use crate::{
     crate_resolver::ResolvedCrate,
     downloader::DownloadedCrate,
     error,
-    messages::BinResolutionMessage,
+    messages::PrebuiltBinaryMessage,
 };
 use providers::{BinstallProvider, GithubProvider, GitlabProvider, Provider, QuickinstallProvider};
 use serde::{Deserialize, Serialize};
@@ -240,7 +240,7 @@ impl BinaryResolver for DefaultBinaryResolver {
         let verify = self.config.prebuilt_binaries.verify_checksums;
 
         for provider_type in &self.config.prebuilt_binaries.binary_providers {
-            reporter.report(|| BinResolutionMessage::checking_provider(resolved, *provider_type));
+            reporter.report(|| PrebuiltBinaryMessage::checking_provider(resolved, *provider_type));
 
             let result = match provider_type {
                 BinaryProvider::Binstall => {
@@ -264,7 +264,7 @@ impl BinaryResolver for DefaultBinaryResolver {
             match result {
                 Ok(Some(binary)) => {
                     let relocated_binary = self.relocate_to_bin_dir(binary, resolved, platform)?;
-                    reporter.report(|| BinResolutionMessage::resolved(&relocated_binary));
+                    reporter.report(|| PrebuiltBinaryMessage::resolved(&relocated_binary));
                     return Ok(Some(relocated_binary));
                 }
                 Ok(None) => continue,
@@ -284,7 +284,7 @@ impl BinaryResolver for DefaultBinaryResolver {
         }
 
         self.reporter.report(|| {
-            BinResolutionMessage::no_binary_found(
+            PrebuiltBinaryMessage::no_binary_found(
                 resolved,
                 vec!["no binary found from any configured provider".to_string()],
             )
@@ -319,7 +319,7 @@ impl<R: BinaryResolver> BinaryResolver for CachingResolver<R> {
         // Check build options disqualification BEFORE touching cache
         if let Some(reason) = is_disqualified(build_options) {
             self.reporter
-                .report(|| BinResolutionMessage::disqualified_due_to_customization(reason));
+                .report(|| PrebuiltBinaryMessage::disqualified_due_to_customization(reason));
             return Ok(None);
         }
 

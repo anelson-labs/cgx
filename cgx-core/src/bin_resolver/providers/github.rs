@@ -1,7 +1,7 @@
 use super::Provider;
 use crate::{
     Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedSource,
-    cratespec::Forge, downloader::DownloadedCrate, error, messages::BinResolutionMessage,
+    cratespec::Forge, downloader::DownloadedCrate, error, messages::PrebuiltBinaryMessage,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -184,7 +184,7 @@ impl GithubProvider {
         })?;
 
         self.reporter
-            .report(|| BinResolutionMessage::verifying_checksum(expected_hash));
+            .report(|| PrebuiltBinaryMessage::verifying_checksum(expected_hash));
 
         let mut hasher = Sha256::new();
         hasher.update(data);
@@ -198,7 +198,7 @@ impl GithubProvider {
             .fail();
         }
 
-        self.reporter.report(BinResolutionMessage::checksum_verified);
+        self.reporter.report(PrebuiltBinaryMessage::checksum_verified);
 
         Ok(())
     }
@@ -210,7 +210,7 @@ impl Provider for GithubProvider {
             url
         } else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GithubReleases,
                     "no repository URL available",
                 )
@@ -220,7 +220,7 @@ impl Provider for GithubProvider {
 
         let Some((owner, repo)) = Self::parse_owner_repo(&repo_url) else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GithubReleases,
                     format!("could not parse owner/repo from URL: {}", repo_url),
                 )
@@ -230,7 +230,7 @@ impl Provider for GithubProvider {
 
         let Some(api_base) = Self::api_base(&repo_url) else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GithubReleases,
                     format!("could not determine API base for URL: {}", repo_url),
                 )
@@ -252,7 +252,7 @@ impl Provider for GithubProvider {
 
         if assets.is_empty() {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GithubReleases,
                     "no release found for any tag variant",
                 )
@@ -275,7 +275,7 @@ impl Provider for GithubProvider {
             m
         } else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GithubReleases,
                     "no matching asset found in release",
                 )
@@ -284,14 +284,14 @@ impl Provider for GithubProvider {
         };
 
         self.reporter.report(|| {
-            BinResolutionMessage::downloading_binary(download_url, BinaryProvider::GithubReleases)
+            PrebuiltBinaryMessage::downloading_binary(download_url, BinaryProvider::GithubReleases)
         });
 
         let data = if let Some(data) = Self::try_download(download_url)? {
             data
         } else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GithubReleases,
                     format!("failed to download asset: {}", download_url),
                 )

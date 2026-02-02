@@ -2,7 +2,7 @@
 
 use crate::utils::{Cgx, CommandExt};
 use cgx::messages::{
-    BinResolutionMessage, BinaryMessage, CrateResolutionMessage, Message, RunnerMessage, SourceMessage,
+    BuildCacheMessage, CrateResolutionMessage, Message, PrebuiltBinaryMessage, RunnerMessage, SourceMessage,
 };
 use predicates::prelude::*;
 
@@ -131,8 +131,8 @@ fn messages_with_prebuilt_binary() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::BinResolution(BinResolutionMessage::CacheHit { .. }))),
-        "Expected BinResolution::CacheHit on second run (pre-built binary cached)"
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::CacheHit { .. }))),
+        "Expected PrebuiltBinary::CacheHit on second run (pre-built binary cached)"
     );
     assert!(
         messages.iter().any(|m| matches!(
@@ -179,8 +179,8 @@ fn messages_without_prebuilt_binary() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheMiss { .. }))),
-        "Expected Binary::CacheMiss on first run (building from source)"
+            .any(|m| matches!(m, Message::BuildCache(BuildCacheMessage::CacheMiss { .. }))),
+        "Expected BuildCache::CacheMiss on first run (building from source)"
     );
 
     // Second invocation should hit all caches
@@ -211,7 +211,7 @@ fn messages_without_prebuilt_binary() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheHit { .. }))),
-        "Expected Binary::CacheHit on second run"
+            .any(|m| matches!(m, Message::BuildCache(BuildCacheMessage::CacheHit { .. }))),
+        "Expected BuildCache::CacheHit on second run"
     );
 }

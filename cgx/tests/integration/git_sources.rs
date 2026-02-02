@@ -4,7 +4,7 @@
 //! checking out, building, and caching.
 
 use crate::utils::{Cgx, CommandExt};
-use cgx::messages::{BinaryMessage, CrateResolutionMessage, GitMessage, GitSelector, Message};
+use cgx::messages::{BuildCacheMessage, CrateResolutionMessage, GitMessage, GitSelector, Message};
 
 /// Test running a crate from a git source with a specific tag.
 ///
@@ -203,7 +203,7 @@ fn run_from_git_source_with_tag() {
     assert!(
         messages
             .iter()
-            .any(|m| matches!(m, Message::Binary(BinaryMessage::CacheHit { .. }))),
-        "Expected Binary CacheHit: proves compiled binary was served from cache"
+            .any(|m| matches!(m, Message::BuildCache(BuildCacheMessage::CacheHit { .. }))),
+        "Expected BuildCache CacheHit: proves compiled binary was served from cache"
     );
 }

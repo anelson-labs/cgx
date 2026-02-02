@@ -1,7 +1,7 @@
 use super::{ArchiveFormat, Provider};
 use crate::{
     Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedSource,
-    downloader::DownloadedCrate, error, messages::BinResolutionMessage,
+    downloader::DownloadedCrate, error, messages::PrebuiltBinaryMessage,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -220,7 +220,7 @@ impl BinstallProvider {
         })?;
 
         self.reporter
-            .report(|| BinResolutionMessage::verifying_checksum(expected_hash));
+            .report(|| PrebuiltBinaryMessage::verifying_checksum(expected_hash));
 
         let mut hasher = Sha256::new();
         hasher.update(data);
@@ -234,7 +234,7 @@ impl BinstallProvider {
             .fail();
         }
 
-        self.reporter.report(BinResolutionMessage::checksum_verified);
+        self.reporter.report(PrebuiltBinaryMessage::checksum_verified);
 
         Ok(())
     }
@@ -246,7 +246,7 @@ impl Provider for BinstallProvider {
 
         let Some(meta) = Self::read_binstall_metadata(krate, platform)? else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::Binstall,
                     "no [package.metadata.binstall] in Cargo.toml",
                 )
@@ -256,7 +256,7 @@ impl Provider for BinstallProvider {
 
         let Some(ref pkg_url_template) = meta.pkg_url else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::Binstall,
                     "binstall metadata has no pkg-url",
                 )
@@ -288,7 +288,7 @@ impl Provider for BinstallProvider {
             let url = render_template(pkg_url_template, &ctx);
 
             self.reporter
-                .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::Binstall));
+                .report(|| PrebuiltBinaryMessage::downloading_binary(&url, BinaryProvider::Binstall));
 
             if let Some(bytes) = Self::try_download(&url)? {
                 data = Some(bytes);
@@ -301,7 +301,7 @@ impl Provider for BinstallProvider {
 
         let Some(data) = data else {
             self.reporter.report(|| {
-                BinResolutionMessage::provider_has_no_binary(
+                PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::Binstall,
                     format!("download failed: {}", last_url),
                 )
