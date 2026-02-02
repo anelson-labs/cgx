@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use tame_index::{
     IndexLocation, IndexUrl, KrateName, SparseIndex, index::RemoteSparseIndex, utils::flock::LockOptions,
 };
+use toml::Value;
 
 /// A crate whose code is available locally on disk after downloading.
 ///
@@ -33,13 +34,104 @@ pub struct DownloadedCrate {
     pub crate_path: PathBuf,
 }
 
+impl DownloadedCrate {
+    /// Path to this crate's Cargo.toml.
+    pub fn cargo_toml_path(&self) -> PathBuf {
+        self.crate_path.join("Cargo.toml")
+    }
+
+    /// Read and parse the crate's Cargo.toml as a raw TOML [`Value`].
+    ///
+    /// Use this for accessing non-standard fields like `[package.metadata.binstall]`.
+    /// For common fields, prefer the dedicated accessor methods.
+    pub fn parsed_cargo_toml(&self) -> Result<Value> {
+        let path = self.cargo_toml_path();
+        let content =
+            std::fs::read_to_string(&path).with_context(|_| error::IoSnafu { path: path.clone() })?;
+        toml::from_str(&content).with_context(|_| error::CargoTomlParseSnafu { path })
+    }
+
+    /// Extract the `[package].repository` URL from Cargo.toml.
+    ///
+    /// Returns [`None`] if the field is absent.
+    /// Fails if the Cargo.toml cannot be read or parsed.
+    pub fn repository_url(&self) -> Result<Option<String>> {
+        let doc = self.parsed_cargo_toml()?;
+        Ok(doc
+            .get("package")
+            .and_then(|p| p.get("repository"))
+            .and_then(|r| r.as_str())
+            .map(|s| s.trim_end_matches('/').trim_end_matches(".git").to_string()))
+    }
+
+    /// List binary target names declared in Cargo.toml.
+    ///
+    /// Reads explicit `[[bin]]` entries. If none are declared, returns a
+    /// single-element vec containing the package name (Cargo's default when
+    /// `src/main.rs` exists, which is the common case for crates that
+    /// distribute pre-built binaries).
+    pub fn binary_names(&self) -> Result<Vec<String>> {
+        let doc = self.parsed_cargo_toml()?;
+        let pkg_name = doc
+            .get("package")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or(&self.resolved.name);
+
+        if let Some(bins) = doc.get("bin").and_then(|b| b.as_array()) {
+            let names: Vec<String> = bins
+                .iter()
+                .filter_map(|b| b.get("name").and_then(|n| n.as_str()))
+                .map(String::from)
+                .collect();
+            if !names.is_empty() {
+                return Ok(names);
+            }
+        }
+
+        Ok(vec![pkg_name.to_string()])
+    }
+
+    /// Determine the default binary name for this crate.
+    ///
+    /// Resolution order:
+    /// 1. `package.default-run` if set
+    /// 2. Single `[[bin]]` entry if there's exactly one
+    /// 3. Package name (Cargo's implicit default)
+    pub fn default_binary_name(&self) -> Result<String> {
+        let doc = self.parsed_cargo_toml()?;
+        let pkg = doc.get("package");
+        let pkg_name = pkg
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or(&self.resolved.name);
+
+        if let Some(default_run) = pkg.and_then(|p| p.get("default-run")).and_then(|d| d.as_str()) {
+            return Ok(default_run.to_string());
+        }
+
+        if let Some(bins) = doc.get("bin").and_then(|b| b.as_array()) {
+            let names: Vec<&str> = bins
+                .iter()
+                .filter_map(|b| b.get("name").and_then(|n| n.as_str()))
+                .collect();
+            if names.len() == 1 {
+                return Ok(names[0].to_string());
+            }
+        }
+
+        Ok(pkg_name.to_string())
+    }
+}
+
 /// Abstract interface for downloading a (validated) [`ResolvedCrate`] and returning
 /// the filesystem path where its source code is located.
 ///
 /// The trait abstraction allows for thorough testing and alternative implementations
 /// (e.g., mock downloaders for testing).
 pub trait CrateDownloader: std::fmt::Debug + Send + Sync + 'static {
-    /// Download a resolved crate and return the path to its source code.
+    /// Download a resolved crate and return a descriptor with which the crate code can be
+    /// accessed.
     ///
     /// This involves:
     /// - Checking if the source is already cached

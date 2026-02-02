@@ -1,13 +1,7 @@
-use super::Provider;
+use super::{ArchiveFormat, Provider};
 use crate::{
-    Result,
-    bin_resolver::ResolvedBinary,
-    config::BinaryProvider,
-    crate_resolver::{ResolvedCrate, ResolvedSource},
-    cratespec::Forge,
-    downloader::DownloadedCrate,
-    error,
-    messages::BinResolutionMessage,
+    Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedSource,
+    downloader::DownloadedCrate, error, messages::BinResolutionMessage,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -55,36 +49,22 @@ impl BinstallMeta {
     }
 }
 
-/// Map a `pkg-fmt` value to the archive file suffix.
-fn archive_suffix(pkg_fmt: Option<&str>) -> &'static str {
-    match pkg_fmt {
-        Some("txz") => ".tar.xz",
-        Some("tzstd") => ".tar.zst",
-        Some("tbz2") => ".tar.bz2",
-        Some("zip") => ".zip",
-        Some("bin") => {
-            if cfg!(windows) {
-                ".exe"
-            } else {
-                ""
-            }
-        }
-        // tgz is the default per the binstall spec; unrecognized formats also default to .tar.gz
-        None | Some(_) => ".tar.gz",
-    }
-}
-
-/// Map a `pkg-fmt` value to the archive filename used to write downloaded bytes.
+/// Map a binstall `pkg-fmt` value to an [`ArchiveFormat`].
 ///
-/// The filename extension determines which extraction codepath is chosen.
-fn archive_filename(pkg_fmt: Option<&str>) -> &'static str {
+/// Returns [`ArchiveFormat::TarGz`] when no format is specified (the binstall spec default).
+fn archive_format_from_pkg_fmt(pkg_fmt: Option<&str>) -> Result<ArchiveFormat> {
     match pkg_fmt {
-        Some("txz") => "archive.tar.xz",
-        Some("tzstd") => "archive.tar.zst",
-        Some("tbz2") => "archive.tar.bz2",
-        Some("zip") => "archive.zip",
-        Some("bin") => "archive",
-        None | Some(_) => "archive.tar.gz",
+        Some("tar") => Ok(ArchiveFormat::Tar),
+        Some("tgz") | None => Ok(ArchiveFormat::TarGz),
+        Some("txz") => Ok(ArchiveFormat::TarXz),
+        Some("tzstd") => Ok(ArchiveFormat::TarZst),
+        Some("tbz2") => Ok(ArchiveFormat::TarBz2),
+        Some("zip") => Ok(ArchiveFormat::Zip),
+        Some("bin") => Ok(ArchiveFormat::NakedBinary),
+        Some(other) => error::UnsupportedArchiveFormatSnafu {
+            format: other.to_string(),
+        }
+        .fail(),
     }
 }
 
@@ -127,45 +107,39 @@ impl BinstallProvider {
     }
 
     /// Read and parse `[package.metadata.binstall]` from the crate's Cargo.toml.
-    fn read_binstall_metadata(krate: &DownloadedCrate, target: &str) -> Option<BinstallMeta> {
-        let cargo_toml_path = krate.crate_path.join("Cargo.toml");
-        let content = std::fs::read_to_string(&cargo_toml_path).ok()?;
-        let doc: toml::Value = toml::from_str(&content).ok()?;
-
-        let binstall_value = doc.get("package")?.get("metadata")?.get("binstall")?;
-
-        let mut meta: BinstallMeta = binstall_value.clone().try_into().ok()?;
+    fn read_binstall_metadata(krate: &DownloadedCrate, target: &str) -> Result<Option<BinstallMeta>> {
+        let doc = krate.parsed_cargo_toml()?;
+        let binstall_value = doc
+            .get("package")
+            .and_then(|p| p.get("metadata"))
+            .and_then(|m| m.get("binstall"));
+        let Some(binstall_value) = binstall_value else {
+            return Ok(None);
+        };
+        let mut meta: BinstallMeta =
+            binstall_value
+                .clone()
+                .try_into()
+                .with_context(|_| error::BinstallMetadataInvalidSnafu {
+                    path: krate.cargo_toml_path(),
+                })?;
         meta.merge_overrides(target);
-        Some(meta)
+        Ok(Some(meta))
     }
 
     /// Get the repository URL for a crate, for use in `{ repo }` template variable.
-    fn get_repo_url(krate: &ResolvedCrate) -> Option<String> {
-        match &krate.source {
-            ResolvedSource::Forge { forge, .. } => match forge {
-                Forge::GitHub {
-                    custom_url,
-                    owner,
-                    repo,
-                } => {
-                    let base = custom_url.as_ref().map_or("https://github.com", |u| u.as_str());
-                    let base = base.trim_end_matches('/');
-                    Some(format!("{}/{}/{}", base, owner, repo))
-                }
-                Forge::GitLab {
-                    custom_url,
-                    owner,
-                    repo,
-                } => {
-                    let base = custom_url.as_ref().map_or("https://gitlab.com", |u| u.as_str());
-                    let base = base.trim_end_matches('/');
-                    Some(format!("{}/{}/{}", base, owner, repo))
-                }
-            },
-            ResolvedSource::CratesIo | ResolvedSource::Registry { .. } => {
-                super::get_crates_io_repo_url(&krate.name)
-            }
-            _ => None,
+    ///
+    /// If the crate came from a forge, the forge URL is used directly. This handles the fork
+    /// scenario where the Cargo.toml may still point to the upstream repository. For all other
+    /// sources, falls back to the `[package].repository` field in Cargo.toml unfiltered (binstall
+    /// templates can point at any host, so no host filtering is applied).
+    fn get_repo_url(krate: &DownloadedCrate) -> Result<Option<String>> {
+        match &krate.resolved.source {
+            ResolvedSource::Forge { forge, .. } => Ok(Some(forge.repo_url())),
+            ResolvedSource::CratesIo
+            | ResolvedSource::Registry { .. }
+            | ResolvedSource::Git { .. }
+            | ResolvedSource::LocalDir { .. } => krate.repository_url(),
         }
     }
 
@@ -236,7 +210,7 @@ impl Provider for BinstallProvider {
     fn try_resolve(&self, krate: &DownloadedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
         let resolved = &krate.resolved;
 
-        let Some(meta) = Self::read_binstall_metadata(krate, platform) else {
+        let Some(meta) = Self::read_binstall_metadata(krate, platform)? else {
             self.reporter.report(|| {
                 BinResolutionMessage::provider_has_no_binary(
                     BinaryProvider::Binstall,
@@ -257,15 +231,15 @@ impl Provider for BinstallProvider {
         };
 
         let pkg_fmt = meta.pkg_fmt.as_deref();
-        let suffix = archive_suffix(pkg_fmt);
+        let format = archive_format_from_pkg_fmt(pkg_fmt)?;
         let binary_ext = if cfg!(windows) { ".exe" } else { "" };
-        let repo_url = Self::get_repo_url(resolved);
+        let repo_url = Self::get_repo_url(krate)?;
 
         let ctx = TemplateContext {
             name: &resolved.name,
             version: &resolved.version.to_string(),
             target: platform,
-            archive_suffix: suffix,
+            archive_suffix: format.suffix(),
             binary_ext,
             bin: &resolved.name,
             repo: repo_url.as_deref(),
@@ -294,19 +268,14 @@ impl Provider for BinstallProvider {
             parent: self.cache_dir.clone(),
         })?;
 
-        let archive_name = archive_filename(pkg_fmt);
-        let archive_path = temp_dir.path().join(archive_name);
+        let archive_path = temp_dir.path().join(format.canonical_filename());
         std::fs::write(&archive_path, &data).with_context(|_| error::IoSnafu {
             path: archive_path.clone(),
         })?;
 
-        // Determine the binary name to look for within the archive.
-        // If bin-dir is set, it acts as a template for the binary location within the archive,
-        // but extract_binary already searches common locations. For now, use the crate name.
-        let binary_name = &resolved.name;
-
+        let binary_name = krate.default_binary_name()?;
         let extract_dir = temp_dir.path().join("extracted");
-        let binary_path = super::extract_binary(&archive_path, binary_name, &extract_dir)?;
+        let binary_path = super::extract_binary(&archive_path, format, &binary_name, &extract_dir)?;
 
         let final_dir = self
             .cache_dir
@@ -320,7 +289,7 @@ impl Provider for BinstallProvider {
             path: final_dir.clone(),
         })?;
 
-        let final_path = final_dir.join(format!("{}{}", resolved.name, std::env::consts::EXE_SUFFIX));
+        let final_path = final_dir.join(format!("{}{}", binary_name, std::env::consts::EXE_SUFFIX));
         std::fs::copy(&binary_path, &final_path).with_context(|_| error::IoSnafu {
             path: final_path.clone(),
         })?;
@@ -350,6 +319,9 @@ impl Provider for BinstallProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{crate_resolver::ResolvedSource, cratespec::Forge, error::Error};
+    use semver::Version;
+    use std::fs;
 
     #[test]
     fn render_template_basic() {
@@ -433,40 +405,110 @@ mod tests {
     }
 
     #[test]
-    fn archive_suffix_defaults_to_tar_gz() {
-        assert_eq!(archive_suffix(None), ".tar.gz");
-        // "tgz" is part of the default catch-all
-        assert_eq!(archive_suffix(Some("tgz")), ".tar.gz");
-        assert_eq!(archive_suffix(Some("unknown")), ".tar.gz");
+    fn archive_format_from_pkg_fmt_defaults_to_tar_gz() {
+        assert_eq!(archive_format_from_pkg_fmt(None).unwrap(), ArchiveFormat::TarGz);
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tgz")).unwrap(),
+            ArchiveFormat::TarGz
+        );
     }
 
     #[test]
-    fn archive_suffix_known_formats() {
-        assert_eq!(archive_suffix(Some("txz")), ".tar.xz");
-        assert_eq!(archive_suffix(Some("tzstd")), ".tar.zst");
-        assert_eq!(archive_suffix(Some("tbz2")), ".tar.bz2");
-        assert_eq!(archive_suffix(Some("zip")), ".zip");
+    fn archive_format_from_pkg_fmt_unknown_returns_error() {
+        assert_matches::assert_matches!(
+            archive_format_from_pkg_fmt(Some("unknown")),
+            Err(Error::UnsupportedArchiveFormat { .. })
+        );
     }
 
     #[test]
-    fn archive_suffix_bin_format() {
-        let suffix = archive_suffix(Some("bin"));
-        if cfg!(windows) {
-            assert_eq!(suffix, ".exe");
-        } else {
-            assert_eq!(suffix, "");
-        }
+    fn archive_format_from_pkg_fmt_known_formats() {
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tar")).unwrap(),
+            ArchiveFormat::Tar
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("txz")).unwrap(),
+            ArchiveFormat::TarXz
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tzstd")).unwrap(),
+            ArchiveFormat::TarZst
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tbz2")).unwrap(),
+            ArchiveFormat::TarBz2
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("zip")).unwrap(),
+            ArchiveFormat::Zip
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("bin")).unwrap(),
+            ArchiveFormat::NakedBinary
+        );
     }
 
     #[test]
-    fn archive_filename_known_formats() {
-        assert_eq!(archive_filename(None), "archive.tar.gz");
-        assert_eq!(archive_filename(Some("tgz")), "archive.tar.gz");
-        assert_eq!(archive_filename(Some("txz")), "archive.tar.xz");
-        assert_eq!(archive_filename(Some("tzstd")), "archive.tar.zst");
-        assert_eq!(archive_filename(Some("tbz2")), "archive.tar.bz2");
-        assert_eq!(archive_filename(Some("zip")), "archive.zip");
-        assert_eq!(archive_filename(Some("bin")), "archive");
+    fn archive_format_suffix_consistency() {
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("txz")).unwrap().suffix(),
+            ".tar.xz"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tzstd")).unwrap().suffix(),
+            ".tar.zst"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tbz2")).unwrap().suffix(),
+            ".tar.bz2"
+        );
+        assert_eq!(archive_format_from_pkg_fmt(Some("zip")).unwrap().suffix(), ".zip");
+        assert_eq!(archive_format_from_pkg_fmt(None).unwrap().suffix(), ".tar.gz");
+    }
+
+    #[test]
+    fn archive_format_canonical_filename_consistency() {
+        assert_eq!(
+            archive_format_from_pkg_fmt(None).unwrap().canonical_filename(),
+            "archive.tar.gz"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tgz"))
+                .unwrap()
+                .canonical_filename(),
+            "archive.tar.gz"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("txz"))
+                .unwrap()
+                .canonical_filename(),
+            "archive.tar.xz"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tzstd"))
+                .unwrap()
+                .canonical_filename(),
+            "archive.tar.zst"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("tbz2"))
+                .unwrap()
+                .canonical_filename(),
+            "archive.tar.bz2"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("zip"))
+                .unwrap()
+                .canonical_filename(),
+            "archive.zip"
+        );
+        assert_eq!(
+            archive_format_from_pkg_fmt(Some("bin"))
+                .unwrap()
+                .canonical_filename(),
+            if cfg!(windows) { "archive.exe" } else { "archive" }
+        );
     }
 
     #[test]
@@ -630,5 +672,104 @@ mod tests {
 
         let meta: BinstallMeta = binstall_value.clone().try_into().unwrap();
         assert!(meta.pkg_url.is_none());
+    }
+
+    #[test]
+    fn get_repo_url_github_forge() {
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::Forge {
+                    forge: Forge::GitHub {
+                        custom_url: None,
+                        owner: "myowner".to_string(),
+                        repo: "myrepo".to_string(),
+                    },
+                    commit: "abc123".to_string(),
+                },
+            },
+            crate_path: PathBuf::from("/nonexistent"),
+        };
+
+        let url = BinstallProvider::get_repo_url(&krate).unwrap();
+        assert_eq!(url, Some("https://github.com/myowner/myrepo".to_string()));
+    }
+
+    #[test]
+    fn get_repo_url_gitlab_forge() {
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::Forge {
+                    forge: Forge::GitLab {
+                        custom_url: None,
+                        owner: "myowner".to_string(),
+                        repo: "myrepo".to_string(),
+                    },
+                    commit: "abc123".to_string(),
+                },
+            },
+            crate_path: PathBuf::from("/nonexistent"),
+        };
+
+        let url = BinstallProvider::get_repo_url(&krate).unwrap();
+        assert_eq!(url, Some("https://gitlab.com/myowner/myrepo".to_string()));
+    }
+
+    #[test]
+    fn get_repo_url_crates_io_with_repository() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            r#"
+[package]
+name = "mytool"
+version = "1.0.0"
+repository = "https://github.com/myowner/myrepo"
+"#,
+        )
+        .unwrap();
+
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::CratesIo,
+            },
+            crate_path: temp_dir.path().to_path_buf(),
+        };
+
+        let url = BinstallProvider::get_repo_url(&krate).unwrap();
+        assert_eq!(url, Some("https://github.com/myowner/myrepo".to_string()));
+    }
+
+    #[test]
+    fn get_repo_url_crates_io_without_repository() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            r#"
+[package]
+name = "mytool"
+version = "1.0.0"
+"#,
+        )
+        .unwrap();
+
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::CratesIo,
+            },
+            crate_path: temp_dir.path().to_path_buf(),
+        };
+
+        let url = BinstallProvider::get_repo_url(&krate).unwrap();
+        assert_eq!(url, None);
     }
 }

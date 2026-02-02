@@ -1,52 +1,119 @@
 use crate::{Result, error};
 use bzip2::read::BzDecoder;
+use flate2::read::GzDecoder;
 use snafu::ResultExt;
 use std::path::{Path, PathBuf};
+use xz2::read::XzDecoder;
 
-/// Extract a binary from an archive or naked binary file.
-///
-/// Supports: .tar.gz, .tar.xz, .tar.zst, .tar.bz2, .zip, and naked executables.
-///
-/// # Arguments
-///
-/// * `archive_path` - Path to the downloaded archive or binary
-/// * `expected_binary_name` - Name of the binary we're looking for (without .exe extension)
-/// * `dest_dir` - Directory to extract to
-///
-/// # Returns
-///
-/// Path to the extracted binary executable
-pub(in crate::bin_resolver) fn extract_binary(
-    archive_path: &Path,
-    expected_binary_name: &str,
-    dest_dir: &Path,
-) -> Result<PathBuf> {
-    let extension = archive_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::bin_resolver) enum ArchiveFormat {
+    Tar,
+    TarGz,
+    TarXz,
+    TarZst,
+    TarBz2,
+    Zip,
+    NakedBinary,
+}
 
-    match extension {
-        "gz" if archive_path.to_string_lossy().ends_with(".tar.gz") => {
-            extract_tar_gz(archive_path, expected_binary_name, dest_dir)
+impl ArchiveFormat {
+    /// File suffix used in URLs and candidate filename generation.
+    ///
+    /// [`NakedBinary`](ArchiveFormat::NakedBinary) returns `".exe"` on Windows and `""` on Unix.
+    pub(in crate::bin_resolver) fn suffix(&self) -> &'static str {
+        match self {
+            Self::Tar => ".tar",
+            Self::TarGz => ".tar.gz",
+            Self::TarXz => ".tar.xz",
+            Self::TarZst => ".tar.zst",
+            Self::TarBz2 => ".tar.bz2",
+            Self::Zip => ".zip",
+            Self::NakedBinary => {
+                if cfg!(windows) {
+                    ".exe"
+                } else {
+                    ""
+                }
+            }
         }
-        "xz" if archive_path.to_string_lossy().ends_with(".tar.xz") => {
-            extract_tar_xz(archive_path, expected_binary_name, dest_dir)
+    }
+
+    /// Canonical filename for writing downloads to disk.
+    pub(in crate::bin_resolver) fn canonical_filename(&self) -> &'static str {
+        match self {
+            Self::Tar => "archive.tar",
+            Self::TarGz => "archive.tar.gz",
+            Self::TarXz => "archive.tar.xz",
+            Self::TarZst => "archive.tar.zst",
+            Self::TarBz2 => "archive.tar.bz2",
+            Self::Zip => "archive.zip",
+            Self::NakedBinary => {
+                if cfg!(windows) {
+                    "archive.exe"
+                } else {
+                    "archive"
+                }
+            }
         }
-        "zst" if archive_path.to_string_lossy().ends_with(".tar.zst") => {
-            extract_tar_zst(archive_path, expected_binary_name, dest_dir)
+    }
+
+    /// All (format, suffix) pairs used for candidate filename generation.
+    pub(in crate::bin_resolver) fn all_formats() -> &'static [(ArchiveFormat, &'static str)] {
+        #[cfg(windows)]
+        {
+            &[
+                (Self::Tar, ".tar"),
+                (Self::TarGz, ".tar.gz"),
+                (Self::TarXz, ".tar.xz"),
+                (Self::TarZst, ".tar.zst"),
+                (Self::TarBz2, ".tar.bz2"),
+                (Self::Zip, ".zip"),
+                (Self::NakedBinary, ".exe"),
+            ]
         }
-        "bz2" if archive_path.to_string_lossy().ends_with(".tar.bz2") => {
-            extract_tar_bz2(archive_path, expected_binary_name, dest_dir)
-        }
-        "zip" => extract_zip(archive_path, expected_binary_name, dest_dir),
-        _ => {
-            // Assume it's a naked binary
-            extract_naked_binary(archive_path, expected_binary_name, dest_dir)
+        #[cfg(not(windows))]
+        {
+            &[
+                (Self::Tar, ".tar"),
+                (Self::TarGz, ".tar.gz"),
+                (Self::TarXz, ".tar.xz"),
+                (Self::TarZst, ".tar.zst"),
+                (Self::TarBz2, ".tar.bz2"),
+                (Self::Zip, ".zip"),
+                (Self::NakedBinary, ""),
+            ]
         }
     }
 }
 
-fn extract_tar_gz(archive_path: &Path, binary_name: &str, dest_dir: &Path) -> Result<PathBuf> {
-    use flate2::read::GzDecoder;
+/// Extract a binary from an archive or naked binary file.
+///
+/// The caller specifies the [`ArchiveFormat`] explicitly; there is no detection or fallback.
+pub(in crate::bin_resolver) fn extract_binary(
+    archive_path: &Path,
+    format: ArchiveFormat,
+    expected_binary_name: &str,
+    dest_dir: &Path,
+) -> Result<PathBuf> {
+    match format {
+        ArchiveFormat::Tar => extract_tar(archive_path, expected_binary_name, dest_dir),
+        ArchiveFormat::TarGz => extract_tar_gz(archive_path, expected_binary_name, dest_dir),
+        ArchiveFormat::TarXz => extract_tar_xz(archive_path, expected_binary_name, dest_dir),
+        ArchiveFormat::TarZst => extract_tar_zst(archive_path, expected_binary_name, dest_dir),
+        ArchiveFormat::TarBz2 => extract_tar_bz2(archive_path, expected_binary_name, dest_dir),
+        ArchiveFormat::Zip => extract_zip(archive_path, expected_binary_name, dest_dir),
+        ArchiveFormat::NakedBinary => extract_naked_binary(archive_path, expected_binary_name, dest_dir),
+    }
+}
 
+fn extract_tar(archive_path: &Path, binary_name: &str, dest_dir: &Path) -> Result<PathBuf> {
+    let file = std::fs::File::open(archive_path).with_context(|_| error::IoSnafu {
+        path: archive_path.to_path_buf(),
+    })?;
+    extract_tar_archive(file, binary_name, dest_dir)
+}
+
+fn extract_tar_gz(archive_path: &Path, binary_name: &str, dest_dir: &Path) -> Result<PathBuf> {
     let file = std::fs::File::open(archive_path).with_context(|_| error::IoSnafu {
         path: archive_path.to_path_buf(),
     })?;
@@ -55,8 +122,6 @@ fn extract_tar_gz(archive_path: &Path, binary_name: &str, dest_dir: &Path) -> Re
 }
 
 fn extract_tar_xz(archive_path: &Path, binary_name: &str, dest_dir: &Path) -> Result<PathBuf> {
-    use xz2::read::XzDecoder;
-
     let file = std::fs::File::open(archive_path).with_context(|_| error::IoSnafu {
         path: archive_path.to_path_buf(),
     })?;
@@ -206,6 +271,7 @@ mod tests {
         fs,
         io::{Cursor, Write},
     };
+    use xz2::write::XzEncoder;
     use zip::write::SimpleFileOptions;
 
     #[derive(Debug, Clone, Copy)]
@@ -244,8 +310,6 @@ mod tests {
     }
 
     fn create_test_tar_gz(binary_name: &str, location: BinaryLocation) -> Vec<u8> {
-        use flate2::{Compression, write::GzEncoder};
-
         let temp_dir = tempfile::tempdir().unwrap();
         create_test_binary(temp_dir.path(), binary_name, location);
 
@@ -261,8 +325,6 @@ mod tests {
     }
 
     fn create_test_tar_xz(binary_name: &str, location: BinaryLocation) -> Vec<u8> {
-        use xz2::write::XzEncoder;
-
         let temp_dir = tempfile::tempdir().unwrap();
         create_test_binary(temp_dir.path(), binary_name, location);
 
@@ -325,9 +387,13 @@ mod tests {
         fs::write(temp_archive.path(), &archive_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(temp_archive.path(), "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_archive.path(),
+            ArchiveFormat::TarGz,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
         assert!(binary_path.to_string_lossy().contains("testbin"));
@@ -341,9 +407,13 @@ mod tests {
         fs::write(temp_archive.path(), &archive_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(temp_archive.path(), "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_archive.path(),
+            ArchiveFormat::TarGz,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
         assert!(binary_path.to_string_lossy().contains("bin"));
@@ -357,9 +427,13 @@ mod tests {
         fs::write(temp_archive.path(), &archive_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(temp_archive.path(), "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_archive.path(),
+            ArchiveFormat::TarGz,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
         assert!(
@@ -375,14 +449,14 @@ mod tests {
         let temp_archive = tempfile::NamedTempFile::new().unwrap();
         fs::write(temp_archive.path(), &archive_data).unwrap();
 
-        let mut archive_path = temp_archive.path().to_path_buf();
-        archive_path.set_extension("tar.xz");
-        fs::rename(temp_archive.path(), &archive_path).unwrap();
-
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_archive.path(),
+            ArchiveFormat::TarXz,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
     }
@@ -394,14 +468,14 @@ mod tests {
         let temp_archive = tempfile::NamedTempFile::new().unwrap();
         fs::write(temp_archive.path(), &archive_data).unwrap();
 
-        let mut archive_path = temp_archive.path().to_path_buf();
-        archive_path.set_extension("tar.zst");
-        fs::rename(temp_archive.path(), &archive_path).unwrap();
-
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_archive.path(),
+            ArchiveFormat::TarZst,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
     }
@@ -413,14 +487,14 @@ mod tests {
         let temp_archive = tempfile::NamedTempFile::new().unwrap();
         fs::write(temp_archive.path(), &archive_data).unwrap();
 
-        let mut archive_path = temp_archive.path().to_path_buf();
-        archive_path.set_extension("zip");
-        fs::rename(temp_archive.path(), &archive_path).unwrap();
-
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_archive.path(),
+            ArchiveFormat::Zip,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
     }
@@ -432,14 +506,14 @@ mod tests {
         let temp_archive = tempfile::NamedTempFile::new().unwrap();
         fs::write(temp_archive.path(), &archive_data).unwrap();
 
-        let mut archive_path = temp_archive.path().to_path_buf();
-        archive_path.set_extension("zip");
-        fs::rename(temp_archive.path(), &archive_path).unwrap();
-
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_archive.path(),
+            ArchiveFormat::Zip,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
     }
@@ -450,9 +524,13 @@ mod tests {
         fs::write(temp_binary.path(), b"#!/bin/sh\necho test").unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(temp_binary.path(), "testbin", dest_dir.path());
+        let result = extract_binary(
+            temp_binary.path(),
+            ArchiveFormat::NakedBinary,
+            "testbin",
+            dest_dir.path(),
+        );
 
-        assert!(result.is_ok(), "Failed to extract: {:?}", result.err());
         let binary_path = result.unwrap();
         assert!(binary_path.exists());
         assert!(binary_path.to_string_lossy().contains("testbin"));
@@ -492,9 +570,8 @@ mod tests {
         fs::write(&archive_path, &archive_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(&archive_path, ArchiveFormat::TarGz, "testbin", dest_dir.path());
 
-        assert!(result.is_err(), "Should fail when binary not found");
         assert_matches::assert_matches!(result, Err(Error::ArchiveExtractionFailed { .. }));
     }
 
@@ -507,9 +584,8 @@ mod tests {
         fs::write(&archive_path, corrupt_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(&archive_path, ArchiveFormat::TarGz, "testbin", dest_dir.path());
 
-        assert!(result.is_err(), "Should fail with corrupt gzip");
         assert_matches::assert_matches!(result, Err(Error::ArchiveExtractionFailed { .. }));
     }
 
@@ -517,17 +593,13 @@ mod tests {
     fn test_corrupt_tar_xz() {
         let corrupt_data = b"This is not a valid xz file";
 
-        let temp_archive = tempfile::NamedTempFile::new().unwrap();
-        fs::write(temp_archive.path(), corrupt_data).unwrap();
-
-        let mut archive_path = temp_archive.path().to_path_buf();
-        archive_path.set_extension("tar.xz");
-        fs::rename(temp_archive.path(), &archive_path).unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let archive_path = temp_dir.path().join("test.tar.xz");
+        fs::write(&archive_path, corrupt_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(&archive_path, ArchiveFormat::TarXz, "testbin", dest_dir.path());
 
-        assert!(result.is_err(), "Should fail with corrupt xz");
         assert_matches::assert_matches!(result, Err(Error::ArchiveExtractionFailed { .. }));
     }
 
@@ -535,17 +607,13 @@ mod tests {
     fn test_corrupt_zip() {
         let corrupt_data = b"This is not a valid zip file";
 
-        let temp_archive = tempfile::NamedTempFile::new().unwrap();
-        fs::write(temp_archive.path(), corrupt_data).unwrap();
-
-        let mut archive_path = temp_archive.path().to_path_buf();
-        archive_path.set_extension("zip");
-        fs::rename(temp_archive.path(), &archive_path).unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let archive_path = temp_dir.path().join("test.zip");
+        fs::write(&archive_path, corrupt_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(&archive_path, ArchiveFormat::Zip, "testbin", dest_dir.path());
 
-        assert!(result.is_err(), "Should fail with corrupt zip");
         assert_matches::assert_matches!(result, Err(Error::ArchiveExtractionFailed { .. }));
     }
 
@@ -559,9 +627,8 @@ mod tests {
         fs::write(&archive_path, truncated).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(&archive_path, ArchiveFormat::TarGz, "testbin", dest_dir.path());
 
-        assert!(result.is_err(), "Should fail with truncated archive");
         assert_matches::assert_matches!(result, Err(Error::ArchiveExtractionFailed { .. }));
     }
 
@@ -579,9 +646,8 @@ mod tests {
         fs::write(&archive_path, &archive_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(&archive_path, ArchiveFormat::TarGz, "testbin", dest_dir.path());
 
-        assert!(result.is_err(), "Should fail with empty archive");
         assert_matches::assert_matches!(result, Err(Error::ArchiveExtractionFailed { .. }));
     }
 
@@ -614,9 +680,8 @@ mod tests {
         fs::write(&archive_path, &archive_data).unwrap();
 
         let dest_dir = tempfile::tempdir().unwrap();
-        let result = extract_binary(&archive_path, "testbin", dest_dir.path());
+        let result = extract_binary(&archive_path, ArchiveFormat::TarGz, "testbin", dest_dir.path());
 
-        assert!(result.is_err(), "Should fail when file is not executable");
         assert_matches::assert_matches!(result, Err(Error::ArchiveExtractionFailed { .. }));
     }
 

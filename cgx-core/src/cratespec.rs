@@ -425,29 +425,43 @@ pub enum Forge {
 }
 
 impl Forge {
-    /// Convert this forge reference into a git URL
-    pub fn git_url(&self) -> String {
+    /// The HTTPS URL to the repository root (no `.git` suffix).
+    ///
+    /// This is the URL that is intended for humans to view to look at the repo in a browser.
+    /// This is also typically what would be placed in the Cargo.toml `repository` field for a
+    /// crate.
+    ///
+    /// Use this for API and release URLs. Use [`Forge::git_url`] when a
+    /// `.git`-suffixed clone URL is needed.
+    pub fn repo_url(&self) -> String {
         match self {
             Forge::GitHub {
                 custom_url,
                 owner,
                 repo,
-            } => {
-                let base = custom_url
-                    .as_ref()
-                    .map_or("https://github.com", |u| u.as_str().trim_end_matches('/'));
-                format!("{}/{}/{}.git", base, owner, repo)
             }
-            Forge::GitLab {
+            | Forge::GitLab {
                 custom_url,
                 owner,
                 repo,
             } => {
                 let base = custom_url
                     .as_ref()
-                    .map_or("https://gitlab.com", |u| u.as_str().trim_end_matches('/'));
-                format!("{}/{}/{}.git", base, owner, repo)
+                    .map_or(self.default_host(), |u| u.as_str().trim_end_matches('/'));
+                format!("{}/{}/{}", base, owner, repo)
             }
+        }
+    }
+
+    /// Convert this forge reference into a git URL
+    pub fn git_url(&self) -> String {
+        format!("{}.git", self.repo_url())
+    }
+
+    fn default_host(&self) -> &'static str {
+        match self {
+            Forge::GitHub { .. } => "https://github.com",
+            Forge::GitLab { .. } => "https://gitlab.com",
         }
     }
 
@@ -1207,6 +1221,56 @@ mod tests {
                 && name == "my-tool"
                 && v == &VersionReq::parse("1.0").unwrap()
         );
+    }
+
+    #[test]
+    fn test_repo_url_github_default() {
+        let forge = Forge::GitHub {
+            custom_url: None,
+            owner: "octocat".to_string(),
+            repo: "hello".to_string(),
+        };
+        assert_eq!(forge.repo_url(), "https://github.com/octocat/hello");
+    }
+
+    #[test]
+    fn test_repo_url_gitlab_default() {
+        let forge = Forge::GitLab {
+            custom_url: None,
+            owner: "acme".to_string(),
+            repo: "widgets".to_string(),
+        };
+        assert_eq!(forge.repo_url(), "https://gitlab.com/acme/widgets");
+    }
+
+    #[test]
+    fn test_repo_url_github_custom_url() {
+        let forge = Forge::GitHub {
+            custom_url: Some(Url::parse("https://github.example.com/").unwrap()),
+            owner: "octocat".to_string(),
+            repo: "hello".to_string(),
+        };
+        assert_eq!(forge.repo_url(), "https://github.example.com/octocat/hello");
+    }
+
+    #[test]
+    fn test_repo_url_gitlab_custom_url() {
+        let forge = Forge::GitLab {
+            custom_url: Some(Url::parse("https://gitlab.example.com/").unwrap()),
+            owner: "acme".to_string(),
+            repo: "widgets".to_string(),
+        };
+        assert_eq!(forge.repo_url(), "https://gitlab.example.com/acme/widgets");
+    }
+
+    #[test]
+    fn test_git_url_is_repo_url_plus_dot_git() {
+        let forge = Forge::GitHub {
+            custom_url: None,
+            owner: "octocat".to_string(),
+            repo: "hello".to_string(),
+        };
+        assert_eq!(forge.git_url(), format!("{}.git", forge.repo_url()));
     }
 
     /// Test that features-only config doesn't change the [`CrateSpec`] variant.

@@ -1,14 +1,9 @@
-use super::Provider;
+use super::{ArchiveFormat, CandidateFilename, Provider};
 use crate::{
-    Result,
-    bin_resolver::ResolvedBinary,
-    config::BinaryProvider,
-    crate_resolver::{ResolvedCrate, ResolvedSource},
-    cratespec::Forge,
-    downloader::DownloadedCrate,
-    error,
-    messages::BinResolutionMessage,
+    Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedSource,
+    cratespec::Forge, downloader::DownloadedCrate, error, messages::BinResolutionMessage,
 };
+use sha2::{Digest, Sha256};
 use snafu::ResultExt;
 use std::path::PathBuf;
 
@@ -31,56 +26,47 @@ impl GitlabProvider {
         }
     }
 
-    /// Get the repository URL for a crate.
+    /// Get the repository URL for a crate, filtering for GitLab hosts.
     ///
-    /// For Forge sources, use the direct repo URL.
-    /// For [`CratesIo`](crate::crate_resolver::ResolvedSource::CratesIo) sources, query the
-    /// registry metadata.
-    fn get_repo_url(krate: &ResolvedCrate) -> Option<String> {
-        match &krate.source {
-            ResolvedSource::Forge { forge, .. } => match forge {
-                Forge::GitLab {
-                    custom_url,
-                    owner,
-                    repo,
-                } => {
-                    let base = custom_url.as_ref().map_or("https://gitlab.com", |u| u.as_str());
-                    let base = base.trim_end_matches('/');
-                    Some(format!("{}/{}/{}", base, owner, repo))
-                }
-                Forge::GitHub { .. } => None,
-            },
-            ResolvedSource::CratesIo | ResolvedSource::Registry { .. } => {
-                Self::get_crates_io_repo_url(&krate.name)
-            }
-            _ => None,
+    /// If the crate came from a GitLab forge, the forge URL is used directly (handles the fork
+    /// scenario where Cargo.toml may still point to the upstream). For all other sources
+    /// (including non-GitLab forges), falls back to the `[package].repository` field in
+    /// Cargo.toml, filtered to GitLab hosts only.
+    fn get_repo_url(krate: &DownloadedCrate) -> Result<Option<String>> {
+        match &krate.resolved.source {
+            ResolvedSource::Forge {
+                forge: forge @ Forge::GitLab { .. },
+                ..
+            } => Ok(Some(forge.repo_url())),
+            ResolvedSource::Forge { .. }
+            | ResolvedSource::CratesIo
+            | ResolvedSource::Registry { .. }
+            | ResolvedSource::Git { .. }
+            | ResolvedSource::LocalDir { .. } => Ok(krate
+                .repository_url()?
+                .filter(|u| u.starts_with("https://gitlab.com/"))),
         }
     }
 
-    /// Query crates.io API to get the repository URL for a crate, filtering for gitlab.com.
-    fn get_crates_io_repo_url(crate_name: &str) -> Option<String> {
-        let repo_url = super::get_crates_io_repo_url(crate_name)?;
-        if repo_url.starts_with("https://gitlab.com/") {
-            Some(repo_url)
-        } else {
-            None
-        }
-    }
-
-    /// Generate candidate URLs for GitLab releases.
+    /// Generate candidate URLs for GitLab releases, each paired with its [`ArchiveFormat`].
     ///
     /// Uses the shared filename generator and constructs full GitLab release download URLs
     /// for both `v{version}` and `{version}` tags.
-    fn generate_urls(repo_url: &str, name: &str, version: &str, platform: &str) -> Vec<String> {
-        let filenames = super::generate_candidate_filenames(name, version, platform);
+    fn generate_urls(
+        repo_url: &str,
+        name: &str,
+        version: &str,
+        platform: &str,
+    ) -> Vec<(String, ArchiveFormat)> {
+        let candidates = super::generate_candidate_filenames(name, version, platform);
         let tags = [format!("v{}", version), version.to_string()];
 
         let mut urls = Vec::new();
         for tag in &tags {
-            for filename in &filenames {
-                urls.push(format!(
-                    "{}/-/releases/{}/downloads/binaries/{}",
-                    repo_url, tag, filename
+            for CandidateFilename { filename, format } in &candidates {
+                urls.push((
+                    format!("{}/-/releases/{}/downloads/binaries/{}", repo_url, tag, filename),
+                    *format,
                 ));
             }
         }
@@ -129,8 +115,6 @@ impl GitlabProvider {
     }
 
     fn verify_checksum(&self, data: &[u8], url: &str) -> Result<()> {
-        use sha2::{Digest, Sha256};
-
         let checksum_url = format!("{}.sha256", url);
 
         let checksum_data = match Self::try_download(&checksum_url)? {
@@ -170,9 +154,7 @@ impl GitlabProvider {
 
 impl Provider for GitlabProvider {
     fn try_resolve(&self, krate: &DownloadedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
-        let krate = &krate.resolved;
-
-        let repo_url = if let Some(url) = Self::get_repo_url(krate) {
+        let repo_url = if let Some(url) = Self::get_repo_url(krate)? {
             url
         } else {
             self.reporter.report(|| {
@@ -184,10 +166,15 @@ impl Provider for GitlabProvider {
             return Ok(None);
         };
 
-        let urls = Self::generate_urls(&repo_url, &krate.name, &krate.version.to_string(), platform);
+        let urls = Self::generate_urls(
+            &repo_url,
+            &krate.resolved.name,
+            &krate.resolved.version.to_string(),
+            platform,
+        );
 
         // Probe sequentially with HEAD requests; stop at the first 200.
-        let Some(url) = urls.iter().find(|url| Self::head_probe(url)) else {
+        let Some((url, format)) = urls.iter().find(|(url, _)| Self::head_probe(url)) else {
             self.reporter.report(|| {
                 BinResolutionMessage::provider_has_no_binary(
                     BinaryProvider::GitlabReleases,
@@ -197,6 +184,7 @@ impl Provider for GitlabProvider {
             return Ok(None);
         };
         let url = url.clone();
+        let format = *format;
 
         self.reporter
             .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::GitlabReleases));
@@ -221,39 +209,28 @@ impl Provider for GitlabProvider {
             parent: self.cache_dir.clone(),
         })?;
 
-        let archive_name = if url.ends_with(".tar.gz") {
-            "archive.tar.gz"
-        } else if url.ends_with(".tar.xz") {
-            "archive.tar.xz"
-        } else if url.ends_with(".tar.zst") {
-            "archive.tar.zst"
-        } else if url.ends_with(".zip") {
-            "archive.zip"
-        } else {
-            "archive"
-        };
-
-        let archive_path = temp_dir.path().join(archive_name);
+        let archive_path = temp_dir.path().join(format.canonical_filename());
         std::fs::write(&archive_path, &data).with_context(|_| error::IoSnafu {
             path: archive_path.clone(),
         })?;
 
+        let binary_name = krate.default_binary_name()?;
         let extract_dir = temp_dir.path().join("extracted");
-        let binary_path = super::extract_binary(&archive_path, &krate.name, &extract_dir)?;
+        let binary_path = super::extract_binary(&archive_path, format, &binary_name, &extract_dir)?;
 
         let final_dir = self
             .cache_dir
             .join("binaries")
             .join("gitlab")
-            .join(&krate.name)
-            .join(krate.version.to_string())
+            .join(&krate.resolved.name)
+            .join(krate.resolved.version.to_string())
             .join(platform);
 
         std::fs::create_dir_all(&final_dir).with_context(|_| error::IoSnafu {
             path: final_dir.clone(),
         })?;
 
-        let final_path = final_dir.join(format!("{}{}", krate.name, std::env::consts::EXE_SUFFIX));
+        let final_path = final_dir.join(format!("{}{}", binary_name, std::env::consts::EXE_SUFFIX));
         std::fs::copy(&binary_path, &final_path).with_context(|_| error::IoSnafu {
             path: final_path.clone(),
         })?;
@@ -273,7 +250,7 @@ impl Provider for GitlabProvider {
         }
 
         Ok(Some(ResolvedBinary {
-            krate: krate.clone(),
+            krate: krate.resolved.clone(),
             provider: BinaryProvider::GitlabReleases,
             path: final_path,
         }))
@@ -283,6 +260,10 @@ impl Provider for GitlabProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{crate_resolver::ResolvedSource, cratespec::Forge};
+    use semver::Version;
+    use std::fs;
+    use url::Url;
 
     #[test]
     fn test_url_generation_includes_version_patterns() {
@@ -293,8 +274,8 @@ mod tests {
             "x86_64-unknown-linux-gnu",
         );
 
-        assert!(urls.iter().any(|url| url.contains("/-/releases/v1.2.3/")));
-        assert!(urls.iter().any(|url| url.contains("/-/releases/1.2.3/")));
+        assert!(urls.iter().any(|(url, _)| url.contains("/-/releases/v1.2.3/")));
+        assert!(urls.iter().any(|(url, _)| url.contains("/-/releases/1.2.3/")));
     }
 
     #[test]
@@ -306,8 +287,8 @@ mod tests {
             "x86_64-unknown-linux-gnu",
         );
 
-        assert!(urls.iter().all(|url| url.contains("/-/releases/")));
-        assert!(urls.iter().all(|url| url.contains("/downloads/binaries/")));
+        assert!(urls.iter().all(|(url, _)| url.contains("/-/releases/")));
+        assert!(urls.iter().all(|(url, _)| url.contains("/downloads/binaries/")));
     }
 
     #[test]
@@ -319,76 +300,207 @@ mod tests {
             "x86_64-unknown-linux-gnu",
         );
 
-        assert!(urls.iter().any(|url| url.ends_with(".tar.gz")));
-        assert!(urls.iter().any(|url| url.ends_with(".tar.xz")));
-        assert!(urls.iter().any(|url| url.ends_with(".tar.zst")));
-        assert!(urls.iter().any(|url| url.ends_with(".zip")));
+        assert!(urls.iter().any(|(url, _)| url.ends_with(".tar.gz")));
+        assert!(urls.iter().any(|(url, _)| url.ends_with(".tar.xz")));
+        assert!(urls.iter().any(|(url, _)| url.ends_with(".tar.zst")));
+        assert!(urls.iter().any(|(url, _)| url.ends_with(".zip")));
+    }
+
+    #[test]
+    fn test_url_generation_carries_format() {
+        let urls = GitlabProvider::generate_urls(
+            "https://gitlab.com/owner/repo",
+            "mytool",
+            "1.2.3",
+            "x86_64-unknown-linux-gnu",
+        );
+
+        for (url, format) in &urls {
+            if url.ends_with(".tar.gz") {
+                assert_eq!(*format, ArchiveFormat::TarGz);
+            } else if url.ends_with(".tar.xz") {
+                assert_eq!(*format, ArchiveFormat::TarXz);
+            } else if url.ends_with(".tar.zst") {
+                assert_eq!(*format, ArchiveFormat::TarZst);
+            } else if url.ends_with(".tar.bz2") {
+                assert_eq!(*format, ArchiveFormat::TarBz2);
+            } else if url.ends_with(".tar") {
+                assert_eq!(*format, ArchiveFormat::Tar);
+            } else if url.ends_with(".zip") {
+                assert_eq!(*format, ArchiveFormat::Zip);
+            } else {
+                assert_eq!(*format, ArchiveFormat::NakedBinary);
+            }
+        }
     }
 
     #[test]
     fn test_get_repo_url_gitlab_forge() {
-        use crate::{crate_resolver::ResolvedSource, cratespec::Forge};
-        use semver::Version;
-
-        let krate = ResolvedCrate {
-            name: "mytool".to_string(),
-            version: Version::new(1, 0, 0),
-            source: ResolvedSource::Forge {
-                forge: Forge::GitLab {
-                    custom_url: None,
-                    owner: "myowner".to_string(),
-                    repo: "myrepo".to_string(),
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::Forge {
+                    forge: Forge::GitLab {
+                        custom_url: None,
+                        owner: "myowner".to_string(),
+                        repo: "myrepo".to_string(),
+                    },
+                    commit: "abc123".to_string(),
                 },
-                commit: "abc123".to_string(),
             },
+            crate_path: PathBuf::from("/nonexistent"),
         };
 
-        let url = GitlabProvider::get_repo_url(&krate);
+        let url = GitlabProvider::get_repo_url(&krate).unwrap();
         assert_eq!(url, Some("https://gitlab.com/myowner/myrepo".to_string()));
     }
 
     #[test]
     fn test_get_repo_url_gitlab_forge_custom_url() {
-        use crate::{crate_resolver::ResolvedSource, cratespec::Forge};
-        use semver::Version;
-        use url::Url;
-
-        let krate = ResolvedCrate {
-            name: "mytool".to_string(),
-            version: Version::new(1, 0, 0),
-            source: ResolvedSource::Forge {
-                forge: Forge::GitLab {
-                    custom_url: Some(Url::parse("https://gitlab.company.com").unwrap()),
-                    owner: "myowner".to_string(),
-                    repo: "myrepo".to_string(),
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::Forge {
+                    forge: Forge::GitLab {
+                        custom_url: Some(Url::parse("https://gitlab.company.com").unwrap()),
+                        owner: "myowner".to_string(),
+                        repo: "myrepo".to_string(),
+                    },
+                    commit: "abc123".to_string(),
                 },
-                commit: "abc123".to_string(),
             },
+            crate_path: PathBuf::from("/nonexistent"),
         };
 
-        let url = GitlabProvider::get_repo_url(&krate);
+        let url = GitlabProvider::get_repo_url(&krate).unwrap();
         assert_eq!(url, Some("https://gitlab.company.com/myowner/myrepo".to_string()));
     }
 
     #[test]
-    fn test_get_repo_url_github_forge_returns_none() {
-        use crate::{crate_resolver::ResolvedSource, cratespec::Forge};
-        use semver::Version;
+    fn test_get_repo_url_github_forge_no_gitlab_repo_returns_none() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            r#"
+[package]
+name = "mytool"
+version = "1.0.0"
+repository = "https://github.com/myowner/myrepo"
+"#,
+        )
+        .unwrap();
 
-        let krate = ResolvedCrate {
-            name: "mytool".to_string(),
-            version: Version::new(1, 0, 0),
-            source: ResolvedSource::Forge {
-                forge: Forge::GitHub {
-                    custom_url: None,
-                    owner: "myowner".to_string(),
-                    repo: "myrepo".to_string(),
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::Forge {
+                    forge: Forge::GitHub {
+                        custom_url: None,
+                        owner: "myowner".to_string(),
+                        repo: "myrepo".to_string(),
+                    },
+                    commit: "abc123".to_string(),
                 },
-                commit: "abc123".to_string(),
             },
+            crate_path: temp_dir.path().to_path_buf(),
         };
 
-        let url = GitlabProvider::get_repo_url(&krate);
+        let url = GitlabProvider::get_repo_url(&krate).unwrap();
         assert_eq!(url, None);
+    }
+
+    #[test]
+    fn test_get_repo_url_crates_io_queries_cargo_toml() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            r#"
+[package]
+name = "mytool"
+version = "1.0.0"
+repository = "https://gitlab.com/myowner/myrepo"
+"#,
+        )
+        .unwrap();
+
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::CratesIo,
+            },
+            crate_path: temp_dir.path().to_path_buf(),
+        };
+
+        let url = GitlabProvider::get_repo_url(&krate).unwrap();
+        assert_eq!(url, Some("https://gitlab.com/myowner/myrepo".to_string()));
+    }
+
+    #[test]
+    fn test_get_repo_url_crates_io_non_gitlab_returns_none() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            r#"
+[package]
+name = "mytool"
+version = "1.0.0"
+repository = "https://github.com/myowner/myrepo"
+"#,
+        )
+        .unwrap();
+
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::CratesIo,
+            },
+            crate_path: temp_dir.path().to_path_buf(),
+        };
+
+        let url = GitlabProvider::get_repo_url(&krate).unwrap();
+        assert_eq!(url, None);
+    }
+
+    #[test]
+    fn test_get_repo_url_github_forge_falls_back_to_cargo_toml() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+        fs::write(
+            &cargo_toml,
+            r#"
+[package]
+name = "mytool"
+version = "1.0.0"
+repository = "https://gitlab.com/upstream/mytool"
+"#,
+        )
+        .unwrap();
+
+        let krate = DownloadedCrate {
+            resolved: crate::crate_resolver::ResolvedCrate {
+                name: "mytool".to_string(),
+                version: Version::new(1, 0, 0),
+                source: ResolvedSource::Forge {
+                    forge: Forge::GitHub {
+                        custom_url: None,
+                        owner: "myowner".to_string(),
+                        repo: "myrepo".to_string(),
+                    },
+                    commit: "abc123".to_string(),
+                },
+            },
+            crate_path: temp_dir.path().to_path_buf(),
+        };
+
+        let url = GitlabProvider::get_repo_url(&krate).unwrap();
+        assert_eq!(url, Some("https://gitlab.com/upstream/mytool".to_string()));
     }
 }

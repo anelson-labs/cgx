@@ -1,4 +1,4 @@
-use super::Provider;
+use super::{ArchiveFormat, Provider};
 use crate::{
     Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedCrate,
     downloader::DownloadedCrate, error, messages::BinResolutionMessage,
@@ -47,8 +47,7 @@ impl QuickinstallProvider {
 
 impl Provider for QuickinstallProvider {
     fn try_resolve(&self, krate: &DownloadedCrate, platform: &str) -> Result<Option<ResolvedBinary>> {
-        let krate = &krate.resolved;
-        let url = Self::construct_url(krate, platform);
+        let url = Self::construct_url(&krate.resolved, platform);
 
         self.reporter
             .report(|| BinResolutionMessage::downloading_binary(&url, BinaryProvider::Quickinstall));
@@ -67,33 +66,33 @@ impl Provider for QuickinstallProvider {
 
         // TODO(#80): verify .sig (minisign) signatures when support is added
 
-        // Extract to temporary directory
         let temp_dir = tempfile::tempdir().with_context(|_| error::TempDirCreationSnafu {
             parent: self.cache_dir.clone(),
         })?;
 
-        let archive_path = temp_dir.path().join("archive.tar.gz");
+        let archive_path = temp_dir.path().join(ArchiveFormat::TarGz.canonical_filename());
         std::fs::write(&archive_path, &data).with_context(|_| error::IoSnafu {
             path: archive_path.clone(),
         })?;
 
+        let binary_name = krate.default_binary_name()?;
         let extract_dir = temp_dir.path().join("extracted");
-        let binary_path = super::extract_binary(&archive_path, &krate.name, &extract_dir)?;
+        let binary_path =
+            super::extract_binary(&archive_path, ArchiveFormat::TarGz, &binary_name, &extract_dir)?;
 
-        // Move binary to cache directory
         let final_dir = self
             .cache_dir
             .join("binaries")
             .join("quickinstall")
-            .join(&krate.name)
-            .join(krate.version.to_string())
+            .join(&krate.resolved.name)
+            .join(krate.resolved.version.to_string())
             .join(platform);
 
         std::fs::create_dir_all(&final_dir).with_context(|_| error::IoSnafu {
             path: final_dir.clone(),
         })?;
 
-        let final_path = final_dir.join(format!("{}{}", krate.name, std::env::consts::EXE_SUFFIX));
+        let final_path = final_dir.join(format!("{}{}", binary_name, std::env::consts::EXE_SUFFIX));
         std::fs::copy(&binary_path, &final_path).with_context(|_| error::IoSnafu {
             path: final_path.clone(),
         })?;
@@ -113,7 +112,7 @@ impl Provider for QuickinstallProvider {
         }
 
         Ok(Some(ResolvedBinary {
-            krate: krate.clone(),
+            krate: krate.resolved.clone(),
             provider: BinaryProvider::Quickinstall,
             path: final_path,
         }))

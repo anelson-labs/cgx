@@ -233,6 +233,12 @@ pub enum Error {
     ArchiveExtractionFailed {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+
+    #[snafu(display("Failed to parse {}: {}", path.display(), source))]
+    CargoTomlParse { path: PathBuf, source: toml::de::Error },
+
+    #[snafu(display("Invalid [package.metadata.binstall] in {}: {}", path.display(), source))]
+    BinstallMetadataInvalid { path: PathBuf, source: toml::de::Error },
 }
 
 impl From<crate::git::Error> for Error {
