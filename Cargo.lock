@@ -408,7 +408,7 @@ dependencies = [
  "ignore",
  "insta",
  "rand",
- "reqwest",
+ "reqwest 0.12.28",
  "semver",
  "serde",
  "serde-cyclonedx",
@@ -2498,7 +2498,7 @@ dependencies = [
  "gix-quote 0.6.1",
  "gix-sec 0.12.2",
  "gix-url 0.33.2",
- "reqwest",
+ "reqwest 0.12.28",
  "thiserror 2.0.17",
 ]
 
@@ -3821,6 +3821,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04e9018c9d814e5f30cc16a0f03271aeab3571e609612d9fe78c1aa8d11c2f62"
+dependencies = [
+ "base64",
+ "bytes",
+ "futures-channel",
+ "futures-core",
+ "futures-util",
+ "h2",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "percent-encoding",
+ "pin-project-lite",
+ "sync_wrapper",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4319,9 +4352,9 @@ dependencies = [
 
 [[package]]
 name = "tame-index"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eff65632ab71028920498e2d083b6541f318c2d3949205305c99592ee2e25eb6"
+checksum = "502c6b412fa8aa4d46f6fee23bba6cab4d260e459226c23a5f936c5f172039ec"
 dependencies = [
  "camino",
  "crossbeam-channel",
@@ -4330,7 +4363,7 @@ dependencies = [
  "libc",
  "memchr",
  "rayon",
- "reqwest",
+ "reqwest 0.13.1",
  "rustc-stable-hash",
  "semver",
  "serde",
