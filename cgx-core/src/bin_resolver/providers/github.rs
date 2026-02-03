@@ -101,11 +101,13 @@ impl GithubProvider {
             Err(_) => return Vec::new(),
         };
 
-        let response = match client
-            .get(&url)
-            .header("Accept", "application/vnd.github+json")
-            .send()
-        {
+        let mut request = client.get(&url).header("Accept", "application/vnd.github+json");
+
+        if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+            request = request.header("Authorization", format!("token {}", token));
+        }
+
+        let response = match request.send() {
             Ok(r) => r,
             Err(_) => return Vec::new(),
         };

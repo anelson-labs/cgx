@@ -188,6 +188,8 @@ jobs:
         run: cargo build --workspace
 
       - name: Run tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace
 
   # Stage 3: Tier 1 Platforms (Windows amd64, Mac ARM64, Linux musl)
@@ -249,6 +251,7 @@ jobs:
       - name: Run tests
         env:
           TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace ${{ env.TARGET_FLAG }}
 
   # Stage 4: Lesser Platforms (ARM + Intel Mac)
@@ -293,6 +296,8 @@ jobs:
         run: cargo build --workspace
 
       - name: Run tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace
 
   # Aggregate job that depends on all previous builds.  This is the check that
