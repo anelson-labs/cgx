@@ -616,6 +616,10 @@ fn github_provider_resolves_tgz_binary() {
 }
 
 /// Test that `--prebuilt-binary-sources quickinstall` resolves via the Quickinstall provider only.
+///
+/// Excluded on `x86_64-pc-windows-gnu` because cargo-quickinstall does not publish binaries for
+/// that target (only `x86_64-pc-windows-msvc`).
+#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 #[test]
 fn quickinstall_provider_resolves_binary() {
     let mut cgx = Cgx::with_test_fs();
@@ -973,6 +977,10 @@ fn prebuilt_binary_second_invocation_fully_cached() {
 /// Test that the default provider order resolves tokei via Quickinstall. Binstall fails (no
 /// metadata), GitHub fails (release exists but has no binary assets), GitLab fails (not on
 /// GitLab), and Quickinstall is the fallback that succeeds.
+///
+/// Excluded on `x86_64-pc-windows-gnu` because cargo-quickinstall does not publish binaries for
+/// that target, so the fallback chain cannot resolve via quickinstall.
+#[cfg(not(all(target_os = "windows", target_env = "gnu")))]
 #[test]
 fn default_resolves_via_quickinstall() {
     let mut cgx = Cgx::with_test_fs();
