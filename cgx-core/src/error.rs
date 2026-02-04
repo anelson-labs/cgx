@@ -1,3 +1,4 @@
+pub use reqwest::StatusCode;
 use snafu::prelude::*;
 use std::path::PathBuf;
 
@@ -131,12 +132,6 @@ pub enum Error {
     #[snafu(display("Failed to build SBOM component: {}", message))]
     SbomBuilder { message: String },
 
-    #[snafu(display("Tokio runtime error: {source}"))]
-    TokioRuntime { source: std::io::Error },
-
-    #[snafu(display("Tokio task join error: {source}"))]
-    TokioJoin { source: tokio::task::JoinError },
-
     #[snafu(display("JSON serialization error: {source}"))]
     Json { source: serde_json::Error },
 
@@ -162,11 +157,10 @@ pub enum Error {
     BinaryNotFoundInOutput,
 
     #[snafu(display(
-        "cargo build failed with exit code {}: {}",
-        exit_code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string()),
-        stderr
+        "cargo build failed with exit code {}",
+        exit_code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string())
     ))]
-    CargoBuildFailed { exit_code: Option<i32>, stderr: String },
+    CargoBuildFailed { exit_code: Option<i32> },
 
     #[snafu(display("Failed to copy source tree from {} to {}: {}", src.display(), dst.display(), source))]
     CopySourceTree {
@@ -201,6 +195,58 @@ pub enum Error {
 
     #[snafu(display("Error determining home directory"))]
     Etcetera { source: etcetera::HomeDirError },
+
+    // Prebuilt binary resolution errors
+    #[snafu(display(
+        "No binary providers are configured, but prebuilt binaries are enabled. Either enable at least one \
+         binary provider or set use_prebuilt_binaries to 'never'."
+    ))]
+    NoProvidersConfigured,
+
+    #[snafu(display(
+        "Prebuilt binary required (--prebuilt-binary always) but no prebuilt binary found for crate \
+         '{name}' version '{version}'"
+    ))]
+    PrebuiltBinaryRequired { name: String, version: String },
+
+    #[snafu(display(
+        "Checksum verification failed for downloaded binary: expected {expected}, got {actual}"
+    ))]
+    ChecksumMismatch { expected: String, actual: String },
+
+    #[snafu(display("Unsupported archive format: {format}"))]
+    UnsupportedArchiveFormat { format: String },
+
+    #[snafu(display("GitHub API error: {source}"))]
+    GithubApiError {
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[snafu(display("Quickinstall API error: {source}"))]
+    QuickinstallApiError {
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[snafu(display("Failed to download prebuilt binary from {url}: {source}"))]
+    BinaryDownloadFailed { url: String, source: reqwest::Error },
+
+    #[snafu(display("HTTP {} downloading prebuilt binary from {url}: {source}", status.as_u16()))]
+    BinaryDownloadHttpError {
+        url: String,
+        status: StatusCode,
+        source: reqwest::Error,
+    },
+
+    #[snafu(display("Failed to extract binary archive: {source}"))]
+    ArchiveExtractionFailed {
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[snafu(display("Failed to parse {}: {}", path.display(), source))]
+    CargoTomlParse { path: PathBuf, source: toml::de::Error },
+
+    #[snafu(display("Invalid [package.metadata.binstall] in {}: {}", path.display(), source))]
+    BinstallMetadataInvalid { path: PathBuf, source: toml::de::Error },
 }
 
 impl From<crate::git::Error> for Error {

@@ -1,19 +1,24 @@
-pub mod binary;
 pub mod build;
+pub mod build_cache;
+pub mod crate_resolution;
 pub mod git;
-pub mod resolution;
+pub mod prebuilt_binary;
 pub mod runner;
 pub mod source;
 
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc;
 
-pub use binary::BinaryMessage;
 pub use build::BuildMessage;
+pub use build_cache::BuildCacheMessage;
+pub use crate_resolution::CrateResolutionMessage;
 pub use git::GitMessage;
-pub use resolution::ResolutionMessage;
+pub use prebuilt_binary::PrebuiltBinaryMessage;
 pub use runner::RunnerMessage;
 pub use source::SourceMessage;
+
+// Re-export GitSelector since it's used in GitMessage's public API
+pub use crate::git::GitSelector;
 
 /// Top-level message enum representing all possible diagnostic messages from cgx.
 ///
@@ -22,9 +27,10 @@ pub use source::SourceMessage;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Message {
-    Resolution(ResolutionMessage),
+    CrateResolution(CrateResolutionMessage),
+    PrebuiltBinary(PrebuiltBinaryMessage),
     Source(SourceMessage),
-    Binary(BinaryMessage),
+    BuildCache(BuildCacheMessage),
     Git(GitMessage),
     Build(BuildMessage),
     Runner(RunnerMessage),

@@ -1,4 +1,4 @@
-use crate::{Result, builder::BuildOptions, resolver::ResolvedCrate};
+use crate::{Result, builder::BuildOptions, crate_resolver::ResolvedCrate};
 use serde_cyclonedx::cyclonedx::v_1_4::{
     Component, ComponentBuilder, CycloneDxBuilder, Dependency, DependencyBuilder, Metadata, MetadataBuilder,
     PropertyBuilder, ToolBuilder,
@@ -461,7 +461,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         cargo::{CargoMetadataOptions, CargoRunner},
-        resolver::ResolvedSource,
+        crate_resolver::ResolvedSource,
         testdata::CrateTestCase,
     };
     use serde_cyclonedx::cyclonedx::v_1_4::CycloneDx;

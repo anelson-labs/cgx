@@ -1,6 +1,29 @@
 # Run all of the tests in all of the crates
+#
+# If the `gh` CLI is configured, uses that auth token to set GITHUB_TOKEN for tests that need it
+# which reduces the chances of tests hitting GitHub API rate limits
+[unix]
 test:
-    @cargo test --all-features --workspace
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$GITHUB_TOKEN" ] && command -v gh &>/dev/null; then
+        export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
+    fi
+    cargo test --all-features --workspace
+
+[windows]
+test:
+    #!powershell
+    $ErrorActionPreference = "Continue"
+    if (-not $env:GITHUB_TOKEN) {
+        $gh = Get-Command gh -ErrorAction SilentlyContinue
+        if ($gh) {
+            $token = & gh auth token 2>$null
+            if ($LASTEXITCODE -eq 0 -and $token) { $env:GITHUB_TOKEN = $token }
+        }
+    }
+    cargo test --all-features --workspace
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Format the entire project with beautifiers
 fmt:

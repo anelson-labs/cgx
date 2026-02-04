@@ -1,12 +1,12 @@
 use super::Message;
-use crate::{builder::BuildOptions, resolver::ResolvedCrate};
+use crate::{builder::BuildOptions, crate_resolver::ResolvedCrate};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Messages related to binary cache operations.
+/// Messages related to build artifact cache operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
-pub enum BinaryMessage {
+pub enum BuildCacheMessage {
     CacheLookup {
         name: String,
         version: String,
@@ -27,7 +27,7 @@ pub enum BinaryMessage {
     SkippingCacheLocalDir,
 }
 
-impl BinaryMessage {
+impl BuildCacheMessage {
     pub fn cache_lookup(krate: &ResolvedCrate, options: &BuildOptions) -> Self {
         Self::CacheLookup {
             name: krate.name.clone(),
@@ -62,8 +62,8 @@ impl BinaryMessage {
     }
 }
 
-impl From<BinaryMessage> for Message {
-    fn from(msg: BinaryMessage) -> Self {
-        Message::Binary(msg)
+impl From<BuildCacheMessage> for Message {
+    fn from(msg: BuildCacheMessage) -> Self {
+        Message::BuildCache(msg)
     }
 }

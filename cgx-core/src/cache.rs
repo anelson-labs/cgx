@@ -1,12 +1,13 @@
 use crate::{
     Result,
+    bin_resolver::ResolvedBinary,
     builder::BuildOptions,
-    config::Config,
+    config::{Config, UsePrebuiltBinaries},
+    crate_resolver::{ResolvedCrate, ResolvedSource},
     cratespec::{CrateSpec, Forge, RegistrySource},
     downloader::DownloadedCrate,
     error,
-    messages::{BinaryMessage, ResolutionMessage, SourceMessage},
-    resolver::{ResolvedCrate, ResolvedSource},
+    messages::{BuildCacheMessage, CrateResolutionMessage, PrebuiltBinaryMessage, SourceMessage},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -55,7 +56,7 @@ impl<T> CacheEntry<T> {
 }
 
 /// A cache entry for a resolved crate specification.
-type ResolveCacheEntry = CacheEntry<ResolvedCrate>;
+type CrateResolveCacheEntry = CacheEntry<ResolvedCrate>;
 
 /// Manages the various caches that cgx uses to operate.
 ///
@@ -80,67 +81,73 @@ impl Cache {
         }
     }
 
-    /// Get a cached resolution, or compute it using the provided resolver function.
+    /// Get a cached crate resolution, or resolve it using the provided resolver function.
     ///
     /// This method implements the full caching strategy:
-    /// 1. If a non-expired cache entry exists, return it without calling the resolver
-    /// 2. Call the resolver function to compute a fresh value
-    /// 3. On success, cache the result and return it
-    /// 4. On transient errors (network/IO), fall back to stale cache if available
-    /// 5. On permanent errors, propagate without using stale cache
-    pub(crate) fn get_or_resolve<F>(&self, spec: &CrateSpec, resolver: F) -> Result<ResolvedCrate>
+    /// - If a non-expired cache entry exists, return it without calling the resolver
+    /// - Call the resolver function to compute a fresh value
+    /// - On success, cache the result and return it
+    /// - On transient errors (network/IO), fall back to stale cache if available
+    /// - On permanent errors, propagate without using stale cache
+    pub(crate) fn get_or_resolve_crate<F>(&self, spec: &CrateSpec, resolver: F) -> Result<ResolvedCrate>
     where
         F: FnOnce() -> Result<ResolvedCrate>,
     {
         self.inner
             .reporter
-            .report(|| ResolutionMessage::cache_lookup(spec));
+            .report(|| CrateResolutionMessage::cache_lookup(spec));
 
         let stale_entry = if !self.inner.config.refresh {
-            if let Ok(Some(entry)) = self.get_resolved(spec) {
+            if let Ok(Some(entry)) = self.get_resolved_crate(spec) {
                 let age = entry.age();
                 let ttl = self.inner.config.resolve_cache_timeout;
 
                 if age < ttl {
-                    let cache_path = self.resolve_cache_path(spec).ok();
+                    let cache_path = self.crate_resolve_cache_path(spec).ok();
                     if let Some(path) = &cache_path {
                         self.inner
                             .reporter
-                            .report(|| ResolutionMessage::cache_hit(path, age, ttl.saturating_sub(age)));
+                            .report(|| CrateResolutionMessage::cache_hit(path, age, ttl.saturating_sub(age)));
                     }
                     self.inner
                         .reporter
-                        .report(|| ResolutionMessage::resolved(&entry.value));
+                        .report(|| CrateResolutionMessage::resolved(&entry.value));
                     return Ok(entry.value);
                 }
 
                 self.inner
                     .reporter
-                    .report(|| ResolutionMessage::cache_stale(spec, age));
+                    .report(|| CrateResolutionMessage::cache_stale(spec, age));
                 Some(entry)
             } else {
-                self.inner.reporter.report(|| ResolutionMessage::cache_miss(spec));
+                self.inner
+                    .reporter
+                    .report(|| CrateResolutionMessage::cache_miss(spec));
                 None
             }
         } else {
-            self.inner.reporter.report(|| ResolutionMessage::cache_miss(spec));
+            self.inner
+                .reporter
+                .report(|| CrateResolutionMessage::cache_miss(spec));
             None
         };
 
-        self.inner.reporter.report(|| ResolutionMessage::resolving(spec));
+        self.inner
+            .reporter
+            .report(|| CrateResolutionMessage::resolving(spec));
 
         match resolver() {
             Ok(resolved) => {
                 self.inner
                     .reporter
-                    .report(|| ResolutionMessage::resolved(&resolved));
-                if let Ok(path) = self.resolve_cache_path(spec) {
-                    let _ = self.put_resolved(spec, &resolved);
+                    .report(|| CrateResolutionMessage::resolved(&resolved));
+                if let Ok(path) = self.crate_resolve_cache_path(spec) {
+                    let _ = self.put_resolved_crate(spec, &resolved);
                     self.inner
                         .reporter
-                        .report(|| ResolutionMessage::cache_stored(&path));
+                        .report(|| CrateResolutionMessage::cache_stored(&path));
                 } else {
-                    let _ = self.put_resolved(spec, &resolved);
+                    let _ = self.put_resolved_crate(spec, &resolved);
                 }
                 Ok(resolved)
             }
@@ -153,14 +160,111 @@ impl Cache {
                     let resolved = entry.into_inner();
                     self.inner
                         .reporter
-                        .report(|| ResolutionMessage::using_stale_fallback(spec, age));
+                        .report(|| CrateResolutionMessage::using_stale_fallback(spec, age));
                     self.inner
                         .reporter
-                        .report(|| ResolutionMessage::resolved(&resolved));
+                        .report(|| CrateResolutionMessage::resolved(&resolved));
                     Ok(resolved)
                 } else {
                     Err(e)
                 }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Get a cached binary resolution result, or resolve it using the provided resolver function.
+    ///
+    /// Binary resolution results never expire because crates are immutable. Once we determine
+    /// whether a binary exists for a specific version on a specific platform, that answer remains
+    /// valid forever. We cache both positive (binary found) and negative (no binary) results to
+    /// avoid repeatedly checking providers.
+    ///
+    /// Unlike crate resolution, there is no TTL check - the cache entry is permanent.
+    ///
+    /// # Arguments
+    ///
+    /// * `krate` - The resolved crate to find a binary for
+    /// * `resolver` - Function that attempts to find and download a pre-built binary
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(ResolvedBinary))` - Found a pre-built binary (either cached or freshly resolved)
+    /// * `Ok(None)` - No pre-built binary available (either cached negative result or resolver
+    ///   returned None)
+    /// * `Err(...)` - An error occurred during resolution
+    pub(crate) fn get_or_resolve_binary<F>(
+        &self,
+        krate: &ResolvedCrate,
+        resolver: F,
+    ) -> Result<Option<ResolvedBinary>>
+    where
+        F: FnOnce() -> Result<Option<ResolvedBinary>>,
+    {
+        // Check if prebuilt binaries are disabled entirely (before cache lookup)
+        if self.inner.config.prebuilt_binaries.use_prebuilt_binaries == UsePrebuiltBinaries::Never {
+            self.inner
+                .reporter
+                .report(PrebuiltBinaryMessage::prebuilt_binaries_disabled);
+            return Ok(None);
+        }
+
+        // Check cache unless refresh mode is enabled
+        let use_cache = !self.inner.config.refresh;
+
+        if use_cache {
+            self.inner
+                .reporter
+                .report(|| PrebuiltBinaryMessage::cache_lookup(krate));
+
+            if let Ok(Some(entry)) = self.get_cached_binary(krate) {
+                match &entry.value {
+                    Some(binary) => {
+                        self.inner
+                            .reporter
+                            .report(|| PrebuiltBinaryMessage::cache_hit(&binary.path, binary.provider));
+                    }
+                    None => {
+                        // Negative cache hit - we previously determined no binary was available
+                        self.inner.reporter.report(|| {
+                            PrebuiltBinaryMessage::no_binary_found(
+                                krate,
+                                vec!["negative cache hit - no binary available".to_string()],
+                            )
+                        });
+                    }
+                }
+                // Return the cached result whether it's Some or None
+                return Ok(entry.value);
+            }
+
+            self.inner
+                .reporter
+                .report(|| PrebuiltBinaryMessage::cache_miss(krate));
+        }
+
+        // Call the resolver to attempt finding a binary
+        match resolver() {
+            Ok(result) => {
+                // Cache the result (whether Some or None)
+                let _ = self.put_cached_binary(krate, &result);
+
+                if let Some(ref _binary) = result {
+                    if let Ok(cache_path) = self.binary_cache_path(krate) {
+                        self.inner
+                            .reporter
+                            .report(|| PrebuiltBinaryMessage::cache_stored(&cache_path));
+                    }
+                } else {
+                    // Also report when we cache a negative result
+                    if let Ok(cache_path) = self.binary_cache_path(krate) {
+                        self.inner
+                            .reporter
+                            .report(|| PrebuiltBinaryMessage::cache_stored(&cache_path));
+                    }
+                }
+
+                Ok(result)
             }
             Err(e) => Err(e),
         }
@@ -175,7 +279,7 @@ impl Cache {
     /// 3. Call the downloader function with the temp directory path
     /// 4. On success, atomically rename the temp directory to the cache location
     /// 5. Handle race conditions where multiple processes download simultaneously
-    pub(crate) fn get_or_download<F>(
+    pub(crate) fn get_or_download_crate<F>(
         &self,
         resolved: &ResolvedCrate,
         downloader: F,
@@ -188,11 +292,11 @@ impl Cache {
             .report(|| SourceMessage::cache_lookup(resolved));
 
         // Compute the target cache path
-        let cache_path = self.source_cache_path(resolved)?;
+        let cache_path = self.crate_source_cache_path(resolved)?;
 
         // Check if already cached
         if !self.inner.config.refresh {
-            if let Ok(Some(cached)) = self.get_cached_source(resolved) {
+            if let Ok(Some(cached)) = self.get_cached_crate_source(resolved) {
                 self.inner
                     .reporter
                     .report(|| SourceMessage::cache_hit(&cached.crate_path));
@@ -270,8 +374,8 @@ impl Cache {
     /// Get a cached resolution for the given [`CrateSpec`], if one exists.
     ///
     /// Returns `None` if there is no cached entry or if reading the cache fails.
-    fn get_resolved(&self, spec: &CrateSpec) -> Result<Option<CacheEntry<ResolvedCrate>>> {
-        let cache_file = self.resolve_cache_path(spec)?;
+    fn get_resolved_crate(&self, spec: &CrateSpec) -> Result<Option<CacheEntry<ResolvedCrate>>> {
+        let cache_file = self.crate_resolve_cache_path(spec)?;
         if !cache_file.exists() {
             return Ok(None);
         }
@@ -279,14 +383,14 @@ impl Cache {
         let contents = fs::read_to_string(&cache_file).with_context(|_| error::IoSnafu {
             path: cache_file.clone(),
         })?;
-        let entry: ResolveCacheEntry = serde_json::from_str(&contents).context(error::JsonSnafu)?;
+        let entry: CrateResolveCacheEntry = serde_json::from_str(&contents).context(error::JsonSnafu)?;
 
         Ok(Some(entry))
     }
 
     /// Store a resolved crate in the cache for the given [`CrateSpec`].
-    fn put_resolved(&self, spec: &CrateSpec, resolved: &ResolvedCrate) -> Result<()> {
-        let cache_file = self.resolve_cache_path(spec)?;
+    fn put_resolved_crate(&self, spec: &CrateSpec, resolved: &ResolvedCrate) -> Result<()> {
+        let cache_file = self.crate_resolve_cache_path(spec)?;
 
         if let Some(parent) = cache_file.parent() {
             fs::create_dir_all(parent).with_context(|_| error::IoSnafu {
@@ -304,8 +408,94 @@ impl Cache {
         Ok(())
     }
 
+    /// Get a cached binary resolution result for the given [`ResolvedCrate`], if one exists.
+    ///
+    /// Returns `None` if there is no cached entry or if reading the cache fails.
+    /// Note that a cached entry can contain `Some(ResolvedBinary)` or `None` - we cache
+    /// both positive and negative results.
+    fn get_cached_binary(&self, krate: &ResolvedCrate) -> Result<Option<CacheEntry<Option<ResolvedBinary>>>> {
+        let cache_file = self.binary_cache_path(krate)?;
+        if !cache_file.exists() {
+            return Ok(None);
+        }
+
+        let contents = fs::read_to_string(&cache_file).with_context(|_| error::IoSnafu {
+            path: cache_file.clone(),
+        })?;
+        let entry: CacheEntry<Option<ResolvedBinary>> =
+            serde_json::from_str(&contents).context(error::JsonSnafu)?;
+
+        Ok(Some(entry))
+    }
+
+    /// Store a binary resolution result in the cache for the given [`ResolvedCrate`].
+    ///
+    /// This stores both positive results (Some(ResolvedBinary)) and negative results (None).
+    fn put_cached_binary(&self, krate: &ResolvedCrate, result: &Option<ResolvedBinary>) -> Result<()> {
+        let cache_file = self.binary_cache_path(krate)?;
+
+        if let Some(parent) = cache_file.parent() {
+            fs::create_dir_all(parent).with_context(|_| error::IoSnafu {
+                path: parent.to_path_buf(),
+            })?;
+        }
+
+        let entry = CacheEntry::new(result.clone());
+
+        let json = serde_json::to_string_pretty(&entry).context(error::JsonSnafu)?;
+        fs::write(&cache_file, json).with_context(|_| error::IoSnafu {
+            path: cache_file.clone(),
+        })?;
+
+        Ok(())
+    }
+
+    /// Get the filesystem path for the binary resolution cache file for a given [`ResolvedCrate`].
+    ///
+    /// The cache key includes the crate identity (name, version, source) and the current platform.
+    /// This ensures that binaries are cached per-platform, which is essential since pre-built
+    /// binaries are platform-specific.
+    fn binary_cache_path(&self, krate: &ResolvedCrate) -> Result<PathBuf> {
+        let hash = Self::compute_binary_cache_hash(krate)?;
+        Ok(self
+            .inner
+            .config
+            .cache_dir
+            .join("binaries")
+            .join(format!("{}.json", hash)))
+    }
+
+    /// Compute a SHA256 hash for the binary cache key.
+    ///
+    /// The hash includes:
+    /// - Crate name
+    /// - Crate version
+    /// - Resolved source (crates.io vs git vs forge, etc.)
+    /// - Current platform triple
+    ///
+    /// This ensures that the same crate on different platforms gets different cache entries.
+    fn compute_binary_cache_hash(krate: &ResolvedCrate) -> Result<String> {
+        #[derive(Serialize)]
+        struct BinaryCacheKey<'a> {
+            name: &'a str,
+            version: &'a semver::Version,
+            source: &'a ResolvedSource,
+            platform: &'a str,
+        }
+
+        let key = BinaryCacheKey {
+            name: &krate.name,
+            version: &krate.version,
+            source: &krate.source,
+            platform: build_context::TARGET,
+        };
+
+        let json = serde_json::to_string(&key).context(error::JsonSnafu)?;
+        Ok(Self::compute_hash(json.as_bytes()))
+    }
+
     /// Get the filesystem path for the resolve cache file for a given [`CrateSpec`].
-    fn resolve_cache_path(&self, spec: &CrateSpec) -> Result<PathBuf> {
+    fn crate_resolve_cache_path(&self, spec: &CrateSpec) -> Result<PathBuf> {
         let hash = Self::compute_spec_hash(spec)?;
         Ok(self
             .inner
@@ -340,8 +530,8 @@ impl Cache {
     }
 
     /// Check if a resolved crate's source code package is already in the cache.
-    fn get_cached_source(&self, resolved: &ResolvedCrate) -> Result<Option<DownloadedCrate>> {
-        let cache_path = self.source_cache_path(resolved)?;
+    fn get_cached_crate_source(&self, resolved: &ResolvedCrate) -> Result<Option<DownloadedCrate>> {
+        let cache_path = self.crate_source_cache_path(resolved)?;
 
         if cache_path.exists() {
             Ok(Some(DownloadedCrate {
@@ -354,7 +544,7 @@ impl Cache {
     }
 
     /// Get the cache directory path for a resolved crate's source code package.
-    fn source_cache_path(&self, resolved: &ResolvedCrate) -> Result<PathBuf> {
+    fn crate_source_cache_path(&self, resolved: &ResolvedCrate) -> Result<PathBuf> {
         let base = self.inner.config.cache_dir.join("sources");
 
         let path = match &resolved.source {
@@ -444,7 +634,7 @@ impl Cache {
         resolved: &ResolvedCrate,
         age: Duration,
     ) -> Result<()> {
-        let cache_file = self.resolve_cache_path(spec)?;
+        let cache_file = self.crate_resolve_cache_path(spec)?;
 
         if let Some(parent) = cache_file.parent() {
             fs::create_dir_all(parent).with_context(|_| error::IoSnafu {
@@ -498,14 +688,14 @@ impl Cache {
         if matches!(krate.source, ResolvedSource::LocalDir { .. }) {
             self.inner
                 .reporter
-                .report(BinaryMessage::skipping_cache_local_dir);
+                .report(BuildCacheMessage::skipping_cache_local_dir);
             let (binary_path, _sbom) = build_fn()?;
             return Ok(binary_path);
         }
 
         self.inner
             .reporter
-            .report(|| BinaryMessage::cache_lookup(krate, options));
+            .report(|| BuildCacheMessage::cache_lookup(krate, options));
 
         let source_hash = Self::compute_source_hash(&krate.source);
         let build_hash = Self::compute_build_hash(options);
@@ -527,7 +717,7 @@ impl Cache {
             if !self.inner.config.refresh {
                 self.inner
                     .reporter
-                    .report(|| BinaryMessage::cache_hit(&cache_path, &sbom_path));
+                    .report(|| BuildCacheMessage::cache_hit(&cache_path, &sbom_path));
                 return Ok(cache_path);
             } else {
                 debug!(
@@ -538,7 +728,9 @@ impl Cache {
             }
         }
 
-        self.inner.reporter.report(|| BinaryMessage::cache_miss(krate));
+        self.inner
+            .reporter
+            .report(|| BuildCacheMessage::cache_miss(krate));
 
         // Build the binary and get the SBOM
         let (built_binary, sbom) = build_fn()?;
@@ -562,7 +754,7 @@ impl Cache {
 
         self.inner
             .reporter
-            .report(|| BinaryMessage::cache_stored(&cache_path, &sbom_path));
+            .report(|| BuildCacheMessage::cache_stored(&cache_path, &sbom_path));
 
         Ok(cache_path)
     }
@@ -743,7 +935,7 @@ mod tests {
             let call_count_clone = call_count.clone();
             let resolved_clone = resolved.clone();
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 *call_count_clone.borrow_mut() += 1;
                 Ok(resolved_clone.clone())
             });
@@ -752,7 +944,7 @@ mod tests {
             assert_eq!(result.unwrap(), resolved);
             assert_eq!(*call_count.borrow(), 1);
 
-            let cached = cache.get_resolved(&spec).unwrap();
+            let cached = cache.get_resolved_crate(&spec).unwrap();
             assert_eq!(cached.map(|e| e.value), Some(resolved));
         }
 
@@ -762,12 +954,12 @@ mod tests {
             let spec = test_spec();
             let resolved = test_resolved();
 
-            cache.put_resolved(&spec, &resolved).unwrap();
+            cache.put_resolved_crate(&spec, &resolved).unwrap();
 
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 *call_count_clone.borrow_mut() += 1;
                 Ok(test_resolved_alt())
             });
@@ -784,14 +976,14 @@ mod tests {
             let old_resolved = test_resolved();
             let new_resolved = test_resolved_alt();
 
-            cache.put_resolved(&spec, &old_resolved).unwrap();
+            cache.put_resolved_crate(&spec, &old_resolved).unwrap();
             std::thread::sleep(Duration::from_secs(1));
 
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
             let new_resolved_clone = new_resolved.clone();
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 *call_count_clone.borrow_mut() += 1;
                 Ok(new_resolved_clone.clone())
             });
@@ -807,10 +999,10 @@ mod tests {
             let spec = test_spec();
             let resolved = test_resolved();
 
-            cache.put_resolved(&spec, &resolved).unwrap();
+            cache.put_resolved_crate(&spec, &resolved).unwrap();
             std::thread::sleep(Duration::from_secs(1));
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 Err(
                     error::RegistrySnafu.into_error(tame_index::Error::Io(std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -828,7 +1020,7 @@ mod tests {
             let (cache, _temp) = test_cache();
             let spec = test_spec();
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 Err(
                     error::RegistrySnafu.into_error(tame_index::Error::Io(std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -846,10 +1038,10 @@ mod tests {
             let spec = test_spec();
             let resolved = test_resolved();
 
-            cache.put_resolved(&spec, &resolved).unwrap();
+            cache.put_resolved_crate(&spec, &resolved).unwrap();
             std::thread::sleep(Duration::from_secs(1));
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 Err(error::IoSnafu {
                     path: PathBuf::from("/fake/test/path"),
                 }
@@ -866,13 +1058,13 @@ mod tests {
             let spec = test_spec();
             let resolved = test_resolved();
 
-            cache.put_resolved(&spec, &resolved).unwrap();
+            cache.put_resolved_crate(&spec, &resolved).unwrap();
             std::thread::sleep(Duration::from_secs(1));
 
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 *call_count_clone.borrow_mut() += 1;
                 error::VersionMismatchSnafu {
                     requirement: "2.0.0".to_string(),
@@ -892,15 +1084,15 @@ mod tests {
             let old_resolved = test_resolved();
             let new_resolved = test_resolved_alt();
 
-            cache.put_resolved(&spec, &old_resolved).unwrap();
+            cache.put_resolved_crate(&spec, &old_resolved).unwrap();
             std::thread::sleep(Duration::from_secs(1));
 
-            let result = cache.get_or_resolve(&spec, || Ok(new_resolved.clone()));
+            let result = cache.get_or_resolve_crate(&spec, || Ok(new_resolved.clone()));
 
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), new_resolved);
 
-            let cached = cache.get_resolved(&spec).unwrap();
+            let cached = cache.get_resolved_crate(&spec).unwrap();
             assert_eq!(cached.map(|e| e.value), Some(new_resolved));
         }
 
@@ -911,14 +1103,14 @@ mod tests {
             let cached_resolved = test_resolved();
             let new_resolved = test_resolved_alt();
 
-            cache.put_resolved(&spec, &cached_resolved).unwrap();
+            cache.put_resolved_crate(&spec, &cached_resolved).unwrap();
 
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
             let new_resolved_clone = new_resolved.clone();
 
             let resolved_crate = cache
-                .get_or_resolve(&spec, || {
+                .get_or_resolve_crate(&spec, || {
                     *call_count_clone.borrow_mut() += 1;
                     Ok(new_resolved_clone.clone())
                 })
@@ -942,7 +1134,7 @@ mod tests {
                 .insert_stale_resolve_entry(&spec, &stale_resolved, Duration::from_secs(9999))
                 .unwrap();
 
-            let result = cache.get_or_resolve(&spec, || {
+            let result = cache.get_or_resolve_crate(&spec, || {
                 Err(
                     error::RegistrySnafu.into_error(tame_index::Error::Io(std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -963,13 +1155,13 @@ mod tests {
             let (cache, _temp) = test_cache();
             let resolved = test_resolved();
 
-            let cache_path = cache.source_cache_path(&resolved).unwrap();
+            let cache_path = cache.crate_source_cache_path(&resolved).unwrap();
             fs::create_dir_all(&cache_path).unwrap();
 
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
 
-            let result = cache.get_or_download(&resolved, |_download_path| {
+            let result = cache.get_or_download_crate(&resolved, |_download_path| {
                 *call_count_clone.borrow_mut() += 1;
                 Err(error::IoSnafu {
                     path: PathBuf::from("/fake/test/path"),
@@ -989,12 +1181,12 @@ mod tests {
         fn source_cache_miss_calls_downloader() {
             let (cache, _temp) = test_cache();
             let resolved = test_resolved();
-            let cache_path = cache.source_cache_path(&resolved).unwrap();
+            let cache_path = cache.crate_source_cache_path(&resolved).unwrap();
 
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
 
-            let result = cache.get_or_download(&resolved, |download_path| {
+            let result = cache.get_or_download_crate(&resolved, |download_path| {
                 *call_count_clone.borrow_mut() += 1;
                 // Create a test file to simulate successful download
                 fs::create_dir_all(download_path).unwrap();
@@ -1015,7 +1207,7 @@ mod tests {
             let (cache, _temp) = test_cache();
             let resolved = test_resolved();
 
-            let result = cache.get_or_download(&resolved, |_download_path| {
+            let result = cache.get_or_download_crate(&resolved, |_download_path| {
                 Err(error::IoSnafu {
                     path: PathBuf::from("/fake/test/path"),
                 }
@@ -1029,12 +1221,12 @@ mod tests {
         fn successful_download_creates_cache_entry() {
             let (cache, _temp) = test_cache();
             let resolved = test_resolved();
-            let cache_path = cache.source_cache_path(&resolved).unwrap();
+            let cache_path = cache.crate_source_cache_path(&resolved).unwrap();
 
             // Verify cache doesn't exist initially
             assert!(!cache_path.exists());
 
-            let result = cache.get_or_download(&resolved, |download_path| {
+            let result = cache.get_or_download_crate(&resolved, |download_path| {
                 // Create multiple files to simulate real download
                 fs::create_dir_all(download_path).unwrap();
                 fs::write(download_path.join("Cargo.toml"), b"[package]\nname = \"test\"").unwrap();
@@ -1055,9 +1247,9 @@ mod tests {
         fn failed_download_does_not_create_cache_entry() {
             let (cache, _temp) = test_cache();
             let resolved = test_resolved();
-            let cache_path = cache.source_cache_path(&resolved).unwrap();
+            let cache_path = cache.crate_source_cache_path(&resolved).unwrap();
 
-            let result = cache.get_or_download(&resolved, |download_path| {
+            let result = cache.get_or_download_crate(&resolved, |download_path| {
                 // Create some files but then fail
                 fs::create_dir_all(download_path).unwrap();
                 fs::write(download_path.join("partial.txt"), b"partial data").unwrap();
@@ -1091,10 +1283,10 @@ mod tests {
         fn race_condition_both_downloads_succeed() {
             let (cache, _temp) = test_cache();
             let resolved = test_resolved();
-            let cache_path = cache.source_cache_path(&resolved).unwrap();
+            let cache_path = cache.crate_source_cache_path(&resolved).unwrap();
 
             // Simulate first download
-            let result1 = cache.get_or_download(&resolved, |download_path| {
+            let result1 = cache.get_or_download_crate(&resolved, |download_path| {
                 fs::create_dir_all(download_path).unwrap();
                 fs::write(download_path.join("version.txt"), b"download1").unwrap();
                 Ok(())
@@ -1109,7 +1301,7 @@ mod tests {
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
 
-            let result2 = cache.get_or_download(&resolved, |download_path| {
+            let result2 = cache.get_or_download_crate(&resolved, |download_path| {
                 *call_count_clone.borrow_mut() += 1;
                 fs::create_dir_all(download_path).unwrap();
                 fs::write(download_path.join("version.txt"), b"download2").unwrap();
@@ -1132,7 +1324,7 @@ mod tests {
         fn refresh_bypasses_source_cache() {
             let (cache, _temp) = test_cache_with_refresh();
             let resolved = test_resolved();
-            let cache_path = cache.source_cache_path(&resolved).unwrap();
+            let cache_path = cache.crate_source_cache_path(&resolved).unwrap();
 
             fs::create_dir_all(&cache_path).unwrap();
             fs::write(cache_path.join("cached.txt"), b"cached content").unwrap();
@@ -1140,7 +1332,7 @@ mod tests {
             let call_count = Rc::new(RefCell::new(0));
             let call_count_clone = call_count.clone();
 
-            let result = cache.get_or_download(&resolved, |download_path| {
+            let result = cache.get_or_download_crate(&resolved, |download_path| {
                 *call_count_clone.borrow_mut() += 1;
                 fs::create_dir_all(download_path).unwrap();
                 fs::write(download_path.join("fresh.txt"), b"fresh content").unwrap();
@@ -1497,7 +1689,7 @@ mod tests {
             let (cache, _temp) = test_cache();
             let resolved = test_resolved();
 
-            let path = cache.source_cache_path(&resolved).unwrap();
+            let path = cache.crate_source_cache_path(&resolved).unwrap();
             let path_str = path.to_string_lossy();
 
             assert!(path_str.contains("sources"));
@@ -1518,7 +1710,7 @@ mod tests {
                 },
             };
 
-            let path = cache.source_cache_path(&resolved).unwrap();
+            let path = cache.crate_source_cache_path(&resolved).unwrap();
             let path_str = path.to_string_lossy();
 
             assert!(path_str.contains("sources"));
@@ -1542,7 +1734,7 @@ mod tests {
                 },
             };
 
-            let path = cache.source_cache_path(&resolved).unwrap();
+            let path = cache.crate_source_cache_path(&resolved).unwrap();
             let path_str = path.to_string_lossy();
 
             assert!(path_str.contains("sources"));
@@ -1568,7 +1760,7 @@ mod tests {
                 },
             };
 
-            let path = cache.source_cache_path(&resolved).unwrap();
+            let path = cache.crate_source_cache_path(&resolved).unwrap();
             let path_str = path.to_string_lossy();
 
             assert!(path_str.contains("sources"));
@@ -1589,7 +1781,7 @@ mod tests {
                 },
             };
 
-            let path = cache.source_cache_path(&resolved).unwrap();
+            let path = cache.crate_source_cache_path(&resolved).unwrap();
             let path_str = path.to_string_lossy();
 
             assert!(path_str.contains("sources"));
@@ -1611,7 +1803,7 @@ mod tests {
                 },
             };
 
-            let path = cache.source_cache_path(&resolved).unwrap();
+            let path = cache.crate_source_cache_path(&resolved).unwrap();
             let path_str = path.to_string_lossy();
 
             assert!(path_str.contains("sources"));

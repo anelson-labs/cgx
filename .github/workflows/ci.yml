@@ -60,7 +60,7 @@ jobs:
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny@0.18.3
+          tool: cargo-deny@0.19.0
 
       - name: Install cargo-machete
         uses: taiki-e/install-action@v2
@@ -148,7 +148,7 @@ jobs:
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny@0.18.3
+          tool: cargo-deny@0.19.0
 
       - name: Install cargo-machete
         uses: taiki-e/install-action@v2
@@ -188,6 +188,8 @@ jobs:
         run: cargo build --workspace
 
       - name: Run tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace
 
   # Stage 3: Tier 1 Platforms (Windows amd64, Mac ARM64, Linux musl)
@@ -203,6 +205,9 @@ jobs:
         include:
           - os: windows-2025
             name: Windows amd64
+          - os: windows-2025
+            name: Windows GNU amd64
+            target: x86_64-pc-windows-gnu
           - os: macos-15
             name: Mac ARM64
           - os: ubuntu-24.04
@@ -246,6 +251,7 @@ jobs:
       - name: Run tests
         env:
           TARGET_FLAG: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace ${{ env.TARGET_FLAG }}
 
   # Stage 4: Lesser Platforms (ARM + Intel Mac)
@@ -290,6 +296,8 @@ jobs:
         run: cargo build --workspace
 
       - name: Run tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace
 
   # Aggregate job that depends on all previous builds.  This is the check that

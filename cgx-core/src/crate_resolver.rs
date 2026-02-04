@@ -426,7 +426,6 @@ pub(crate) struct CachingResolver<R: CrateResolver> {
 
 impl<R: CrateResolver> CachingResolver<R> {
     /// Create a new [`CachingResolver`] that wraps the given inner resolver.
-    #[allow(dead_code)]
     pub(crate) fn new(inner: R, cache: Cache) -> Self {
         Self { inner, cache }
     }
@@ -438,7 +437,7 @@ impl<R: CrateResolver> CrateResolver for CachingResolver<R> {
             return self.inner.resolve(spec);
         }
 
-        self.cache.get_or_resolve(spec, || self.inner.resolve(spec))
+        self.cache.get_or_resolve_crate(spec, || self.inner.resolve(spec))
     }
 }
 

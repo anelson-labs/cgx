@@ -66,7 +66,7 @@ pub fn cgx_main() -> Result<()> {
     logging::apply_config(&config, &args);
 
     let crate_spec = CrateSpec::load(&config, &args)?;
-    let build_options = BuildOptions::load(&config, &args)?;
+    let build_options = BuildOptions::load(&config, &args.build_options, args.verbose)?;
 
     const MESSAGE_CHANNEL_SIZE: usize = 100;
 
@@ -127,7 +127,7 @@ pub fn cgx_main() -> Result<()> {
         return Ok(());
     }
 
-    let bin_path = cgx.run(&crate_spec, &build_options)?;
+    let bin_path = cgx.crate_to_bin(&crate_spec, &build_options)?;
 
     // Extract arguments to pass to the binary
     let binary_args = CrateSpec::get_binary_args(&args);

@@ -1,11 +1,71 @@
-use clap::{ArgAction, CommandFactory, Parser, ValueEnum};
+use crate::config::{BinaryProvider, UsePrebuiltBinaries};
+use clap::{ArgAction, CommandFactory, Parser, ValueEnum, builder::TypedValueParser};
 use std::{collections::HashSet, path::PathBuf};
+use strum::VariantNames;
+
+/// Creates a clap value parser that uses strum's [`VariantNames`] for possible values
+/// and strum's [`FromStr`](std::str::FromStr) for parsing. This ensures:
+/// - `--help` shows valid values (from `VARIANTS`)
+/// - Parsing uses the same logic as config files (strum's [`EnumString`](strum::EnumString))
+macro_rules! strum_value_parser {
+    ($t:ty) => {
+        clap::builder::PossibleValuesParser::new(<$t>::VARIANTS).map(|s| s.parse::<$t>().unwrap())
+    };
+}
 
 /// Output format for structured messages.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum MessageFormat {
     /// JSON format, one message per line
     Json,
+}
+
+/// CLI arguments that are crate-specific and passed through to cargo build.
+///
+/// These args are segreated from the other CLI args to make the semantic distinction more
+/// explicit.  Most CLI args can also be set in config files to apply globally, but these are
+/// always crate-specific.
+#[derive(Clone, Debug, Default, Parser)]
+pub struct BuildOptionsArgs {
+    /// Space or comma separated list of features to activate
+    #[arg(short = 'F', long, value_name = "FEATURES")]
+    pub features: Option<String>,
+
+    /// Activate all available features
+    #[arg(long)]
+    pub all_features: bool,
+
+    /// Do not activate the default features
+    #[arg(long)]
+    pub no_default_features: bool,
+
+    /// Build with the specified profile
+    #[arg(long, value_name = "PROFILE-NAME", conflicts_with = "debug")]
+    pub profile: Option<String>,
+
+    /// Build in debug mode (with the 'dev' profile) instead of release mode
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Build for the target triple
+    #[arg(long, value_name = "TRIPLE")]
+    pub target: Option<String>,
+
+    /// Number of parallel jobs, defaults to # of CPUs
+    #[arg(short = 'j', long, value_name = "N")]
+    pub jobs: Option<usize>,
+
+    /// Ignore `rust-version` specification in packages
+    #[arg(long)]
+    pub ignore_rust_version: bool,
+
+    /// Install only the specified binary
+    #[arg(long, value_name = "NAME", conflicts_with = "example")]
+    pub bin: Option<String>,
+
+    /// Install only the specified example
+    #[arg(long, value_name = "NAME")]
+    pub example: Option<String>,
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -73,29 +133,9 @@ pub struct CliArgs {
     #[arg(short = 'V', long, num_args = 0..=1, default_missing_value = "", value_name = "VERSION")]
     pub version: Option<String>,
 
-    /// Space or comma separated list of features to activate
-    #[arg(short = 'F', long, value_name = "FEATURES")]
-    pub features: Option<String>,
-
-    /// Activate all available features
-    #[arg(long)]
-    pub all_features: bool,
-
-    /// Do not activate the default features
-    #[arg(long)]
-    pub no_default_features: bool,
-
-    /// Build with the specified profile
-    #[arg(long, value_name = "PROFILE-NAME", conflicts_with = "debug")]
-    pub profile: Option<String>,
-
-    /// Build in debug mode (with the 'dev' profile) instead of release mode
-    #[arg(long)]
-    pub debug: bool,
-
-    /// Build for the target triple
-    #[arg(long, value_name = "TRIPLE")]
-    pub target: Option<String>,
+    /// Build-specific options that are passed through to cargo.
+    #[command(flatten)]
+    pub build_options: BuildOptionsArgs,
 
     /// Honor Cargo.lock from the crate, equivalent to passing `--locked` to `cargo install`
     ///
@@ -125,22 +165,6 @@ pub struct CliArgs {
     /// Run without accessing the network
     #[arg(long)]
     pub offline: bool,
-
-    /// Number of parallel jobs, defaults to # of CPUs
-    #[arg(short = 'j', long, value_name = "N")]
-    pub jobs: Option<usize>,
-
-    /// Ignore `rust-version` specification in packages
-    #[arg(long)]
-    pub ignore_rust_version: bool,
-
-    /// Install only the specified binary
-    #[arg(long, value_name = "NAME", conflicts_with = "example")]
-    pub bin: Option<String>,
-
-    /// Install only the specified example
-    #[arg(long, value_name = "NAME")]
-    pub example: Option<String>,
 
     /// Use verbose output (-vv very verbose/build.rs output)
     #[arg(short = 'v', long, action = clap::ArgAction::Count)]
@@ -199,9 +223,6 @@ pub struct CliArgs {
     /// This provides complete isolation of cgx's data, useful for testing, CI, or
     /// managing multiple independent cgx environments.
     ///
-    /// Individual config file settings (like `cache_dir` in cgx.toml) take precedence
-    /// over these defaults.
-    ///
     /// Can also be set via the `CGX_APP_DIR` environment variable, with the
     /// command-line argument taking precedence.
     #[arg(long, value_name = "PATH", env = "CGX_APP_DIR")]
@@ -240,6 +261,43 @@ pub struct CliArgs {
     /// data.
     #[arg(long)]
     pub refresh: bool,
+
+    /// Control use of pre-built binaries: never (always build from source), always (fail if no
+    /// prebuilt binary found), or auto (use if available, fallback to build).
+    ///
+    /// When set to 'auto' (the default), cgx will attempt to download pre-built binaries from
+    /// configured providers and fall back to building from source if none are found. When set to
+    /// 'always', cgx will fail if no pre-built binary is found. When set to 'never', cgx will
+    /// always build from source and never look for pre-built binaries.
+    #[arg(long, value_name = "WHEN", value_parser = strum_value_parser!(UsePrebuiltBinaries))]
+    pub prebuilt_binary: Option<UsePrebuiltBinaries>,
+
+    /// Override the binary providers to check for pre-built binaries.
+    ///
+    /// Accepts a comma-separated list of providers to enable.
+    #[arg(
+        long,
+        value_name = "SOURCES",
+        value_delimiter = ',',
+        value_parser = strum_value_parser!(BinaryProvider)
+    )]
+    pub prebuilt_binary_sources: Option<Vec<BinaryProvider>>,
+
+    /// Disable checksum verification when downloading pre-built binaries.
+    ///
+    /// By default, cgx verifies downloaded binaries against checksums when available.
+    /// This flag disables that verification, which may be useful for debugging or
+    /// when checksums are known to be incorrect.
+    #[arg(long)]
+    pub prebuilt_binary_no_verify_checksums: bool,
+
+    /// Disable signature verification when downloading pre-built binaries.
+    ///
+    /// By default, cgx verifies downloaded binaries against signatures when available.
+    /// This flag disables that verification, which may be useful when minisign is not
+    /// installed or for debugging purposes.
+    #[arg(long)]
+    pub prebuilt_binary_no_verify_signatures: bool,
 
     /// Output structured messages in the specified format.
     ///
@@ -1138,7 +1196,7 @@ mod tests {
         fn parse_build_options_from_args(args: &[&str]) -> Result<BuildOptions> {
             let cli = CliArgs::parse_from_test_args(args);
             let config = Config::default();
-            BuildOptions::load(&config, &cli)
+            BuildOptions::load(&config, &cli.build_options, cli.verbose)
         }
 
         #[test]
@@ -1191,23 +1249,44 @@ mod tests {
         }
 
         #[test]
-        fn test_frozen_implies_locked_and_offline() {
-            let opts = parse_build_options_from_args(&["--frozen", "ripgrep"]).unwrap();
+        fn test_config_locked_and_offline_both_true() {
+            // BuildOptions reads locked/offline from Config, not CLI args.
+            // CLI override tests (--locked, --unlocked, --frozen, --offline) belong in config.rs
+            // since that's where CLI-to-Config override logic lives.
+            let cli = CliArgs::parse_from_test_args(["ripgrep"]);
+            let config = Config {
+                locked: true,
+                offline: true,
+                ..Default::default()
+            };
+            let opts = BuildOptions::load(&config, &cli.build_options, cli.verbose).unwrap();
             assert!(opts.locked);
             assert!(opts.offline);
         }
 
         #[test]
-        fn test_locked_without_frozen() {
-            let opts = parse_build_options_from_args(&["--locked", "ripgrep"]).unwrap();
+        fn test_config_locked_without_offline() {
+            let cli = CliArgs::parse_from_test_args(["ripgrep"]);
+            let config = Config {
+                locked: true,
+                offline: false,
+                ..Default::default()
+            };
+            let opts = BuildOptions::load(&config, &cli.build_options, cli.verbose).unwrap();
             assert!(opts.locked);
             assert!(!opts.offline);
         }
 
         #[test]
-        fn test_offline_without_frozen() {
-            let opts = parse_build_options_from_args(&["--offline", "ripgrep"]).unwrap();
-            assert!(opts.locked, "Default should be locked=true");
+        fn test_config_offline_without_locked() {
+            let cli = CliArgs::parse_from_test_args(["ripgrep"]);
+            let config = Config {
+                locked: false,
+                offline: true,
+                ..Default::default()
+            };
+            let opts = BuildOptions::load(&config, &cli.build_options, cli.verbose).unwrap();
+            assert!(!opts.locked);
             assert!(opts.offline);
         }
 
@@ -1335,12 +1414,17 @@ mod tests {
         }
 
         #[test]
-        fn test_toolchain_propagates_to_build_options() {
-            let args = vec!["+nightly", "ripgrep"];
+        fn test_toolchain_propagates_from_config_to_build_options() {
+            // BuildOptions reads toolchain from Config, not from CLI args directly.
+            // CLI toolchain override (+nightly) is applied by Config::load_from_dir().
+            let args = vec!["ripgrep"];
             let cli = CliArgs::parse_from_test_args(args);
 
-            let config = Config::default();
-            let opts = BuildOptions::load(&config, &cli).unwrap();
+            let config = Config {
+                toolchain: Some("nightly".to_string()),
+                ..Default::default()
+            };
+            let opts = BuildOptions::load(&config, &cli.build_options, cli.verbose).unwrap();
             assert_eq!(opts.toolchain, Some("nightly".to_string()));
         }
 
@@ -1350,7 +1434,7 @@ mod tests {
             let cli = CliArgs::parse_from_test_args(args);
 
             let config = Config::default();
-            let opts = BuildOptions::load(&config, &cli).unwrap();
+            let opts = BuildOptions::load(&config, &cli.build_options, cli.verbose).unwrap();
             assert_eq!(opts.toolchain, None);
         }
     }

@@ -1,5 +1,5 @@
 use super::Message;
-use crate::resolver::{ResolvedCrate, ResolvedSource};
+use crate::crate_resolver::{ResolvedCrate, ResolvedSource};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

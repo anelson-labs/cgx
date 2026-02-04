@@ -1,8 +1,10 @@
+pub mod bin_resolver;
 pub mod builder;
 pub(crate) mod cache;
 pub mod cargo;
 pub mod cli;
 pub mod config;
+pub mod crate_resolver;
 pub mod cratespec;
 pub mod downloader;
 pub mod error;
@@ -10,19 +12,19 @@ pub mod git;
 pub(crate) mod helpers;
 pub(crate) mod logging;
 pub mod messages;
-pub mod resolver;
 pub mod runner;
 pub(crate) mod sbom;
 #[cfg(test)]
 pub(crate) mod testdata;
 
+use bin_resolver::BinaryResolver;
 use builder::{BuildOptions, CrateBuilder};
 use cache::Cache;
 use config::Config;
+use crate_resolver::CrateResolver;
 use cratespec::CrateSpec;
 use downloader::CrateDownloader;
 use error::Result;
-use resolver::CrateResolver;
 use std::sync::Arc;
 
 /// Instance of the engine that powers the `cgx` tool.
@@ -34,6 +36,7 @@ use std::sync::Arc;
 /// systems.
 pub struct Cgx {
     resolver: Arc<dyn CrateResolver>,
+    bin_resolver: Arc<dyn BinaryResolver>,
     downloader: Arc<dyn CrateDownloader>,
     builder: Arc<dyn CrateBuilder>,
 }
@@ -48,13 +51,19 @@ impl Cgx {
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = git::GitClient::new(cache.clone(), reporter.clone());
 
-        let cargo_runner = Arc::new(cargo::find_cargo(reporter)?);
+        let cargo_runner = Arc::new(cargo::find_cargo(reporter.clone())?);
 
-        let resolver = Arc::new(resolver::create_resolver(
+        let resolver = Arc::new(crate_resolver::create_resolver(
             config.clone(),
             cache.clone(),
             git_client.clone(),
             cargo_runner.clone(),
+        ));
+
+        let bin_resolver = Arc::new(bin_resolver::create_resolver(
+            config.clone(),
+            cache.clone(),
+            reporter.clone(),
         ));
 
         let downloader = Arc::new(downloader::create_downloader(
@@ -67,6 +76,7 @@ impl Cgx {
 
         Ok(Self {
             resolver,
+            bin_resolver,
             downloader,
             builder,
         })
@@ -75,20 +85,25 @@ impl Cgx {
     /// Run the cgx engine with the given crate spec and build options.
     ///
     /// This is the main execution path that:
-    /// 1. Resolves the crate spec to a concrete version
-    /// 2. Downloads the crate to the cache
-    /// 3. Builds the crate binary
-    /// 4. Returns the path to the built binary
+    /// - Resolves the crate spec to a concrete version
+    /// - Downloads the crate source to the cache
+    /// - Attempts to find a pre-built binary (if enabled)
+    /// - If no pre-built binary, builds the crate binary from source
+    /// - Returns the path to the binary
     ///
     /// This method does NOT execute the binary - that's left to the caller.
-    pub fn run(&self, crate_spec: &CrateSpec, build_options: &BuildOptions) -> Result<std::path::PathBuf> {
+    pub fn crate_to_bin(
+        &self,
+        crate_spec: &CrateSpec,
+        build_options: &BuildOptions,
+    ) -> Result<std::path::PathBuf> {
         tracing::debug!("Got crate spec: {:?}", crate_spec);
 
         tracing::info!("Resolving crate...");
         let resolved_crate = self.resolver.resolve(crate_spec)?;
 
         tracing::info!(
-            "Resolved crate {}@{}; proceeding to download",
+            "Resolved crate {}@{}",
             resolved_crate.name,
             resolved_crate.version
         );
@@ -97,7 +112,21 @@ impl Cgx {
 
         tracing::debug!("Downloaded crate to cache: {:#?}", downloaded_crate);
 
-        tracing::info!("Building crate...");
+        // Try to resolve a pre-built binary, now with access to the downloaded source
+        tracing::debug!("Attempting to resolve pre-built binary");
+        if let Some(resolved_binary) = self.bin_resolver.resolve(&downloaded_crate, build_options)? {
+            tracing::info!(
+                "Found pre-built binary from {:?} at: {}",
+                resolved_binary.provider,
+                resolved_binary.path.display()
+            );
+            return Ok(resolved_binary.path);
+        }
+
+        // No pre-built binary available, fall back to building from source
+        tracing::info!(
+            "Pre-built binary not found, excluded by config, or or disabled; building crate from source..."
+        );
 
         let bin_path = self.builder.build(&downloaded_crate, build_options)?;
 
