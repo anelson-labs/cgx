@@ -1,7 +1,13 @@
 use super::{ArchiveFormat, Provider};
 use crate::{
-    Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedSource,
-    downloader::DownloadedCrate, error, messages::PrebuiltBinaryMessage,
+    Result,
+    bin_resolver::ResolvedBinary,
+    config::BinaryProvider,
+    crate_resolver::ResolvedSource,
+    downloader::DownloadedCrate,
+    error,
+    http::{Bytes, HttpClient},
+    messages::PrebuiltBinaryMessage,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -12,6 +18,7 @@ pub(in crate::bin_resolver) struct BinstallProvider {
     reporter: crate::messages::MessageReporter,
     cache_dir: PathBuf,
     verify_checksums: bool,
+    http_client: HttpClient,
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,11 +129,13 @@ impl BinstallProvider {
         reporter: crate::messages::MessageReporter,
         cache_dir: PathBuf,
         verify_checksums: bool,
+        http_client: HttpClient,
     ) -> Self {
         Self {
             reporter,
             cache_dir,
             verify_checksums,
+            http_client,
         }
     }
 
@@ -171,41 +180,14 @@ impl BinstallProvider {
     ///
     /// Returns `Ok(Some(bytes))` on success, `Ok(None)` if the server returned 404 (resource
     /// does not exist), or `Err` for any other failure (network errors, non-404 HTTP errors).
-    fn try_download(url: &str) -> Result<Option<Vec<u8>>> {
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
-            .build()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        let response = client
-            .get(url)
-            .send()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        let status = response.status();
-
-        if status == reqwest::StatusCode::NOT_FOUND {
-            return Ok(None);
-        }
-
-        let response = response
-            .error_for_status()
-            .with_context(|_| error::BinaryDownloadHttpSnafu {
-                url: url.to_string(),
-                status,
-            })?;
-
-        let bytes = response
-            .bytes()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        Ok(Some(bytes.to_vec()))
+    fn try_download(&self, url: &str) -> Result<Option<Bytes>> {
+        self.http_client.try_download(url)
     }
 
     fn verify_checksum(&self, data: &[u8], url: &str) -> Result<()> {
         let checksum_url = format!("{}.sha256", url);
 
-        let checksum_data = match Self::try_download(&checksum_url)? {
+        let checksum_data = match self.try_download(&checksum_url)? {
             Some(data) => data,
             None => return Ok(()),
         };
@@ -290,7 +272,7 @@ impl Provider for BinstallProvider {
             self.reporter
                 .report(|| PrebuiltBinaryMessage::downloading_binary(&url, BinaryProvider::Binstall));
 
-            if let Some(bytes) = Self::try_download(&url)? {
+            if let Some(bytes) = self.try_download(&url)? {
                 data = Some(bytes);
                 last_url = url;
                 break;

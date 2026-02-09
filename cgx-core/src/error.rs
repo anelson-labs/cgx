@@ -247,6 +247,21 @@ pub enum Error {
 
     #[snafu(display("Invalid [package.metadata.binstall] in {}: {}", path.display(), source))]
     BinstallMetadataInvalid { path: PathBuf, source: toml::de::Error },
+
+    #[snafu(display("Failed to build HTTP client: {message}"))]
+    HttpClientBuild { message: String },
+
+    #[snafu(display("HTTP request to {url} failed: {source}"))]
+    HttpRequest { url: String, source: reqwest::Error },
+
+    #[snafu(display("HTTP {status} from {url}"))]
+    HttpRetryableStatus { url: String, status: u16 },
+
+    #[snafu(display("Invalid HTTP timeout duration '{value}': {source}"))]
+    InvalidHttpTimeout {
+        value: String,
+        source: humantime::DurationError,
+    },
 }
 
 impl From<crate::git::Error> for Error {

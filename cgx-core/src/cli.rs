@@ -242,6 +242,40 @@ pub struct CliArgs {
     #[arg(long, value_name = "PATH", env = "CGX_USER_CONFIG_DIR")]
     pub user_config_dir: Option<PathBuf>,
 
+    /// HTTP request timeout (e.g., "30s", "2m").
+    ///
+    /// Controls the per-request timeout for registry queries, binary downloads,
+    /// and API calls. Does not affect git operations.
+    ///
+    /// If not set, cgx honors the Cargo environment variable `CARGO_HTTP_TIMEOUT`
+    /// (integer seconds). If not set, defaults to 30s.
+    #[arg(long, value_name = "DURATION", env = "CGX_HTTP_TIMEOUT")]
+    pub http_timeout: Option<String>,
+
+    /// Maximum number of retries for transient HTTP failures (0 = no retries).
+    ///
+    /// When an HTTP request fails due to a transient error (rate limiting, server
+    /// errors, connection issues), cgx will retry up to this many times with
+    /// exponential backoff.
+    ///
+    /// If not set, cgx honors the Cargo environment variable `CARGO_NET_RETRY`
+    /// (integer). If not set, defaults to 2.
+    #[arg(long, value_name = "N", env = "CGX_HTTP_RETRIES")]
+    pub http_retries: Option<usize>,
+
+    /// HTTP or SOCKS5 proxy URL for all HTTP requests.
+    ///
+    /// Routes all HTTP requests (except git operations, which use their own
+    /// transport) through the specified proxy. Supports http://, https://, and
+    /// socks5:// URL schemes. For proxy authentication, embed credentials in the
+    /// URL: `http://user:password@host:port`.
+    ///
+    /// If not set, cgx honors the Cargo environment variable `CARGO_HTTP_PROXY`,
+    /// followed by standard proxy variables (`HTTPS_PROXY`, `https_proxy`,
+    /// `http_proxy`). If none are set, no proxy is used.
+    #[arg(long, value_name = "URL", env = "CGX_HTTP_PROXY")]
+    pub http_proxy: Option<String>,
+
     /// Build the binary but do not execute it; print its path to stdout instead.
     ///
     /// Performs all normal operations (resolve, download, build) but instead of executing
