@@ -1,7 +1,14 @@
 use super::{ArchiveFormat, CandidateFilename, Provider};
 use crate::{
-    Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedSource,
-    cratespec::Forge, downloader::DownloadedCrate, error, messages::PrebuiltBinaryMessage,
+    Result,
+    bin_resolver::ResolvedBinary,
+    config::BinaryProvider,
+    crate_resolver::ResolvedSource,
+    cratespec::Forge,
+    downloader::DownloadedCrate,
+    error,
+    http::{Bytes, HttpClient},
+    messages::PrebuiltBinaryMessage,
 };
 use sha2::{Digest, Sha256};
 use snafu::ResultExt;
@@ -11,6 +18,7 @@ pub(in crate::bin_resolver) struct GitlabProvider {
     reporter: crate::messages::MessageReporter,
     cache_dir: PathBuf,
     verify_checksums: bool,
+    http_client: HttpClient,
 }
 
 impl GitlabProvider {
@@ -18,11 +26,13 @@ impl GitlabProvider {
         reporter: crate::messages::MessageReporter,
         cache_dir: PathBuf,
         verify_checksums: bool,
+        http_client: HttpClient,
     ) -> Self {
         Self {
             reporter,
             cache_dir,
             verify_checksums,
+            http_client,
         }
     }
 
@@ -74,60 +84,27 @@ impl GitlabProvider {
     }
 
     /// Probe a URL with a HEAD request to check if the asset exists.
-    fn head_probe(url: &str) -> bool {
-        let client = match reqwest::blocking::Client::builder()
-            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
-            .build()
-        {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
-
-        match client.head(url).send() {
-            Ok(response) => response.status().is_success(),
-            Err(_) => false,
-        }
+    ///
+    /// Returns `Ok(true)` if the asset exists (200 response), `Ok(false)` if it doesn't
+    /// (404 or other non-success), or `Err` if a connection/timeout error occurred.
+    /// The error case is used by the caller to bail early when the server is unreachable.
+    fn head_probe(&self, url: &str) -> Result<bool> {
+        let response = self.http_client.head(url)?;
+        Ok(response.status().is_success())
     }
 
     /// Download a file from the given URL.
     ///
     /// Returns `Ok(Some(bytes))` on success, `Ok(None)` if the server returned 404 (resource
     /// does not exist), or `Err` for any other failure (network errors, non-404 HTTP errors).
-    fn try_download(url: &str) -> Result<Option<Vec<u8>>> {
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
-            .build()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        let response = client
-            .get(url)
-            .send()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        let status = response.status();
-
-        if status == reqwest::StatusCode::NOT_FOUND {
-            return Ok(None);
-        }
-
-        let response = response
-            .error_for_status()
-            .with_context(|_| error::BinaryDownloadHttpSnafu {
-                url: url.to_string(),
-                status,
-            })?;
-
-        let bytes = response
-            .bytes()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        Ok(Some(bytes.to_vec()))
+    fn try_download(&self, url: &str) -> Result<Option<Bytes>> {
+        self.http_client.try_download(url)
     }
 
     fn verify_checksum(&self, data: &[u8], url: &str) -> Result<()> {
         let checksum_url = format!("{}.sha256", url);
 
-        let checksum_data = match Self::try_download(&checksum_url)? {
+        let checksum_data = match self.try_download(&checksum_url)? {
             Some(data) => data,
             None => return Ok(()),
         };
@@ -184,7 +161,29 @@ impl Provider for GitlabProvider {
         );
 
         // Probe sequentially with HEAD requests; stop at the first 200.
-        let Some((url, format)) = urls.iter().find(|(url, _)| Self::head_probe(url)) else {
+        // If we hit a connection/timeout error, bail immediately rather than continuing
+        // to probe all ~160 candidate URLs against a dead server.
+        let mut found = None;
+        for (url, format) in &urls {
+            match self.head_probe(url) {
+                Ok(true) => {
+                    found = Some((url.clone(), *format));
+                    break;
+                }
+                Err(e) if HttpClient::is_connection_error(&e) => {
+                    tracing::debug!("GitLab HEAD probe failed with connection error, bailing: {:?}", e);
+                    self.reporter.report(|| {
+                        PrebuiltBinaryMessage::provider_has_no_binary(
+                            BinaryProvider::GitlabReleases,
+                            "server unreachable",
+                        )
+                    });
+                    return Ok(None);
+                }
+                Ok(false) | Err(_) => continue,
+            }
+        }
+        let Some((url, format)) = found else {
             self.reporter.report(|| {
                 PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::GitlabReleases,
@@ -193,13 +192,11 @@ impl Provider for GitlabProvider {
             });
             return Ok(None);
         };
-        let url = url.clone();
-        let format = *format;
 
         self.reporter
             .report(|| PrebuiltBinaryMessage::downloading_binary(&url, BinaryProvider::GitlabReleases));
 
-        let data = if let Some(data) = Self::try_download(&url)? {
+        let data = if let Some(data) = self.try_download(&url)? {
             data
         } else {
             self.reporter.report(|| {
