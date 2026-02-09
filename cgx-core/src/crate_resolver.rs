@@ -6,6 +6,7 @@ use crate::{
     cratespec::{CrateSpec, Forge, RegistrySource},
     error,
     git::{GitClient, GitSelector},
+    http::HttpClient,
 };
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
@@ -108,8 +109,9 @@ pub(crate) fn create_resolver(
     cache: Cache,
     git_client: GitClient,
     cargo: Arc<dyn CargoRunner>,
+    http_client: HttpClient,
 ) -> impl CrateResolver {
-    let inner = DefaultCrateResolver::new(config, git_client, cargo);
+    let inner = DefaultCrateResolver::new(config, git_client, cargo, http_client);
     CachingResolver::new(inner, cache)
 }
 
@@ -120,15 +122,22 @@ struct DefaultCrateResolver {
     config: Config,
     git_client: GitClient,
     cargo: Arc<dyn CargoRunner>,
+    http_client: HttpClient,
 }
 
 impl DefaultCrateResolver {
     /// Create a new [`DefaultCrateResolver`] with the given configuration and git client.
-    pub(crate) fn new(config: Config, git_client: GitClient, cargo: Arc<dyn CargoRunner>) -> Self {
+    pub(crate) fn new(
+        config: Config,
+        git_client: GitClient,
+        cargo: Arc<dyn CargoRunner>,
+        http_client: HttpClient,
+    ) -> Self {
         Self {
             config,
             git_client,
             cargo,
+            http_client,
         }
     }
 
@@ -227,7 +236,7 @@ impl DefaultCrateResolver {
         // registries.
         let index_location = IndexLocation::new(index_url);
         let sparse_index = SparseIndex::new(index_location).context(error::RegistrySnafu)?;
-        let remote_index = RemoteSparseIndex::new(sparse_index, reqwest::blocking::Client::new());
+        let remote_index = RemoteSparseIndex::new(sparse_index, self.http_client.inner().clone());
 
         // Use the same cache as cargo itself, to improve the chances of cache hits and thus faster
         // operations.  The only downside here is that it means we use the same file lock, so if
@@ -458,10 +467,12 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter.clone());
+        let http_client = HttpClient::new(&config.http).unwrap();
         let resolver = DefaultCrateResolver::new(
             config.clone(),
             git_client,
             Arc::new(crate::cargo::find_cargo(reporter).unwrap()),
+            http_client,
         );
         (CachingResolver::new(resolver, cache), temp_dir)
     }
@@ -474,7 +485,8 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter);
-        let resolver = DefaultCrateResolver::new(config, git_client, resolver.inner.cargo);
+        let http_client = HttpClient::new(&config.http).unwrap();
+        let resolver = DefaultCrateResolver::new(config, git_client, resolver.inner.cargo, http_client);
         (CachingResolver::new(resolver, cache), temp_dir)
     }
 
@@ -797,8 +809,14 @@ mod tests {
                 online_resolver.cache.clone(),
                 crate::messages::MessageReporter::null(),
             );
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
             let offline_resolver = CachingResolver::new(
-                DefaultCrateResolver::new(offline_config, git_client, online_resolver.inner.cargo.clone()),
+                DefaultCrateResolver::new(
+                    offline_config,
+                    git_client,
+                    online_resolver.inner.cargo.clone(),
+                    http_client,
+                ),
                 online_resolver.cache.clone(),
             );
 
@@ -850,8 +868,14 @@ mod tests {
                 ..resolver.inner.config.clone()
             };
             let git_client = GitClient::new(resolver.cache.clone(), crate::messages::MessageReporter::null());
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
             let offline_resolver = CachingResolver::new(
-                DefaultCrateResolver::new(offline_config, git_client, resolver.inner.cargo.clone()),
+                DefaultCrateResolver::new(
+                    offline_config,
+                    git_client,
+                    resolver.inner.cargo.clone(),
+                    http_client,
+                ),
                 resolver.cache,
             );
 

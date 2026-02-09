@@ -6,6 +6,7 @@ use crate::{
     cratespec::RegistrySource,
     error,
     git::{GitClient, GitSelector},
+    http::HttpClient,
 };
 use semver::Version;
 use snafu::{OptionExt, ResultExt};
@@ -150,8 +151,13 @@ pub trait CrateDownloader: std::fmt::Debug + Send + Sync + 'static {
 
 /// Create a default implementation of [`CrateDownloader`] using the given cache, config, and git
 /// client.
-pub(crate) fn create_downloader(config: Config, cache: Cache, git_client: GitClient) -> impl CrateDownloader {
-    DefaultCrateDownloader::new(cache, config, git_client)
+pub(crate) fn create_downloader(
+    config: Config,
+    cache: Cache,
+    git_client: GitClient,
+    http_client: HttpClient,
+) -> impl CrateDownloader {
+    DefaultCrateDownloader::new(cache, config, git_client, http_client)
 }
 
 /// Default implementation of [`CrateDownloader`] that performs actual network requests
@@ -161,15 +167,17 @@ struct DefaultCrateDownloader {
     cache: Cache,
     config: Config,
     git_client: GitClient,
+    http_client: HttpClient,
 }
 
 impl DefaultCrateDownloader {
     /// Create a new [`DefaultCrateDownloader`] with the given cache, configuration, and git client.
-    pub(crate) fn new(cache: Cache, config: Config, git_client: GitClient) -> Self {
+    pub(crate) fn new(cache: Cache, config: Config, git_client: GitClient, http_client: HttpClient) -> Self {
         Self {
             cache,
             config,
             git_client,
+            http_client,
         }
     }
 
@@ -205,7 +213,7 @@ impl DefaultCrateDownloader {
         // Get the index and query for the crate
         let index_location = IndexLocation::new(index_url);
         let sparse_index = SparseIndex::new(index_location).context(error::RegistrySnafu)?;
-        let remote_index = RemoteSparseIndex::new(sparse_index, reqwest::blocking::Client::new());
+        let remote_index = RemoteSparseIndex::new(sparse_index, self.http_client.inner().clone());
 
         let lock = LockOptions::cargo_package_lock(None)
             .context(error::RegistrySnafu)?
@@ -254,7 +262,7 @@ impl DefaultCrateDownloader {
         })?;
 
         // Download the .crate file
-        let response = reqwest::blocking::get(&download_url).context(error::RegistryDownloadSnafu)?;
+        let response = self.http_client.get(&download_url)?;
 
         // The .crate file is a gzipped tarball, extract it to download_path
         //
@@ -406,7 +414,11 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter);
-        (DefaultCrateDownloader::new(cache, config, git_client), temp_dir)
+        let http_client = HttpClient::new(&config.http).unwrap();
+        (
+            DefaultCrateDownloader::new(cache, config, git_client, http_client),
+            temp_dir,
+        )
     }
 
     /// Create a test downloader with offline config and an isolated temp directory.
@@ -417,7 +429,11 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter);
-        (DefaultCrateDownloader::new(cache, config, git_client), temp_dir)
+        let http_client = HttpClient::new(&config.http).unwrap();
+        (
+            DefaultCrateDownloader::new(cache, config, git_client, http_client),
+            temp_dir,
+        )
     }
 
     fn test_cargo_runner() -> impl CargoRunner {
@@ -542,7 +558,9 @@ mod tests {
             let reporter = crate::messages::MessageReporter::null();
             let cache = Cache::new(offline_config.clone(), reporter.clone());
             let git_client = GitClient::new(cache.clone(), reporter);
-            let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
+            let offline_downloader =
+                DefaultCrateDownloader::new(cache, offline_config, git_client, http_client);
 
             let offline_result = offline_downloader.download(resolved).unwrap();
             validate_downloaded_crate(&offline_result);
@@ -659,7 +677,9 @@ mod tests {
             let reporter = crate::messages::MessageReporter::null();
             let cache = Cache::new(offline_config.clone(), reporter.clone());
             let git_client = GitClient::new(cache.clone(), reporter);
-            let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
+            let offline_downloader =
+                DefaultCrateDownloader::new(cache, offline_config, git_client, http_client);
 
             let offline_downloaded_crate = offline_downloader.download(resolved).unwrap();
             validate_downloaded_crate(&offline_downloaded_crate);
@@ -770,7 +790,9 @@ mod tests {
             let reporter = crate::messages::MessageReporter::null();
             let cache = Cache::new(offline_config.clone(), reporter.clone());
             let git_client = GitClient::new(cache.clone(), reporter);
-            let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
+            let offline_downloader =
+                DefaultCrateDownloader::new(cache, offline_config, git_client, http_client);
 
             let offline_result = offline_downloader.download(resolved).unwrap();
             validate_downloaded_crate(&offline_result);

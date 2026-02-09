@@ -27,6 +27,18 @@ offline               = false
 resolve_cache_timeout = "1h"
 toolchain             = "stable"
 
+# HTTP client settings for registry queries, binary downloads, and API calls.
+# Git operations use their own transport layer and are not affected by these settings.
+#
+# When these are not explicitly configured, cgx also honors Cargo's environment
+# variables: CARGO_HTTP_PROXY, CARGO_HTTP_TIMEOUT, and CARGO_NET_RETRY.
+[http]
+backoff_base = "500ms"
+backoff_max  = "5s"
+retries      = 2
+timeout      = "30s"
+# proxy      = "socks5://localhost:1080"
+
 # By default, `cgx` will use crates.io if no registry is explicitly specified.  This overrides that default
 default_registry = "my-registry"
 
