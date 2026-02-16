@@ -26,7 +26,7 @@ clap               = { version = "4.5.57", features = ["derive", "env", "string"
 ctrlc              = "3.5"
 etcetera           = "0.10.0"
 figment            = { version = "0.10.19", features = ["toml", "env"] }
-flate2             = "1.1.5"
+flate2             = "1.1.9"
 gix                = { version = "0.77", features = ["blocking-http-transport-reqwest", "max-performance-safe", "worktree-mutation"] }
 home               = "0.5.11"
 humantime-serde    = "1.1.1"
