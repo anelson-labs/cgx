@@ -21,7 +21,7 @@ bzip2              = "0.6.1"
 cargo_metadata     = "0.20.0"
 cgx                = { version = "0.0.8", path = "cgx" }
 cgx-core           = { version = "0.0.8", path = "cgx-core" }
-chrono             = { version = "0.4.42", features = ["serde"] }
+chrono             = { version = "0.4.43", features = ["serde"] }
 clap               = { version = "4.5.57", features = ["derive", "env", "string", "unicode"] }
 ctrlc              = "3.5"
 etcetera           = "0.10.0"
