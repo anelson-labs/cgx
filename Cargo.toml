@@ -30,6 +30,7 @@ figment            = { version = "0.10.19", features = ["toml", "env"] }
 flate2             = "1.1.5"
 gix                = { version = "0.77", features = ["blocking-http-transport-reqwest", "max-performance-safe", "worktree-mutation"] }
 home               = "0.5.11"
+httpmock           = "0.8.2"
 humantime          = "2.1"
 humantime-serde    = "1.1.1"
 ignore             = "0.4.25"

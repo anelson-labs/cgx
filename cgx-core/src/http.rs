@@ -208,6 +208,7 @@ impl HttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
 
     #[test]
     fn test_construction_with_defaults() {
@@ -233,8 +234,7 @@ mod tests {
             proxy: Some("http://localhost:8080".to_string()),
             ..Default::default()
         };
-        let result = HttpClient::new(&config);
-        assert!(result.is_ok());
+        HttpClient::new(&config).unwrap();
     }
 
     #[test]
@@ -243,8 +243,7 @@ mod tests {
             proxy: Some("socks5://localhost:1080".to_string()),
             ..Default::default()
         };
-        let result = HttpClient::new(&config);
-        assert!(result.is_ok());
+        HttpClient::new(&config).unwrap();
     }
 
     #[test]
@@ -254,7 +253,7 @@ mod tests {
             ..Default::default()
         };
         let result = HttpClient::new(&config);
-        assert!(result.is_err());
+        assert_matches!(result, Err(error::Error::HttpClientBuild { .. }));
     }
 
     #[test]
@@ -271,5 +270,380 @@ mod tests {
             message: "test".to_string(),
         };
         assert!(!HttpClient::is_connection_error(&build_err));
+    }
+
+    #[test]
+    fn test_construction_with_custom_timeout() {
+        let config = HttpConfig {
+            timeout: Duration::from_secs(120),
+            ..Default::default()
+        };
+        HttpClient::new(&config).unwrap();
+    }
+
+    #[test]
+    fn test_construction_with_zero_retries() {
+        let config = HttpConfig {
+            retries: 0,
+            ..Default::default()
+        };
+        HttpClient::new(&config).unwrap();
+    }
+
+    #[test]
+    fn test_construction_with_https_proxy() {
+        let config = HttpConfig {
+            proxy: Some("https://proxy.example.com:3128".to_string()),
+            ..Default::default()
+        };
+        HttpClient::new(&config).unwrap();
+    }
+
+    #[test]
+    fn test_construction_with_socks5h_proxy() {
+        let config = HttpConfig {
+            proxy: Some("socks5h://localhost:1080".to_string()),
+            ..Default::default()
+        };
+        HttpClient::new(&config).unwrap();
+    }
+
+    #[test]
+    fn test_is_connection_error_various_non_http_errors() {
+        let errors: Vec<error::Error> = vec![
+            error::Error::HttpRetryableStatus {
+                url: "http://example.com".to_string(),
+                status: 429,
+            },
+            error::Error::HttpRetryableStatus {
+                url: "http://example.com".to_string(),
+                status: 503,
+            },
+            error::Error::HttpClientBuild {
+                message: "bad config".to_string(),
+            },
+            error::Error::InvalidHttpTimeout {
+                value: "not-a-duration".to_string(),
+                source: humantime::parse_duration("not-a-duration").unwrap_err(),
+            },
+        ];
+        for err in &errors {
+            assert!(
+                !HttpClient::is_connection_error(err),
+                "Expected false for {:?}",
+                err
+            );
+        }
+    }
+
+    fn fast_retry_config() -> HttpConfig {
+        HttpConfig {
+            retries: 2,
+            backoff_base: Duration::from_millis(1),
+            backoff_max: Duration::from_millis(10),
+            ..Default::default()
+        }
+    }
+
+    mod classify_response_tests {
+        use super::*;
+        use httpmock::prelude::*;
+
+        #[test]
+        fn test_get_200_returned_directly() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(GET).path("/ok");
+                then.status(200).body("success");
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let response = client.get(&server.url("/ok")).unwrap();
+            assert_eq!(response.status(), 200);
+            mock.assert_calls(1);
+        }
+
+        #[test]
+        fn test_get_404_returned_not_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(GET).path("/notfound");
+                then.status(404);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let response = client.get(&server.url("/notfound")).unwrap();
+            assert_eq!(response.status(), 404);
+            mock.assert_calls(1);
+        }
+
+        #[test]
+        fn test_get_403_returned_not_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(GET).path("/forbidden");
+                then.status(403);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let response = client.get(&server.url("/forbidden")).unwrap();
+            assert_eq!(response.status(), 403);
+            mock.assert_calls(1);
+        }
+
+        #[test]
+        fn test_get_429_triggers_retry() {
+            let server = MockServer::start();
+            let fail_mock = server.mock(|when, then| {
+                when.method(GET).path("/ratelimit");
+                then.status(429);
+            });
+
+            let config = HttpConfig {
+                retries: 1,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                ..Default::default()
+            };
+            let client = HttpClient::new(&config).unwrap();
+            let result = client.get(&server.url("/ratelimit"));
+            assert!(result.is_err());
+            fail_mock.assert_calls(2);
+        }
+
+        #[test]
+        fn test_get_500_triggers_retry() {
+            let server = MockServer::start();
+            let fail_mock = server.mock(|when, then| {
+                when.method(GET).path("/error");
+                then.status(500);
+            });
+
+            let config = HttpConfig {
+                retries: 1,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                ..Default::default()
+            };
+            let client = HttpClient::new(&config).unwrap();
+            let result = client.get(&server.url("/error"));
+            assert!(result.is_err());
+            fail_mock.assert_calls(2);
+        }
+
+        #[test]
+        fn test_get_503_triggers_retry() {
+            let server = MockServer::start();
+            let fail_mock = server.mock(|when, then| {
+                when.method(GET).path("/unavailable");
+                then.status(503);
+            });
+
+            let config = HttpConfig {
+                retries: 1,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                ..Default::default()
+            };
+            let client = HttpClient::new(&config).unwrap();
+            let result = client.get(&server.url("/unavailable"));
+            assert!(result.is_err());
+            fail_mock.assert_calls(2);
+        }
+
+        #[test]
+        fn test_exhausted_retries_returns_error() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(GET).path("/always-fail");
+                then.status(503);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let result = client.get(&server.url("/always-fail"));
+            assert_matches!(result, Err(error::Error::HttpRetryableStatus { status: 503, .. }));
+            mock.assert_calls(3);
+        }
+
+        #[test]
+        fn test_zero_retries_no_retry_on_5xx() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(GET).path("/once");
+                then.status(500);
+            });
+
+            let config = HttpConfig {
+                retries: 0,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                ..Default::default()
+            };
+            let client = HttpClient::new(&config).unwrap();
+            let result = client.get(&server.url("/once"));
+            assert_matches!(result, Err(error::Error::HttpRetryableStatus { status: 500, .. }));
+            mock.assert_calls(1);
+        }
+    }
+
+    mod try_download_tests {
+        use super::*;
+        use httpmock::prelude::*;
+
+        #[test]
+        fn test_try_download_200_returns_some_bytes() {
+            let server = MockServer::start();
+            server.mock(|when, then| {
+                when.method(GET).path("/binary");
+                then.status(200).body("file-content");
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let result = client.try_download(&server.url("/binary")).unwrap();
+            assert_eq!(result, Some(Bytes::from("file-content")));
+        }
+
+        #[test]
+        fn test_try_download_404_returns_none() {
+            let server = MockServer::start();
+            server.mock(|when, then| {
+                when.method(GET).path("/missing");
+                then.status(404);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let result = client.try_download(&server.url("/missing")).unwrap();
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn test_try_download_403_returns_error() {
+            let server = MockServer::start();
+            server.mock(|when, then| {
+                when.method(GET).path("/denied");
+                then.status(403);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let result = client.try_download(&server.url("/denied"));
+            assert_matches!(result, Err(error::Error::HttpRetryableStatus { status: 403, .. }));
+        }
+
+        #[test]
+        fn test_try_download_retries_then_succeeds() {
+            let server = MockServer::start();
+
+            let mut fail_mock = server.mock(|when, then| {
+                when.method(GET).path("/flaky");
+                then.status(500);
+            });
+
+            let config = HttpConfig {
+                retries: 0,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                ..Default::default()
+            };
+            let client = HttpClient::new(&config).unwrap();
+            let result = client.try_download(&server.url("/flaky"));
+            assert!(result.is_err());
+            fail_mock.assert_calls(1);
+
+            // Now test with retries and a mock that succeeds on second attempt.
+            // httpmock doesn't support sequenced responses per se, but we can delete
+            // the fail mock and create a new one that succeeds.
+            fail_mock.delete();
+
+            let success_mock = server.mock(|when, then| {
+                when.method(GET).path("/flaky");
+                then.status(200).body("recovered");
+            });
+
+            let retry_config = fast_retry_config();
+            let retry_client = HttpClient::new(&retry_config).unwrap();
+            let result = retry_client.try_download(&server.url("/flaky")).unwrap();
+            assert_eq!(result, Some(Bytes::from("recovered")));
+            success_mock.assert_calls(1);
+        }
+    }
+
+    mod header_tests {
+        use super::*;
+        use httpmock::{Method::HEAD, prelude::*};
+
+        #[test]
+        fn test_user_agent_header_sent() {
+            let server = MockServer::start();
+            let expected_ua = format!(
+                "cgx/{} ({})",
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_PKG_REPOSITORY")
+            );
+            let mock = server.mock(|when, then| {
+                when.method(GET)
+                    .path("/ua-check")
+                    .header("user-agent", &expected_ua);
+                then.status(200);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            client.get(&server.url("/ua-check")).unwrap();
+            mock.assert();
+        }
+
+        #[test]
+        fn test_get_with_headers_sends_custom_headers() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(GET)
+                    .path("/auth-check")
+                    .header("authorization", "Bearer token123")
+                    .header("accept", "application/json");
+                then.status(200);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let mut headers = HeaderMap::new();
+            headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer token123"));
+            headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+            client
+                .get_with_headers(&server.url("/auth-check"), &headers)
+                .unwrap();
+            mock.assert();
+        }
+
+        #[test]
+        fn test_head_sends_head_request() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(HEAD).path("/head-check");
+                then.status(200);
+            });
+
+            let client = HttpClient::new(&fast_retry_config()).unwrap();
+            let response = client.head(&server.url("/head-check")).unwrap();
+            assert_eq!(response.status(), 200);
+            mock.assert();
+        }
+
+        #[test]
+        fn test_head_retries_on_429() {
+            let server = MockServer::start();
+            let mock = server.mock(|when, then| {
+                when.method(HEAD).path("/head-ratelimit");
+                then.status(429);
+            });
+
+            let config = HttpConfig {
+                retries: 1,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                ..Default::default()
+            };
+            let client = HttpClient::new(&config).unwrap();
+            let result = client.head(&server.url("/head-ratelimit"));
+            assert!(result.is_err());
+            mock.assert_calls(2);
+        }
     }
 }

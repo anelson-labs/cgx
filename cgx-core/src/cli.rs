@@ -1658,6 +1658,44 @@ mod tests {
         }
     }
 
+    mod http_args {
+        use super::*;
+
+        #[test]
+        fn test_http_timeout_cli_arg() {
+            let cli = CliArgs::parse_from_test_args(["--http-timeout", "2m", "test-crate"]);
+            assert_eq!(cli.http_timeout, Some("2m".to_string()));
+        }
+
+        #[test]
+        fn test_http_retries_cli_arg() {
+            let cli = CliArgs::parse_from_test_args(["--http-retries", "5", "test-crate"]);
+            assert_eq!(cli.http_retries, Some(5));
+        }
+
+        #[test]
+        fn test_http_proxy_cli_arg() {
+            let cli =
+                CliArgs::parse_from_test_args(["--http-proxy", "socks5://localhost:1080", "test-crate"]);
+            assert_eq!(cli.http_proxy, Some("socks5://localhost:1080".to_string()));
+        }
+
+        #[test]
+        fn test_http_args_default_none() {
+            let cli = CliArgs::parse_from_test_args(["test-crate"]);
+            assert_eq!(cli.http_timeout, None);
+            assert_eq!(cli.http_retries, None);
+            assert_eq!(cli.http_proxy, None);
+        }
+
+        #[test]
+        fn test_http_args_after_crate_spec_are_binary_args() {
+            let cli = CliArgs::parse_from_test_args(["test-crate", "--http-timeout", "5s"]);
+            assert_eq!(cli.http_timeout, None);
+            assert_eq!(cli.args, vec!["--http-timeout", "5s"]);
+        }
+    }
+
     mod strip_cargo_subcommand_arg {
         use super::*;
 
