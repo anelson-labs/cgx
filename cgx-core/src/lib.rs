@@ -10,6 +10,7 @@ pub mod downloader;
 pub mod error;
 pub mod git;
 pub(crate) mod helpers;
+pub mod http;
 pub(crate) mod logging;
 pub mod messages;
 pub mod runner;
@@ -25,6 +26,7 @@ use crate_resolver::CrateResolver;
 use cratespec::CrateSpec;
 use downloader::CrateDownloader;
 use error::Result;
+use http::HttpClient;
 use std::sync::Arc;
 
 /// Instance of the engine that powers the `cgx` tool.
@@ -48,6 +50,8 @@ impl Cgx {
     pub fn new(config: Config, reporter: messages::MessageReporter) -> Result<Self> {
         tracing::debug!("Using config: {:#?}", config);
 
+        let http_client = HttpClient::new(&config.http)?;
+
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = git::GitClient::new(cache.clone(), reporter.clone());
 
@@ -58,18 +62,21 @@ impl Cgx {
             cache.clone(),
             git_client.clone(),
             cargo_runner.clone(),
+            http_client.clone(),
         ));
 
         let bin_resolver = Arc::new(bin_resolver::create_resolver(
             config.clone(),
             cache.clone(),
             reporter.clone(),
+            http_client.clone(),
         ));
 
         let downloader = Arc::new(downloader::create_downloader(
             config.clone(),
             cache.clone(),
             git_client,
+            http_client,
         ));
 
         let builder = Arc::new(builder::create_builder(config, cache, cargo_runner));

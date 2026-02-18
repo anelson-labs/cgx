@@ -152,3 +152,63 @@ Config files are loaded and merged in order of precedence (later sources overrid
 4. Command-line arguments (highest priority)
 
 This allows you to have global defaults in your user config while overriding them on a per-project basis.
+
+## HTTP Configuration and Proxies
+
+cgx makes HTTP requests to download crate metadata, pre-built binaries, and release assets from
+registries, GitHub, GitLab, and other providers. These requests can be configured via the `[http]`
+section in `cgx.toml`, CLI flags, or environment variables.
+
+### Config file
+
+```toml
+[http]
+timeout      = "30s"          # Per-request timeout (default: 30s)
+retries      = 2              # Retry attempts for transient failures (default: 2)
+backoff_base = "500ms"        # Base delay for exponential backoff (default: 500ms)
+backoff_max  = "5s"           # Maximum delay between retries (default: 5s)
+proxy        = "socks5://localhost:1080"  # HTTP or SOCKS5 proxy URL
+
+# Proxy with basic authentication:
+# proxy      = "http://user:password@proxyhost:8080"
+```
+
+### CLI flags
+
+```sh
+cgx --http-timeout 60s --http-retries 3 ripgrep
+cgx --http-proxy socks5://localhost:1080 ripgrep
+
+# Proxy with basic authentication:
+cgx --http-proxy http://user:password@proxyhost:8080 ripgrep
+```
+
+### Environment variables
+
+cgx-specific environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `CGX_HTTP_TIMEOUT` | Request timeout (e.g., `30s`, `2m`) |
+| `CGX_HTTP_RETRIES` | Max retry count |
+| `CGX_HTTP_PROXY` | Proxy URL |
+
+### Cargo compatibility
+
+When no cgx-specific configuration is provided, cgx automatically honors these Cargo environment
+variables:
+
+| Cargo Variable | cgx Equivalent | Description |
+|----------------|----------------|-------------|
+| `CARGO_HTTP_PROXY` | `--http-proxy` | HTTP/SOCKS proxy URL |
+| `CARGO_HTTP_TIMEOUT` | `--http-timeout` | Request timeout in seconds (integer) |
+| `CARGO_NET_RETRY` | `--http-retries` | Number of retry attempts |
+
+The standard proxy variables `HTTPS_PROXY`, `https_proxy`, and `http_proxy` are also honored
+automatically by the underlying HTTP library.
+
+This means that if your environment is already configured for `cargo` to work behind a proxy,
+`cgx` should work without any additional configuration.
+
+Note: git operations (cloning from `--git`, `--github`, `--gitlab`) use their own transport
+layer and are not affected by these settings.

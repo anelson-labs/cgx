@@ -20,6 +20,7 @@ ignored = [
 [dependencies]
 backon          = { workspace = true }
 build-context   = { workspace = true }
+bytes           = { workspace = true }
 bzip2           = { workspace = true }
 cargo_metadata  = { workspace = true }
 chrono          = { workspace = true }
@@ -29,6 +30,7 @@ figment         = { workspace = true }
 flate2          = { workspace = true }
 gix             = { workspace = true }
 home            = { workspace = true }
+humantime       = { workspace = true }
 humantime-serde = { workspace = true }
 ignore          = { workspace = true }
 reqwest         = { workspace = true }
@@ -58,6 +60,7 @@ ctrlc = { workspace = true }
 [dev-dependencies]
 assert-json-diff   = { workspace = true }
 assert_matches     = { workspace = true }
+httpmock           = { workspace = true }
 insta              = { workspace = true }
 rand               = { workspace = true }
 tracing-subscriber = { workspace = true }
