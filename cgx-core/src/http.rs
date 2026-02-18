@@ -64,8 +64,10 @@ impl HttpClient {
 
     /// Perform a GET request with retry on transient errors.
     ///
-    /// Retries on 429 (rate limit), 5xx (server errors), and connection errors.
-    /// Returns the response on success (including 4xx responses other than 429).
+    /// Retries on certain errors that are considered retriable.
+    ///
+    /// Returns the response even if the status is non-success (except for retryable statuses);
+    /// callers must inspect the status and handle non-2xx as needed.
     pub fn get(&self, url: &str) -> Result<Response> {
         self.get_with_headers(url, &HeaderMap::new())
     }
@@ -73,7 +75,8 @@ impl HttpClient {
     /// Perform a GET request with custom headers and retry on transient errors.
     ///
     /// Retries on 429 (rate limit), 5xx (server errors), and connection errors.
-    /// Returns the response on success (including 4xx responses other than 429).
+    /// Returns the response even if the status is non-success (except for retryable statuses);
+    /// callers must inspect the status and handle non-2xx as needed.
     pub fn get_with_headers(&self, url: &str, headers: &HeaderMap) -> Result<Response> {
         let backoff = self.build_backoff();
         let url_owned = url.to_string();
@@ -89,11 +92,12 @@ impl HttpClient {
                 url: url_owned.clone(),
             })?;
 
-            Self::classify_response(response, &url_owned)
+            Self::classify_retryable_status(response, &url_owned)
         };
 
         operation
             .retry(backoff)
+            .when(Self::is_retryable_error)
             .notify(|err, dur| {
                 tracing::debug!("HTTP request failed, retrying in {:?}: {:?}", dur, err);
             })
@@ -103,7 +107,8 @@ impl HttpClient {
     /// Perform a HEAD request with retry on transient errors.
     ///
     /// Retries on 429 (rate limit), 5xx (server errors), and connection errors.
-    /// Returns the response on success (including 4xx responses other than 429).
+    /// Returns the response even if the status is non-success (except for retryable statuses);
+    /// callers must inspect the status and handle non-2xx as needed.
     pub fn head(&self, url: &str) -> Result<Response> {
         let backoff = self.build_backoff();
         let url_owned = url.to_string();
@@ -117,11 +122,12 @@ impl HttpClient {
                     url: url_owned.clone(),
                 })?;
 
-            Self::classify_response(response, &url_owned)
+            Self::classify_retryable_status(response, &url_owned)
         };
 
         operation
             .retry(backoff)
+            .when(Self::is_retryable_error)
             .notify(|err, dur| {
                 tracing::debug!("HTTP HEAD request failed, retrying in {:?}: {:?}", dur, err);
             })
@@ -144,7 +150,7 @@ impl HttpClient {
         }
 
         if !response.status().is_success() {
-            return error::HttpRetryableStatusSnafu {
+            return error::HttpStatusSnafu {
                 url: url.to_string(),
                 status: response.status().as_u16(),
             }
@@ -179,12 +185,17 @@ impl HttpClient {
             .with_jitter()
     }
 
-    fn classify_response(response: Response, url: &str) -> Result<Response> {
+    /// Convert retryable HTTP status codes into errors that trigger retry.
+    ///
+    /// Returns `Err(HttpStatus)` only for status codes that we consider retriable, so the
+    /// retry policy can act on them. `Ok(response)` does not imply success; it only
+    /// means the response is not retryable and should be handled by the caller.
+    fn classify_retryable_status(response: Response, url: &str) -> Result<Response> {
         let status = response.status();
 
         // 429 Too Many Requests - retryable
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return error::HttpRetryableStatusSnafu {
+            return error::HttpStatusSnafu {
                 url: url.to_string(),
                 status: status.as_u16(),
             }
@@ -193,7 +204,7 @@ impl HttpClient {
 
         // 5xx Server Errors - retryable
         if status.is_server_error() {
-            return error::HttpRetryableStatusSnafu {
+            return error::HttpStatusSnafu {
                 url: url.to_string(),
                 status: status.as_u16(),
             }
@@ -202,6 +213,18 @@ impl HttpClient {
 
         // All other responses (including 4xx other than 429) are returned as-is
         Ok(response)
+    }
+
+    fn is_retryable_error(err: &error::Error) -> bool {
+        match err {
+            error::Error::HttpStatus { status, .. } => {
+                *status == reqwest::StatusCode::TOO_MANY_REQUESTS.as_u16() || *status >= 500
+            }
+            error::Error::HttpRequest { source, .. } => {
+                source.is_connect() || source.is_timeout() || source.is_request()
+            }
+            _ => false,
+        }
     }
 }
 
@@ -258,8 +281,8 @@ mod tests {
 
     #[test]
     fn test_is_connection_error() {
-        // HttpRetryableStatus is not a connection error
-        let status_err = error::Error::HttpRetryableStatus {
+        // HttpStatus is not a connection error
+        let status_err = error::Error::HttpStatus {
             url: "http://example.com".to_string(),
             status: 500,
         };
@@ -311,11 +334,11 @@ mod tests {
     #[test]
     fn test_is_connection_error_various_non_http_errors() {
         let errors: Vec<error::Error> = vec![
-            error::Error::HttpRetryableStatus {
+            error::Error::HttpStatus {
                 url: "http://example.com".to_string(),
                 status: 429,
             },
-            error::Error::HttpRetryableStatus {
+            error::Error::HttpStatus {
                 url: "http://example.com".to_string(),
                 status: 503,
             },
@@ -345,7 +368,7 @@ mod tests {
         }
     }
 
-    mod classify_response_tests {
+    mod classify_retryable_status_tests {
         use super::*;
         use httpmock::prelude::*;
 
@@ -461,7 +484,7 @@ mod tests {
 
             let client = HttpClient::new(&fast_retry_config()).unwrap();
             let result = client.get(&server.url("/always-fail"));
-            assert_matches!(result, Err(error::Error::HttpRetryableStatus { status: 503, .. }));
+            assert_matches!(result, Err(error::Error::HttpStatus { status: 503, .. }));
             mock.assert_calls(3);
         }
 
@@ -481,7 +504,7 @@ mod tests {
             };
             let client = HttpClient::new(&config).unwrap();
             let result = client.get(&server.url("/once"));
-            assert_matches!(result, Err(error::Error::HttpRetryableStatus { status: 500, .. }));
+            assert_matches!(result, Err(error::Error::HttpStatus { status: 500, .. }));
             mock.assert_calls(1);
         }
     }
@@ -526,7 +549,7 @@ mod tests {
 
             let client = HttpClient::new(&fast_retry_config()).unwrap();
             let result = client.try_download(&server.url("/denied"));
-            assert_matches!(result, Err(error::Error::HttpRetryableStatus { status: 403, .. }));
+            assert_matches!(result, Err(error::Error::HttpStatus { status: 403, .. }));
         }
 
         #[test]
