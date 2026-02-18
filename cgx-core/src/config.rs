@@ -620,10 +620,16 @@ impl Config {
         } else if let Some(config_timeout) = config_file.timeout {
             config_timeout
         } else if let Ok(cargo_timeout) = std::env::var("CARGO_HTTP_TIMEOUT") {
-            cargo_timeout
-                .parse::<u64>()
-                .map(Duration::from_secs)
-                .unwrap_or(DEFAULT_HTTP_TIMEOUT)
+            if let Ok(secs) = cargo_timeout.parse::<u64>() {
+                Duration::from_secs(secs)
+            } else {
+                tracing::warn!(
+                    "Invalid CARGO_HTTP_TIMEOUT value '{}', falling back to default {:?}.",
+                    cargo_timeout,
+                    DEFAULT_HTTP_TIMEOUT
+                );
+                DEFAULT_HTTP_TIMEOUT
+            }
         } else {
             DEFAULT_HTTP_TIMEOUT
         };
@@ -634,7 +640,16 @@ impl Config {
         } else if let Some(config_retries) = config_file.retries {
             config_retries
         } else if let Ok(cargo_retry) = std::env::var("CARGO_NET_RETRY") {
-            cargo_retry.parse::<usize>().unwrap_or(DEFAULT_HTTP_RETRIES)
+            if let Ok(retries) = cargo_retry.parse::<usize>() {
+                retries
+            } else {
+                tracing::warn!(
+                    "Invalid CARGO_NET_RETRY value '{}', falling back to default {}.",
+                    cargo_retry,
+                    DEFAULT_HTTP_RETRIES
+                );
+                DEFAULT_HTTP_RETRIES
+            }
         } else {
             DEFAULT_HTTP_RETRIES
         };

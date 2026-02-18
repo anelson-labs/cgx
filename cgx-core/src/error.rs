@@ -255,7 +255,7 @@ pub enum Error {
     HttpRequest { url: String, source: reqwest::Error },
 
     #[snafu(display("HTTP {status} from {url}"))]
-    HttpRetryableStatus { url: String, status: u16 },
+    HttpStatus { url: String, status: u16 },
 
     #[snafu(display("Invalid HTTP timeout duration '{value}': {source}"))]
     InvalidHttpTimeout {
