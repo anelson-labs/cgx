@@ -26,6 +26,10 @@ ignore = [
   # Can't upgrade vergen-gix past 1.0.9 without Rust 1.88 (we're on 1.85.1).
   # Build-dep only, never processes untrusted data at runtime.
   "RUSTSEC-2025-0140",
+  # time < 0.3.47 RFC 2822 parsing stack exhaustion. Fix requires Rust 1.88.
+  # time is pulled in by vergen-gix (build dep) and zip; cgx doesn't parse
+  # user-provided RFC 2822 date strings, so not exploitable in practice.
+  "RUSTSEC-2026-0009",
 ]
 version = 2
 yanked = "warn"
