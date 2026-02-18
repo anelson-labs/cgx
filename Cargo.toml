@@ -55,7 +55,7 @@ uuid               = { version = "1.21.0", features = ["v4"] }
 vergen-gix         = { version = "1.0.9", default-features = false }
 which              = "8.0.0"
 xz2                = "0.1.7"
-zip                = "6.0.0"
+zip                = "7.2.0"
 zstd               = "0.13.3"
 
 # The profile that 'dist' will build with
