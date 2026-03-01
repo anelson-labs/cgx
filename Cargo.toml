@@ -32,7 +32,7 @@ home               = "0.5.11"
 humantime-serde    = "1.1.1"
 ignore             = "0.4.25"
 insta              = { version = "1.46.3", features = ["filters"] }
-predicates         = "3.1.3"
+predicates         = "3.1.4"
 rand               = "0.10.0"
 reqwest            = { version = "0.13", default-features = false, features = ["blocking", "rustls", "http2", "charset", "gzip", "system-proxy"] }
 semver             = { version = "1.0.27", features = ["serde"] }
