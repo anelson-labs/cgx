@@ -511,7 +511,7 @@ mod tests {
 
     mod try_download_tests {
         use super::*;
-        use httpmock::prelude::*;
+        use httpmock::{HttpMockRequest, HttpMockResponse, prelude::*};
 
         #[test]
         fn test_try_download_200_returns_some_bytes() {
@@ -555,38 +555,26 @@ mod tests {
         #[test]
         fn test_try_download_retries_then_succeeds() {
             let server = MockServer::start();
+            let call_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let call_count_for_mock = std::sync::Arc::clone(&call_count);
 
-            let mut fail_mock = server.mock(|when, then| {
+            let mock = server.mock(|when, then| {
                 when.method(GET).path("/flaky");
-                then.status(500);
-            });
-
-            let config = HttpConfig {
-                retries: 0,
-                backoff_base: Duration::from_millis(1),
-                backoff_max: Duration::from_millis(10),
-                ..Default::default()
-            };
-            let client = HttpClient::new(&config).unwrap();
-            let result = client.try_download(&server.url("/flaky"));
-            assert!(result.is_err());
-            fail_mock.assert_calls(1);
-
-            // Now test with retries and a mock that succeeds on second attempt.
-            // httpmock doesn't support sequenced responses per se, but we can delete
-            // the fail mock and create a new one that succeeds.
-            fail_mock.delete();
-
-            let success_mock = server.mock(|when, then| {
-                when.method(GET).path("/flaky");
-                then.status(200).body("recovered");
+                then.respond_with(move |_req: &HttpMockRequest| {
+                    let attempt = call_count_for_mock.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if attempt == 0 {
+                        HttpMockResponse::builder().status(500).build()
+                    } else {
+                        HttpMockResponse::builder().status(200).body("recovered").build()
+                    }
+                });
             });
 
             let retry_config = fast_retry_config();
             let retry_client = HttpClient::new(&retry_config).unwrap();
             let result = retry_client.try_download(&server.url("/flaky")).unwrap();
             assert_eq!(result, Some(Bytes::from("recovered")));
-            success_mock.assert_calls(1);
+            mock.assert_calls(2);
         }
     }
 

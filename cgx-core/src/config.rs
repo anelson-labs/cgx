@@ -700,6 +700,17 @@ pub(crate) fn create_test_env() -> (tempfile::TempDir, Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    /// Apply test-local config directory overrides so config loading cannot read
+    /// host-level `/etc/cgx.toml` or user-level cgx config on the machine running tests.
+    ///
+    /// This keeps tests deterministic on developer systems that actively use cgx.
+    fn with_isolated_global_config(mut args: CliArgs, root: &Path) -> CliArgs {
+        args.system_config_dir = Some(root.join("system"));
+        args.user_config_dir = Some(root.join("user"));
+        args
+    }
 
     #[test]
     fn test_deserialize_basic_config() {
@@ -1861,7 +1872,9 @@ mod tests {
         }
 
         #[test]
-        fn test_http_config_hierarchy_merging() {
+        /// Verifies hierarchy merge behavior where a child config overrides timeout
+        /// while inheriting retries from its parent `[http]` section.
+        fn test_http_config_hierarchy_merging_preserves_parent_fields() {
             let temp_dir = tempfile::tempdir().unwrap();
 
             let parent = temp_dir.path().join("parent");
@@ -1887,17 +1900,171 @@ mod tests {
             )
             .unwrap();
 
-            let mut args = CliArgs::parse_from_test_args(["test-crate"]);
-            args.system_config_dir = Some(temp_dir.path().join("system"));
-            args.user_config_dir = Some(temp_dir.path().join("user"));
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
+
+            let config = Config::load_from_dir(&child, &args).unwrap();
+            // Timeout comes from the child, overriding the parent, but since retries wasn't
+            // specified in the child, it should be inherited from the parent config
+            assert_eq!(config.http.timeout, Duration::from_secs(45));
+            assert_eq!(config.http.retries, 3);
+        }
+
+        #[test]
+        /// Verifies hierarchy merge behavior where a child config explicitly
+        /// overrides parent timeout and retries fields in `[http]`.
+        fn test_http_config_hierarchy_merging_child_overrides_parent_fields() {
+            let temp_dir = tempfile::tempdir().unwrap();
+
+            let parent = temp_dir.path().join("parent");
+            std::fs::create_dir_all(&parent).unwrap();
+            std::fs::write(
+                parent.join("cgx.toml"),
+                r#"
+                [http]
+                timeout = "1m"
+                retries = 3
+                "#,
+            )
+            .unwrap();
+
+            let child = parent.join("child");
+            std::fs::create_dir_all(&child).unwrap();
+            std::fs::write(
+                child.join("cgx.toml"),
+                r#"
+                [http]
+                timeout = "45s"
+                retries = 5
+                "#,
+            )
+            .unwrap();
+
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
 
             let config = Config::load_from_dir(&child, &args).unwrap();
             assert_eq!(config.http.timeout, Duration::from_secs(45));
-            // retries from parent should be merged in (figment merge semantics apply
-            // at the [http] section level; child's [http] overrides parent's [http] entirely)
-            // Actually, figment merges at the field level within sections, so parent's retries
-            // may or may not survive depending on how the child section is parsed.
-            // Let's just verify timeout was overridden.
+            assert_eq!(config.http.retries, 5);
+        }
+    }
+
+    mod build_http_config_env_tests {
+        use super::*;
+        use sealed_test::prelude::*;
+        use std::io::Write;
+
+        fn create_temp_config(toml_content: &str) -> tempfile::TempDir {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let config_path = temp_dir.path().join("cgx.toml");
+            let mut file = std::fs::File::create(&config_path).unwrap();
+            file.write_all(toml_content.as_bytes()).unwrap();
+            temp_dir
+        }
+
+        #[sealed_test(env = [("CARGO_HTTP_TIMEOUT", "45")])]
+        /// Verifies `CARGO_HTTP_TIMEOUT` is used when neither CLI nor config file sets timeout.
+        fn test_env_timeout_used_when_no_cli_or_config() {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
+
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+            assert_eq!(config.http.timeout, Duration::from_secs(45));
+        }
+
+        #[sealed_test(env = [("CARGO_NET_RETRY", "7")])]
+        /// Verifies `CARGO_NET_RETRY` is used when neither CLI nor config file sets retries.
+        fn test_env_retries_used_when_no_cli_or_config() {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
+
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+            assert_eq!(config.http.retries, 7);
+        }
+
+        #[sealed_test(env = [("CARGO_HTTP_PROXY", "socks5://env-proxy:1080")])]
+        /// Verifies `CARGO_HTTP_PROXY` is used when neither CLI nor config file sets proxy.
+        fn test_env_proxy_used_when_no_cli_or_config() {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
+
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+            assert_eq!(config.http.proxy, Some("socks5://env-proxy:1080".to_string()));
+        }
+
+        #[sealed_test(env = [
+            ("CARGO_HTTP_TIMEOUT", "45"),
+            ("CARGO_NET_RETRY", "7"),
+            ("CARGO_HTTP_PROXY", "http://env-proxy:3128")
+        ])]
+        /// Verifies CLI HTTP flags take precedence over Cargo HTTP environment variables.
+        fn test_cli_overrides_env() {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let args = with_isolated_global_config(
+                CliArgs::parse_from_test_args([
+                    "--http-timeout",
+                    "10s",
+                    "--http-retries",
+                    "1",
+                    "--http-proxy",
+                    "socks5://cli-proxy:1080",
+                    "test-crate",
+                ]),
+                temp_dir.path(),
+            );
+
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+            assert_eq!(config.http.timeout, Duration::from_secs(10));
+            assert_eq!(config.http.retries, 1);
+            assert_eq!(config.http.proxy, Some("socks5://cli-proxy:1080".to_string()));
+        }
+
+        #[sealed_test(env = [
+            ("CARGO_HTTP_TIMEOUT", "45"),
+            ("CARGO_NET_RETRY", "7"),
+            ("CARGO_HTTP_PROXY", "http://env-proxy:3128")
+        ])]
+        /// Verifies config file `[http]` values take precedence over Cargo HTTP env variables.
+        fn test_config_file_overrides_env() {
+            let toml_content = r#"
+                [http]
+                timeout = "2m"
+                retries = 5
+                proxy = "http://config-proxy:8080"
+            "#;
+            let temp_dir = create_temp_config(toml_content);
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
+
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+            assert_eq!(config.http.timeout, Duration::from_secs(120));
+            assert_eq!(config.http.retries, 5);
+            assert_eq!(config.http.proxy, Some("http://config-proxy:8080".to_string()));
+        }
+
+        #[sealed_test(env = [("CARGO_HTTP_TIMEOUT", "not-a-number")])]
+        /// Verifies invalid `CARGO_HTTP_TIMEOUT` falls back to the built-in default timeout.
+        fn test_invalid_env_timeout_falls_back_to_default() {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
+
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+            assert_eq!(config.http.timeout, DEFAULT_HTTP_TIMEOUT);
+        }
+
+        #[sealed_test(env = [("CARGO_NET_RETRY", "not-a-number")])]
+        /// Verifies invalid `CARGO_NET_RETRY` falls back to the built-in default retries value.
+        fn test_invalid_env_retries_falls_back_to_default() {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let args =
+                with_isolated_global_config(CliArgs::parse_from_test_args(["test-crate"]), temp_dir.path());
+
+            let config = Config::load_from_dir(temp_dir.path(), &args).unwrap();
+            assert_eq!(config.http.retries, DEFAULT_HTTP_RETRIES);
         }
     }
 

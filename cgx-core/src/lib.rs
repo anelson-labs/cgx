@@ -13,6 +13,7 @@ pub(crate) mod helpers;
 pub mod http;
 pub(crate) mod logging;
 pub mod messages;
+pub(crate) mod registry;
 pub mod runner;
 pub(crate) mod sbom;
 #[cfg(test)]

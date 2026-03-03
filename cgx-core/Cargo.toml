@@ -63,6 +63,7 @@ assert_matches     = { workspace = true }
 httpmock           = { workspace = true }
 insta              = { workspace = true }
 rand               = { workspace = true }
+sealed_test        = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [lints]
