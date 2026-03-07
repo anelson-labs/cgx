@@ -70,8 +70,6 @@ possibly is a third-party cargo plugin that needs to be installed.
 cgx cargo deny
 ```
 
-````
-
 ## Argument ordering
 
 Like `npx` and `uvx`, `cgx` requires that its own flags come **before** the crate name, and any flags intended for the executed crate come **after** the crate name:
@@ -91,7 +89,6 @@ You can also use `--` as an explicit separator (like `cargo run`):
 cgx ripgrep -- --version
 ```
 
-
 ## Version specification
 
 The default is to use the latest version of the crate, but you can specify a version if you want, using the familiar
@@ -103,7 +100,7 @@ cgx ripgrep@14
 
 # Run the latest version of Ripgrep 14.1
 cgx ripgrep@14.1
-````
+```
 
 ## Version pinning with config files
 
@@ -187,22 +184,22 @@ cgx --http-proxy http://user:password@proxyhost:8080 ripgrep
 
 cgx-specific environment variables:
 
-| Variable | Description |
-|----------|-------------|
+| Variable           | Description                         |
+| ------------------ | ----------------------------------- |
 | `CGX_HTTP_TIMEOUT` | Request timeout (e.g., `30s`, `2m`) |
-| `CGX_HTTP_RETRIES` | Max retry count |
-| `CGX_HTTP_PROXY` | Proxy URL |
+| `CGX_HTTP_RETRIES` | Max retry count                     |
+| `CGX_HTTP_PROXY`   | Proxy URL                           |
 
 ### Cargo compatibility
 
 When no cgx-specific configuration is provided, cgx automatically honors these Cargo environment
 variables:
 
-| Cargo Variable | cgx Equivalent | Description |
-|----------------|----------------|-------------|
-| `CARGO_HTTP_PROXY` | `--http-proxy` | HTTP/SOCKS proxy URL |
+| Cargo Variable       | cgx Equivalent   | Description                          |
+| -------------------- | ---------------- | ------------------------------------ |
+| `CARGO_HTTP_PROXY`   | `--http-proxy`   | HTTP/SOCKS proxy URL                 |
 | `CARGO_HTTP_TIMEOUT` | `--http-timeout` | Request timeout in seconds (integer) |
-| `CARGO_NET_RETRY` | `--http-retries` | Number of retry attempts |
+| `CARGO_NET_RETRY`    | `--http-retries` | Number of retry attempts             |
 
 The standard proxy variables `HTTPS_PROXY`, `https_proxy`, and `http_proxy` are also honored
 automatically by the underlying HTTP library.
