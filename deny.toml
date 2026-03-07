@@ -77,6 +77,9 @@ skip = [
   # system-configuration (via hyper-util) uses core-foundation 0.9;
   # rustls-platform-verifier and security-framework use 0.10. macOS only.
   { name = "core-foundation", version = "0.9" },
+  # curl-rustls (via gix-transport) currently pulls rustls-platform-verifier 0.5.x,
+  # while reqwest/tame-index pull 0.6.x. Unavoidable until upstreams converge.
+  { name = "rustls-platform-verifier", version = "0.5" },
 ]
 skip-tree = [
   # vergen-gix (build dep) uses older gix 0.71
