@@ -55,6 +55,16 @@ Download prebuilt binaries directly from the [Releases page](https://github.com/
 
 _Coming soon: Install via `curl https://cgx.sh/install.sh | sh` once the cgx.sh domain is set up._
 
+## Runtime Dependencies
+
+`cgx` uses `gix` for git operations, and for git-over-HTTP `gix` currently uses a curl-based HTTP transport backend.
+
+Depending on your target and linkage mode, this can introduce runtime library dependencies for the `cgx` binary on
+some platforms (for example Linux dynamic builds often depend on `libcurl`, plus its TLS/compression stack such as
+`libssl`, `libcrypto`, and `libz`).
+
+If you run `cgx` in minimal containers or stripped-down environments, make sure those runtime libraries are present.
+
 ## Example usage
 
 ```sh
@@ -160,7 +170,7 @@ section in `cgx.toml`, CLI flags, or environment variables.
 
 ```toml
 [http]
-timeout      = "30s"          # Per-request timeout (default: 30s)
+timeout      = "30s"          # Request timeout (default: 30s)
 retries      = 2              # Retry attempts for transient failures (default: 2)
 backoff_base = "500ms"        # Base delay for exponential backoff (default: 500ms)
 backoff_max  = "5s"           # Maximum delay between retries (default: 5s)
@@ -207,5 +217,12 @@ automatically by the underlying HTTP library.
 This means that if your environment is already configured for `cargo` to work behind a proxy,
 `cgx` should work without any additional configuration.
 
-Note: git operations (cloning from `--git`, `--github`, `--gitlab`) use their own transport
-layer and are not affected by these settings.
+For git operations (`--git`, `--github`, `--gitlab`) over HTTP/S, cgx applies the same HTTP settings where possible:
+- `proxy`
+- `retries` and backoff settings
+- user agent
+- `timeout`
+
+For git-over-HTTP specifically, `timeout` is intentionally used both as:
+- a connection timeout
+- a stalled-transfer timeout threshold (via curl low-speed timeout settings)

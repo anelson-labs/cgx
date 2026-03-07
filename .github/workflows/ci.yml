@@ -75,6 +75,21 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      - name: Verify runtime linkage (Linux)
+        run: |
+          LINKAGE_OUTPUT="$(ldd target/debug/cgx 2>&1 || true)"
+          echo "$LINKAGE_OUTPUT"
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not a dynamic executable"; then
+            echo "Static binary detected; shared-library runtime check skipped."
+            exit 0
+          fi
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not found"; then
+            echo "Missing runtime shared library dependency detected."
+            exit 1
+          fi
+
       - name: Run unit tests
         run: cargo test --workspace --lib
 
@@ -186,6 +201,21 @@ jobs:
 
       - name: Build
         run: cargo build --workspace
+
+      - name: Verify runtime linkage (Linux)
+        run: |
+          LINKAGE_OUTPUT="$(ldd target/debug/cgx 2>&1 || true)"
+          echo "$LINKAGE_OUTPUT"
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not a dynamic executable"; then
+            echo "Static binary detected; shared-library runtime check skipped."
+            exit 0
+          fi
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not found"; then
+            echo "Missing runtime shared library dependency detected."
+            exit 1
+          fi
 
       - name: Run tests
         env:

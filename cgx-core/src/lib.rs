@@ -54,7 +54,7 @@ impl Cgx {
         let http_client = HttpClient::new(&config.http)?;
 
         let cache = Cache::new(config.clone(), reporter.clone());
-        let git_client = git::GitClient::new(cache.clone(), reporter.clone());
+        let git_client = git::GitClient::new(cache.clone(), reporter.clone(), config.http.clone());
 
         let cargo_runner = Arc::new(cargo::find_cargo(reporter.clone())?);
 

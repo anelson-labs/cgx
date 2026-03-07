@@ -9,6 +9,18 @@ use std::time::Duration;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Build the cgx user agent string.
+///
+/// This is shared between [`HttpClient`] (for reqwest-based HTTP) and
+/// the git client (injected into gix via config overrides).
+pub(crate) fn user_agent() -> String {
+    format!(
+        "cgx/{} ({})",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_REPOSITORY")
+    )
+}
+
 /// HTTP client wrapper with retry, user agent, proxy, and timeout support.
 ///
 /// This provides a unified HTTP client for all cgx HTTP operations including:
@@ -16,7 +28,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// - Binary downloads from providers
 /// - API calls to GitHub/GitLab
 ///
-/// Git operations use their own transport layer via `gix` and do not utilize this client.
+/// Git operations use their own transport layer via `gix` and do not use this client directly.
+/// cgx mirrors `HttpConfig` settings into gix where possible: proxy, user agent, retry/backoff,
+/// and timeout (used as both connect timeout and stalled-transfer timeout threshold). See
+/// [`crate::git`] for details.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     client: Client,
@@ -26,14 +41,8 @@ pub struct HttpClient {
 impl HttpClient {
     /// Build a new [`HttpClient`] with the given configuration.
     pub fn new(config: &HttpConfig) -> Result<Self> {
-        let user_agent = format!(
-            "cgx/{} ({})",
-            env!("CARGO_PKG_VERSION"),
-            env!("CARGO_PKG_REPOSITORY")
-        );
-
         let mut builder = Client::builder()
-            .user_agent(user_agent)
+            .user_agent(user_agent())
             .timeout(config.timeout)
             .connect_timeout(CONNECT_TIMEOUT);
 

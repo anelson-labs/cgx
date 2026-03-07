@@ -27,8 +27,13 @@ offline               = false
 resolve_cache_timeout = "1h"
 toolchain             = "stable"
 
-# HTTP client settings for registry queries, binary downloads, and API calls.
-# Git operations use their own transport layer and are not affected by these settings.
+# HTTP client settings for registry queries, binary downloads, API calls, and git-over-HTTP.
+#
+# For git-over-HTTP, these settings are also applied where possible:
+# - proxy
+# - user agent
+# - retries and backoff
+# - timeout (used for both connect timeout and stalled-transfer timeout detection)
 #
 # When these are not explicitly configured, cgx also honors Cargo's environment
 # variables: CARGO_HTTP_PROXY, CARGO_HTTP_TIMEOUT, and CARGO_NET_RETRY.

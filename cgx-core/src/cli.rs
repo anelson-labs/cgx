@@ -245,7 +245,10 @@ pub struct CliArgs {
     /// HTTP request timeout (e.g., "30s", "2m").
     ///
     /// Controls the per-request timeout for registry queries, binary downloads,
-    /// and API calls. Does not affect git operations.
+    /// and API calls.
+    ///
+    /// For git operations over HTTP/S, this timeout is also used by gix for both
+    /// connection timeout and stalled-transfer timeout detection.
     ///
     /// If not set, cgx honors the Cargo environment variable `CARGO_HTTP_TIMEOUT`
     /// (integer seconds). If not set, defaults to 30s.
@@ -265,10 +268,10 @@ pub struct CliArgs {
 
     /// HTTP or SOCKS5 proxy URL for all HTTP requests.
     ///
-    /// Routes all HTTP requests (except git operations, which use their own
-    /// transport) through the specified proxy. Supports http://, https://, and
-    /// socks5:// URL schemes. For proxy authentication, embed credentials in the
-    /// URL: `http://user:password@host:port`.
+    /// Routes all HTTP requests through the specified proxy, including git
+    /// operations over HTTP/S. Supports http://, https://, and socks5:// URL
+    /// schemes. For proxy authentication, embed credentials in the URL:
+    /// `http://user:password@host:port`.
     ///
     /// If not set, cgx honors the Cargo environment variable `CARGO_HTTP_PROXY`,
     /// followed by standard proxy variables (`HTTPS_PROXY`, `https_proxy`,

@@ -11,27 +11,18 @@
 
 use crate::{
     cache::Cache,
+    config::HttpConfig,
     messages::{GitMessage, MessageReporter},
 };
 use backon::{BlockingRetryable, ExponentialBuilder};
-use gix::{ObjectId, remote::Direction};
+use gix::{ObjectId, protocol::transport::IsSpuriousError, remote::Direction};
 use serde::{Deserialize, Serialize};
 use snafu::{IntoError, ResultExt, prelude::*};
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
-    time::Duration,
 };
-
-/// Minimum delay before first retry
-const GIT_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
-
-/// Maximum delay between retries
-const GIT_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
-
-/// Maximum number of retry attempts
-const GIT_RETRY_MAX_TIMES: usize = 10;
 
 /// Errors specific to git operations
 #[derive(Debug, Snafu)]
@@ -113,12 +104,17 @@ pub enum GitSelector {
 pub(crate) struct GitClient {
     cache: Cache,
     reporter: MessageReporter,
+    http_config: HttpConfig,
 }
 
 impl GitClient {
-    /// Create a new [`GitClient`] with the given cache and message reporter.
-    pub(crate) fn new(cache: Cache, reporter: MessageReporter) -> Self {
-        Self { cache, reporter }
+    /// Create a new [`GitClient`] with the given cache, message reporter, and HTTP config.
+    pub(crate) fn new(cache: Cache, reporter: MessageReporter, http_config: HttpConfig) -> Self {
+        Self {
+            cache,
+            reporter,
+            http_config,
+        }
     }
 
     /// Checkout a git ref and return the path to the working tree.
@@ -145,7 +141,7 @@ impl GitClient {
         } else {
             // Ref not present - need to fetch from network
             self.reporter.report(|| GitMessage::fetching_repo(url, &selector));
-            fetch_ref(&db_path, url, &selector)?;
+            fetch_ref(&db_path, url, &selector, &self.http_config)?;
             let oid = resolve_selector(&db_path, &selector)?;
             let commit_str = oid.to_string();
             self.reporter.report(|| GitMessage::resolved_ref(&commit_str));
@@ -220,34 +216,103 @@ fn init_bare_repo(path: &Path) -> Result<()> {
         .map(|_| ())
 }
 
-fn fetch_ref(db_path: &Path, url: &str, selector: &GitSelector) -> Result<()> {
+fn fetch_ref(db_path: &Path, url: &str, selector: &GitSelector, http_config: &HttpConfig) -> Result<()> {
     let backoff = ExponentialBuilder::default()
-        .with_min_delay(GIT_RETRY_MIN_DELAY)
-        .with_max_delay(GIT_RETRY_MAX_DELAY)
-        .with_max_times(GIT_RETRY_MAX_TIMES)
+        .with_min_delay(http_config.backoff_base)
+        .with_max_delay(http_config.backoff_max)
+        .with_max_times(http_config.retries)
         .with_jitter();
 
-    (|| fetch_ref_impl(db_path, url, selector))
+    (|| fetch_ref_impl(db_path, url, selector, http_config))
         .retry(backoff)
         .when(is_retryable_error)
         .sleep(std::thread::sleep)
         .call()
 }
 
+/// Determine whether a failed fetch should be retried.
+///
+/// Only [`Error::FetchRef`] errors are candidates. We downcast the boxed source to the three
+/// concrete gix error types produced by [`fetch_ref_impl`] and delegate to gix's
+/// [`is_spurious()`](gix::protocol::transport::IsSpuriousError::is_spurious), which recursively
+/// inspects the error chain for transient conditions: 5xx HTTP status codes (mapped to
+/// `ConnectionAborted`), connection timeouts/resets/refused, curl transport failures (DNS, proxy,
+/// SSL, HTTP/2, partial file), broken pipe, interrupted, and unexpected EOF. It correctly returns
+/// `false` for 4xx errors like 401, 403, and 404.
+///
+/// One gap: gix maps HTTP 429 (Too Many Requests) to `io::ErrorKind::Other` which
+/// `is_spurious()` considers non-retryable. We want to retry on 429, so we also walk the
+/// error source chain looking for the `io::Error` with gix's exact format string.
 fn is_retryable_error(e: &Error) -> bool {
-    let msg = format!("{e:?}");
-    msg.contains("403")
-        || msg.contains("429")
-        || msg.contains("500")
-        || msg.contains("502")
-        || msg.contains("503")
-        || msg.contains("504")
-        || msg.contains("timed out")
-        || msg.contains("connection")
+    let Error::FetchRef { source, .. } = e else {
+        return false;
+    };
+    let err = source.as_ref();
+
+    let spurious = if let Some(e) = err.downcast_ref::<gix::remote::connect::Error>() {
+        e.is_spurious()
+    } else if let Some(e) = err.downcast_ref::<gix::remote::fetch::prepare::Error>() {
+        e.is_spurious()
+    } else if let Some(e) = err.downcast_ref::<gix::remote::fetch::Error>() {
+        e.is_spurious()
+    } else {
+        false
+    };
+
+    if spurious {
+        return true;
+    }
+
+    // Check for HTTP 429 by walking the source chain for an io::Error with gix's exact message.
+    let mut source: Option<&(dyn std::error::Error)> = Some(err);
+    while let Some(current) = source {
+        if let Some(io_err) = current.downcast_ref::<std::io::Error>() {
+            if io_err.to_string().contains("Received HTTP status 429") {
+                return true;
+            }
+        }
+        source = current.source();
+    }
+
+    false
 }
 
-fn fetch_ref_impl(db_path: &Path, url: &str, selector: &GitSelector) -> Result<()> {
-    let repo = gix::open(db_path).map_err(|e| {
+fn build_http_open_options(http_config: &HttpConfig) -> gix::open::Options {
+    let ua = crate::http::user_agent();
+
+    // `connectTimeout` only covers the TCP handshake. To also abort on stalled transfers
+    // (server accepted the connection but stops sending data), we set curl's low-speed
+    // threshold: if fewer than 1 byte/sec is sustained for `timeout` seconds, curl aborts
+    // with CURLE_OPERATION_TIMEDOUT, which gix surfaces as a spurious/retryable error.
+    let low_speed_time_secs = http_config.timeout.as_secs().max(1);
+
+    let mut overrides = vec![
+        // Controls the git protocol `agent` value (and acts as gix's fallback UA source).
+        // We set it so servers/proxies see cgx identity at the git protocol layer, not the
+        // default `git/oxide-*`. If omitted, protocol-layer identity reverts to gix default.
+        format!("gitoxide.userAgent={ua}"),
+        // Controls the HTTP backend's configured user-agent option (`http.userAgent`).
+        // This keeps transport-level UA settings aligned with cgx identity. If omitted,
+        // gix falls back to its default `oxide-*` transport agent for this setting.
+        format!("http.userAgent={ua}"),
+        // Forces an explicit `User-Agent` HTTP header on each request.
+        // This is currently required for our observed behavior with gix+curl: without this,
+        // requests in integration tests carry `User-Agent: git/oxide-*` instead of cgx UA.
+        format!("http.extraHeader=User-Agent: {ua}"),
+        format!("gitoxide.http.connectTimeout={}", http_config.timeout.as_millis()),
+        format!("http.lowSpeedLimit=1"),
+        format!("http.lowSpeedTime={low_speed_time_secs}"),
+    ];
+
+    if let Some(ref proxy) = http_config.proxy {
+        overrides.push(format!("http.proxy={proxy}"));
+    }
+
+    gix::open::Options::default().config_overrides(overrides)
+}
+
+fn fetch_ref_impl(db_path: &Path, url: &str, selector: &GitSelector, http_config: &HttpConfig) -> Result<()> {
+    let repo = gix::open_opts(db_path, build_http_open_options(http_config)).map_err(|e| {
         OpenRepoSnafu {
             path: db_path.to_path_buf(),
         }
@@ -452,8 +517,8 @@ mod tests {
     fn test_git_client() -> (GitClient, TempDir) {
         let (temp_dir, config) = crate::config::create_test_env();
         let reporter = MessageReporter::null();
-        let cache = Cache::new(config, reporter.clone());
-        let git_client = GitClient::new(cache, reporter);
+        let cache = Cache::new(config.clone(), reporter.clone());
+        let git_client = GitClient::new(cache, reporter, config.http);
         (git_client, temp_dir)
     }
 
@@ -611,6 +676,291 @@ mod tests {
                 GitSelector::Commit("0000000000000000000000000000000000000000".to_string()),
             );
             assert_matches!(result, Err(Error::FetchRef { .. }));
+        }
+    }
+
+    /// Integration tests exercising the git fetch retry logic against a local mock HTTP server.
+    ///
+    /// These live here rather than in `cgx/tests/integration/` because the functions under test
+    /// ([`fetch_ref`], [`is_retryable_error`]) and their gix error types are `pub(crate)` and
+    /// not part of cgx-core's public API.
+    mod integration {
+        use super::*;
+        use httpmock::prelude::*;
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            time::{Duration, Instant},
+        };
+
+        fn fast_retry_config() -> HttpConfig {
+            HttpConfig {
+                retries: 2,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                timeout: Duration::from_secs(30),
+                ..Default::default()
+            }
+        }
+
+        fn no_retry_config() -> HttpConfig {
+            HttpConfig {
+                retries: 0,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(1),
+                timeout: Duration::from_secs(5),
+                ..Default::default()
+            }
+        }
+
+        fn start_capture_proxy() -> (String, std::thread::JoinHandle<Option<String>>) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            listener.set_nonblocking(true).unwrap();
+
+            let handle = std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                            if Instant::now() >= deadline {
+                                return None;
+                            }
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(err) => panic!("proxy accept failed: {err}"),
+                    }
+                };
+
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+
+                let mut req = Vec::new();
+                let mut buf = [0_u8; 4096];
+                loop {
+                    match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            req.extend_from_slice(&buf[..n]);
+                            if req.windows(4).any(|w| w == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+                        Err(err)
+                            if err.kind() == std::io::ErrorKind::WouldBlock
+                                || err.kind() == std::io::ErrorKind::TimedOut =>
+                        {
+                            break;
+                        }
+                        Err(err) => panic!("proxy read failed: {err}"),
+                    }
+                }
+
+                // Return a hard failure quickly so fetch terminates.
+                let response = b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                stream.write_all(response).unwrap();
+
+                Some(String::from_utf8_lossy(&req).into_owned())
+            });
+
+            (format!("http://{addr}"), handle)
+        }
+
+        fn test_bare_repo() -> (TempDir, PathBuf) {
+            let temp_dir = TempDir::new().unwrap();
+            let repo_path = temp_dir.path().join("bare.git");
+            fs::create_dir_all(&repo_path).unwrap();
+            init_bare_repo(&repo_path).unwrap();
+            (temp_dir, repo_path)
+        }
+
+        #[test]
+        fn server_503_is_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|_when, then| {
+                then.status(503);
+            });
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = fast_retry_config();
+            let result = fetch_ref(
+                &db_path,
+                &server.url("/repo.git"),
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+            mock.assert_calls(3);
+        }
+
+        #[test]
+        fn server_500_is_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|_when, then| {
+                then.status(500);
+            });
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = fast_retry_config();
+            let result = fetch_ref(
+                &db_path,
+                &server.url("/repo.git"),
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+            mock.assert_calls(3);
+        }
+
+        #[test]
+        fn server_429_is_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|_when, then| {
+                then.status(429);
+            });
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = fast_retry_config();
+            let result = fetch_ref(
+                &db_path,
+                &server.url("/repo.git"),
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+            mock.assert_calls(3);
+        }
+
+        #[test]
+        fn server_403_is_not_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|_when, then| {
+                then.status(403);
+            });
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = fast_retry_config();
+            let result = fetch_ref(
+                &db_path,
+                &server.url("/repo.git"),
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+            mock.assert_calls(1);
+        }
+
+        #[test]
+        fn server_404_is_not_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|_when, then| {
+                then.status(404);
+            });
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = fast_retry_config();
+            let result = fetch_ref(
+                &db_path,
+                &server.url("/repo.git"),
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+            mock.assert_calls(1);
+        }
+
+        #[test]
+        fn connection_timeout_is_retried() {
+            let server = MockServer::start();
+            let mock = server.mock(|_when, then| {
+                then.status(200).delay(Duration::from_secs(3));
+            });
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = HttpConfig {
+                retries: 2,
+                backoff_base: Duration::from_millis(1),
+                backoff_max: Duration::from_millis(10),
+                timeout: Duration::from_secs(1),
+                ..Default::default()
+            };
+            let result = fetch_ref(
+                &db_path,
+                &server.url("/repo.git"),
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+            mock.assert_calls(3);
+        }
+
+        #[test]
+        fn user_agent_is_applied_to_git_http_requests() {
+            let server = MockServer::start();
+            let expected_ua = crate::http::user_agent();
+            let mock = server.mock(|when, then| {
+                when.method(GET)
+                    .path("/repo.git/info/refs")
+                    .query_param("service", "git-upload-pack")
+                    .header("User-Agent", expected_ua.as_str());
+                then.status(500);
+            });
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = no_retry_config();
+            let result = fetch_ref(
+                &db_path,
+                &server.url("/repo.git"),
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+            mock.assert_calls(1);
+        }
+
+        #[test]
+        fn proxy_setting_is_used_for_git_http_requests() {
+            let (proxy_url, proxy_handle) = start_capture_proxy();
+
+            let (_temp, db_path) = test_bare_repo();
+            let config = HttpConfig {
+                proxy: Some(proxy_url),
+                ..no_retry_config()
+            };
+
+            let result = fetch_ref(
+                &db_path,
+                "http://example.invalid/repo.git",
+                &GitSelector::DefaultBranch,
+                &config,
+            );
+
+            assert_matches!(result, Err(Error::FetchRef { .. }));
+
+            let captured = proxy_handle
+                .join()
+                .expect("proxy capture thread should not panic")
+                .expect("proxy did not receive any request");
+
+            assert!(
+                captured.contains("/repo.git/info/refs?service=git-upload-pack"),
+                "expected git info/refs request, got: {captured}"
+            );
+            assert!(
+                captured.contains("Host: example.invalid"),
+                "expected host header for target remote, got: {captured}"
+            );
+            assert!(
+                captured.contains(&format!("User-Agent: {}", crate::http::user_agent())),
+                "expected cgx user-agent header, got: {captured}"
+            );
         }
     }
 }

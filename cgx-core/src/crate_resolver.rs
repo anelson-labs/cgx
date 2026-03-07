@@ -420,7 +420,7 @@ mod tests {
         let (temp_dir, config) = crate::config::create_test_env();
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
-        let git_client = GitClient::new(cache.clone(), reporter.clone());
+        let git_client = GitClient::new(cache.clone(), reporter.clone(), config.http.clone());
         let http_client = HttpClient::new(&config.http).unwrap();
         let resolver = DefaultCrateResolver::new(
             config.clone(),
@@ -438,7 +438,7 @@ mod tests {
         config.offline = true;
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
-        let git_client = GitClient::new(cache.clone(), reporter);
+        let git_client = GitClient::new(cache.clone(), reporter, config.http.clone());
         let http_client = HttpClient::new(&config.http).unwrap();
         let resolver = DefaultCrateResolver::new(config, git_client, resolver.inner.cargo, http_client);
         (CachingResolver::new(resolver, cache), temp_dir)
@@ -762,6 +762,7 @@ mod tests {
             let git_client = GitClient::new(
                 online_resolver.cache.clone(),
                 crate::messages::MessageReporter::null(),
+                offline_config.http.clone(),
             );
             let http_client = HttpClient::new(&offline_config.http).unwrap();
             let offline_resolver = CachingResolver::new(
@@ -821,7 +822,11 @@ mod tests {
                 offline: true,
                 ..resolver.inner.config.clone()
             };
-            let git_client = GitClient::new(resolver.cache.clone(), crate::messages::MessageReporter::null());
+            let git_client = GitClient::new(
+                resolver.cache.clone(),
+                crate::messages::MessageReporter::null(),
+                offline_config.http.clone(),
+            );
             let http_client = HttpClient::new(&offline_config.http).unwrap();
             let offline_resolver = CachingResolver::new(
                 DefaultCrateResolver::new(
