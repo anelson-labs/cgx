@@ -6,16 +6,15 @@ use crate::{
     cratespec::{CrateSpec, Forge, RegistrySource},
     error,
     git::{GitClient, GitSelector},
+    http::HttpClient,
+    registry::RegistryClient,
 };
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
-use snafu::{OptionExt, ResultExt};
+use snafu::OptionExt;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-};
-use tame_index::{
-    IndexLocation, IndexUrl, KrateName, SparseIndex, index::RemoteSparseIndex, utils::flock::LockOptions,
 };
 
 /// A resolved crate represents a concrete, validated reference to a specific crate version.
@@ -108,8 +107,9 @@ pub(crate) fn create_resolver(
     cache: Cache,
     git_client: GitClient,
     cargo: Arc<dyn CargoRunner>,
+    http_client: HttpClient,
 ) -> impl CrateResolver {
-    let inner = DefaultCrateResolver::new(config, git_client, cargo);
+    let inner = DefaultCrateResolver::new(config, git_client, cargo, http_client);
     CachingResolver::new(inner, cache)
 }
 
@@ -120,15 +120,22 @@ struct DefaultCrateResolver {
     config: Config,
     git_client: GitClient,
     cargo: Arc<dyn CargoRunner>,
+    http_client: HttpClient,
 }
 
 impl DefaultCrateResolver {
     /// Create a new [`DefaultCrateResolver`] with the given configuration and git client.
-    pub(crate) fn new(config: Config, git_client: GitClient, cargo: Arc<dyn CargoRunner>) -> Self {
+    pub(crate) fn new(
+        config: Config,
+        git_client: GitClient,
+        cargo: Arc<dyn CargoRunner>,
+        http_client: HttpClient,
+    ) -> Self {
         Self {
             config,
             git_client,
             cargo,
+            http_client,
         }
     }
 
@@ -200,81 +207,37 @@ impl DefaultCrateResolver {
     ) -> Result<ResolvedCrate> {
         // There is always some VersionReq; if not specified explicitly then "*" is implied
         let version = version.cloned().unwrap_or(VersionReq::STAR);
-
-        // Resolve IndexUrl based on source type
-        let index_url = match source {
-            None => {
-                IndexUrl::crates_io(
-                    None, // config_root: search standard locations
-                    None, // cargo_home: use $CARGO_HOME
-                    None, // cargo_version: auto-detect version
-                )
-                .context(error::RegistrySnafu)?
-            }
-            Some(RegistrySource::Named(registry_name)) => {
-                IndexUrl::for_registry_name(
-                    None, // config_root: search standard locations
-                    None, // cargo_home: use $CARGO_HOME
-                    registry_name,
-                )
-                .context(error::RegistrySnafu)?
-            }
-            Some(RegistrySource::IndexUrl(url)) => IndexUrl::from(url.as_str()),
-        };
-
-        // Use the parse index for this registry and connect to it remotely
-        // NOTE: We're assuming this is not a local registry.  As of now we only support remote
-        // registries.
-        let index_location = IndexLocation::new(index_url);
-        let sparse_index = SparseIndex::new(index_location).context(error::RegistrySnafu)?;
-        let remote_index = RemoteSparseIndex::new(sparse_index, reqwest::blocking::Client::new());
-
-        // Use the same cache as cargo itself, to improve the chances of cache hits and thus faster
-        // operations.  The only downside here is that it means we use the same file lock, so if
-        // cargo is also in the middle of an operation then we may have to wait.
-        //
-        // For most cases I think that will still be preferable to maintaining an entirely separate
-        // cache of registry contents.
-        let lock = LockOptions::cargo_package_lock(None)
-            .context(error::RegistrySnafu)?
-            .lock(|_| None)
-            .context(error::RegistrySnafu)?;
-
-        // Query for the crate in the remote registry
-        //
-        // In offline mode, use cached_krate which only queries the local cache.
-        // Otherwise, use krate which may perform network I/O.
-        let krate_name = KrateName::try_from(name).context(error::RegistrySnafu)?;
-        let krate = if self.config.offline {
-            remote_index
-                .cached_krate(krate_name, &lock)
-                .context(error::RegistrySnafu)?
-                .with_context(|| error::OfflineModeSnafu {
+        let registry = RegistryClient::new(source, &self.http_client, &self.config.http)?;
+        let versions = match registry.crate_versions(name, self.config.offline)? {
+            Some(versions) => versions,
+            None if self.config.offline => {
+                return error::OfflineModeSnafu {
                     name: name.to_string(),
                     version: version.to_string(),
-                })?
-        } else {
-            remote_index
-                .krate(krate_name, true, &lock)
-                .context(error::RegistrySnafu)?
-                .with_context(|| error::CrateNotFoundInRegistrySnafu {
+                }
+                .fail();
+            }
+            None => {
+                return error::CrateNotFoundInRegistrySnafu {
                     name: name.to_string(),
-                })?
+                }
+                .fail();
+            }
         };
 
         // Filter non-yanked versions matching the requirement and select the best, by which
         // we mean the highest version number.
-        let (_, best_version) = krate
-            .versions
+        let best_version = versions
             .iter()
-            .filter(|v| !v.is_yanked())
+            .filter(|v| !v.yanked)
             .filter_map(|v| {
                 Version::parse(&v.version)
                     .ok()
                     .filter(|ver| version.matches(ver))
-                    .map(|ver| (v, ver))
+                    .map(|ver| (v.version.clone(), ver))
             })
             .max_by(|(_, a), (_, b)| a.cmp(b))
+            .map(|(_, best)| best)
             .with_context(|| error::NoMatchingVersionSnafu {
                 name: name.to_string(),
                 requirement: version.to_string(),
@@ -291,7 +254,7 @@ impl DefaultCrateResolver {
 
         Ok(ResolvedCrate {
             name: name.to_string(),
-            version: best_version.clone(),
+            version: best_version,
             source: resolved_source,
         })
     }
@@ -458,10 +421,12 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter.clone());
+        let http_client = HttpClient::new(&config.http).unwrap();
         let resolver = DefaultCrateResolver::new(
             config.clone(),
             git_client,
             Arc::new(crate::cargo::find_cargo(reporter).unwrap()),
+            http_client,
         );
         (CachingResolver::new(resolver, cache), temp_dir)
     }
@@ -474,7 +439,8 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter);
-        let resolver = DefaultCrateResolver::new(config, git_client, resolver.inner.cargo);
+        let http_client = HttpClient::new(&config.http).unwrap();
+        let resolver = DefaultCrateResolver::new(config, git_client, resolver.inner.cargo, http_client);
         (CachingResolver::new(resolver, cache), temp_dir)
     }
 
@@ -797,8 +763,14 @@ mod tests {
                 online_resolver.cache.clone(),
                 crate::messages::MessageReporter::null(),
             );
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
             let offline_resolver = CachingResolver::new(
-                DefaultCrateResolver::new(offline_config, git_client, online_resolver.inner.cargo.clone()),
+                DefaultCrateResolver::new(
+                    offline_config,
+                    git_client,
+                    online_resolver.inner.cargo.clone(),
+                    http_client,
+                ),
                 online_resolver.cache.clone(),
             );
 
@@ -850,8 +822,14 @@ mod tests {
                 ..resolver.inner.config.clone()
             };
             let git_client = GitClient::new(resolver.cache.clone(), crate::messages::MessageReporter::null());
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
             let offline_resolver = CachingResolver::new(
-                DefaultCrateResolver::new(offline_config, git_client, resolver.inner.cargo.clone()),
+                DefaultCrateResolver::new(
+                    offline_config,
+                    git_client,
+                    resolver.inner.cargo.clone(),
+                    http_client,
+                ),
                 resolver.cache,
             );
 

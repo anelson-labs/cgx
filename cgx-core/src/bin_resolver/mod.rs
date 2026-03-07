@@ -8,6 +8,7 @@ use crate::{
     crate_resolver::ResolvedCrate,
     downloader::DownloadedCrate,
     error,
+    http::HttpClient,
     messages::PrebuiltBinaryMessage,
 };
 use providers::{BinstallProvider, GithubProvider, GitlabProvider, Provider, QuickinstallProvider};
@@ -59,14 +60,16 @@ pub(crate) fn create_resolver(
     config: Config,
     cache: Cache,
     reporter: crate::messages::MessageReporter,
+    http_client: HttpClient,
 ) -> impl BinaryResolver {
-    let inner = DefaultBinaryResolver::new(config, reporter.clone());
+    let inner = DefaultBinaryResolver::new(config, reporter.clone(), http_client);
     CachingResolver::new(inner, cache, reporter)
 }
 
 struct DefaultBinaryResolver {
     config: Config,
     reporter: crate::messages::MessageReporter,
+    http_client: HttpClient,
 }
 
 /// Check if the build options disqualify the use of pre-built binaries.
@@ -106,8 +109,12 @@ fn is_disqualified(build_options: &BuildOptions) -> Option<&'static str> {
 }
 
 impl DefaultBinaryResolver {
-    fn new(config: Config, reporter: crate::messages::MessageReporter) -> Self {
-        Self { config, reporter }
+    fn new(config: Config, reporter: crate::messages::MessageReporter, http_client: HttpClient) -> Self {
+        Self {
+            config,
+            reporter,
+            http_client,
+        }
     }
 
     /// Relocate a resolved binary from the provider's cache to the `bin_dir` structure.
@@ -243,20 +250,29 @@ impl BinaryResolver for DefaultBinaryResolver {
             reporter.report(|| PrebuiltBinaryMessage::checking_provider(resolved, *provider_type));
 
             let result = match provider_type {
-                BinaryProvider::Binstall => {
-                    BinstallProvider::new(reporter.clone(), cache_dir.clone(), verify)
-                        .try_resolve(krate, platform)
-                }
-                BinaryProvider::GithubReleases => {
-                    GithubProvider::new(reporter.clone(), cache_dir.clone(), verify)
-                        .try_resolve(krate, platform)
-                }
-                BinaryProvider::GitlabReleases => {
-                    GitlabProvider::new(reporter.clone(), cache_dir.clone(), verify)
-                        .try_resolve(krate, platform)
-                }
+                BinaryProvider::Binstall => BinstallProvider::new(
+                    reporter.clone(),
+                    cache_dir.clone(),
+                    verify,
+                    self.http_client.clone(),
+                )
+                .try_resolve(krate, platform),
+                BinaryProvider::GithubReleases => GithubProvider::new(
+                    reporter.clone(),
+                    cache_dir.clone(),
+                    verify,
+                    self.http_client.clone(),
+                )
+                .try_resolve(krate, platform),
+                BinaryProvider::GitlabReleases => GitlabProvider::new(
+                    reporter.clone(),
+                    cache_dir.clone(),
+                    verify,
+                    self.http_client.clone(),
+                )
+                .try_resolve(krate, platform),
                 BinaryProvider::Quickinstall => {
-                    QuickinstallProvider::new(reporter.clone(), cache_dir.clone())
+                    QuickinstallProvider::new(reporter.clone(), cache_dir.clone(), self.http_client.clone())
                         .try_resolve(krate, platform)
                 }
             };

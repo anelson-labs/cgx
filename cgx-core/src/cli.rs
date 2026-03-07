@@ -242,6 +242,40 @@ pub struct CliArgs {
     #[arg(long, value_name = "PATH", env = "CGX_USER_CONFIG_DIR")]
     pub user_config_dir: Option<PathBuf>,
 
+    /// HTTP request timeout (e.g., "30s", "2m").
+    ///
+    /// Controls the per-request timeout for registry queries, binary downloads,
+    /// and API calls. Does not affect git operations.
+    ///
+    /// If not set, cgx honors the Cargo environment variable `CARGO_HTTP_TIMEOUT`
+    /// (integer seconds). If not set, defaults to 30s.
+    #[arg(long, value_name = "DURATION", env = "CGX_HTTP_TIMEOUT")]
+    pub http_timeout: Option<String>,
+
+    /// Maximum number of retries for transient HTTP failures (0 = no retries).
+    ///
+    /// When an HTTP request fails due to a transient error (rate limiting, server
+    /// errors, connection issues), cgx will retry up to this many times with
+    /// exponential backoff.
+    ///
+    /// If not set, cgx honors the Cargo environment variable `CARGO_NET_RETRY`
+    /// (integer). If not set, defaults to 2.
+    #[arg(long, value_name = "N", env = "CGX_HTTP_RETRIES")]
+    pub http_retries: Option<usize>,
+
+    /// HTTP or SOCKS5 proxy URL for all HTTP requests.
+    ///
+    /// Routes all HTTP requests (except git operations, which use their own
+    /// transport) through the specified proxy. Supports http://, https://, and
+    /// socks5:// URL schemes. For proxy authentication, embed credentials in the
+    /// URL: `http://user:password@host:port`.
+    ///
+    /// If not set, cgx honors the Cargo environment variable `CARGO_HTTP_PROXY`,
+    /// followed by standard proxy variables (`HTTPS_PROXY`, `https_proxy`,
+    /// `http_proxy`). If none are set, no proxy is used.
+    #[arg(long, value_name = "URL", env = "CGX_HTTP_PROXY")]
+    pub http_proxy: Option<String>,
+
     /// Build the binary but do not execute it; print its path to stdout instead.
     ///
     /// Performs all normal operations (resolve, download, build) but instead of executing
@@ -1621,6 +1655,44 @@ mod tests {
                 binary_args,
                 vec!["--color=always", "-i", "--no-heading", "pattern", "file.txt"]
             );
+        }
+    }
+
+    mod http_args {
+        use super::*;
+
+        #[test]
+        fn test_http_timeout_cli_arg() {
+            let cli = CliArgs::parse_from_test_args(["--http-timeout", "2m", "test-crate"]);
+            assert_eq!(cli.http_timeout, Some("2m".to_string()));
+        }
+
+        #[test]
+        fn test_http_retries_cli_arg() {
+            let cli = CliArgs::parse_from_test_args(["--http-retries", "5", "test-crate"]);
+            assert_eq!(cli.http_retries, Some(5));
+        }
+
+        #[test]
+        fn test_http_proxy_cli_arg() {
+            let cli =
+                CliArgs::parse_from_test_args(["--http-proxy", "socks5://localhost:1080", "test-crate"]);
+            assert_eq!(cli.http_proxy, Some("socks5://localhost:1080".to_string()));
+        }
+
+        #[test]
+        fn test_http_args_default_none() {
+            let cli = CliArgs::parse_from_test_args(["test-crate"]);
+            assert_eq!(cli.http_timeout, None);
+            assert_eq!(cli.http_retries, None);
+            assert_eq!(cli.http_proxy, None);
+        }
+
+        #[test]
+        fn test_http_args_after_crate_spec_are_binary_args() {
+            let cli = CliArgs::parse_from_test_args(["test-crate", "--http-timeout", "5s"]);
+            assert_eq!(cli.http_timeout, None);
+            assert_eq!(cli.args, vec!["--http-timeout", "5s"]);
         }
     }
 

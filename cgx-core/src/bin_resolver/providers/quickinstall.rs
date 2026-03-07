@@ -1,7 +1,13 @@
 use super::{ArchiveFormat, Provider};
 use crate::{
-    Result, bin_resolver::ResolvedBinary, config::BinaryProvider, crate_resolver::ResolvedCrate,
-    downloader::DownloadedCrate, error, messages::PrebuiltBinaryMessage,
+    Result,
+    bin_resolver::ResolvedBinary,
+    config::BinaryProvider,
+    crate_resolver::ResolvedCrate,
+    downloader::DownloadedCrate,
+    error,
+    http::{Bytes, HttpClient},
+    messages::PrebuiltBinaryMessage,
 };
 use snafu::ResultExt;
 use std::path::PathBuf;
@@ -9,14 +15,20 @@ use std::path::PathBuf;
 pub(in crate::bin_resolver) struct QuickinstallProvider {
     reporter: crate::messages::MessageReporter,
     cache_dir: PathBuf,
+    http_client: HttpClient,
 }
 
 impl QuickinstallProvider {
     pub(in crate::bin_resolver) fn new(
         reporter: crate::messages::MessageReporter,
         cache_dir: PathBuf,
+        http_client: HttpClient,
     ) -> Self {
-        Self { reporter, cache_dir }
+        Self {
+            reporter,
+            cache_dir,
+            http_client,
+        }
     }
 
     fn construct_url(krate: &ResolvedCrate, platform: &str) -> String {
@@ -25,23 +37,8 @@ impl QuickinstallProvider {
         format!("{base}/{tag}/{tag}-{platform}.tar.gz")
     }
 
-    fn download_file(url: &str) -> Result<Vec<u8>> {
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("cgx (https://github.com/anelson-labs/cgx)")
-            .build()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        let response = client
-            .get(url)
-            .send()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?
-            .error_for_status()
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })?;
-
-        response
-            .bytes()
-            .map(|b| b.to_vec())
-            .with_context(|_| error::BinaryDownloadFailedSnafu { url: url.to_string() })
+    fn download_file(&self, url: &str) -> Result<Option<Bytes>> {
+        self.http_client.try_download(url)
     }
 }
 
@@ -52,9 +49,7 @@ impl Provider for QuickinstallProvider {
         self.reporter
             .report(|| PrebuiltBinaryMessage::downloading_binary(&url, BinaryProvider::Quickinstall));
 
-        let data = if let Ok(data) = Self::download_file(&url) {
-            data
-        } else {
+        let Ok(Some(data)) = self.download_file(&url) else {
             self.reporter.report(|| {
                 PrebuiltBinaryMessage::provider_has_no_binary(
                     BinaryProvider::Quickinstall,

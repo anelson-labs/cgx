@@ -6,13 +6,12 @@ use crate::{
     cratespec::RegistrySource,
     error,
     git::{GitClient, GitSelector},
+    http::HttpClient,
+    registry::{DownloadUrlLookup, RegistryClient},
 };
 use semver::Version;
-use snafu::{OptionExt, ResultExt};
+use snafu::ResultExt;
 use std::path::{Path, PathBuf};
-use tame_index::{
-    IndexLocation, IndexUrl, KrateName, SparseIndex, index::RemoteSparseIndex, utils::flock::LockOptions,
-};
 use toml::Value;
 
 /// A crate whose code is available locally on disk after downloading.
@@ -150,8 +149,13 @@ pub trait CrateDownloader: std::fmt::Debug + Send + Sync + 'static {
 
 /// Create a default implementation of [`CrateDownloader`] using the given cache, config, and git
 /// client.
-pub(crate) fn create_downloader(config: Config, cache: Cache, git_client: GitClient) -> impl CrateDownloader {
-    DefaultCrateDownloader::new(cache, config, git_client)
+pub(crate) fn create_downloader(
+    config: Config,
+    cache: Cache,
+    git_client: GitClient,
+    http_client: HttpClient,
+) -> impl CrateDownloader {
+    DefaultCrateDownloader::new(cache, config, git_client, http_client)
 }
 
 /// Default implementation of [`CrateDownloader`] that performs actual network requests
@@ -161,15 +165,17 @@ struct DefaultCrateDownloader {
     cache: Cache,
     config: Config,
     git_client: GitClient,
+    http_client: HttpClient,
 }
 
 impl DefaultCrateDownloader {
     /// Create a new [`DefaultCrateDownloader`] with the given cache, configuration, and git client.
-    pub(crate) fn new(cache: Cache, config: Config, git_client: GitClient) -> Self {
+    pub(crate) fn new(cache: Cache, config: Config, git_client: GitClient, http_client: HttpClient) -> Self {
         Self {
             cache,
             config,
             git_client,
+            http_client,
         }
     }
 
@@ -181,80 +187,33 @@ impl DefaultCrateDownloader {
         version: &Version,
         source: Option<&RegistrySource>,
     ) -> Result<()> {
-        // Resolve IndexUrl based on source type (same logic as resolver)
-        let index_url = match source {
-            None => {
-                IndexUrl::crates_io(
-                    None, // config_root: search standard locations
-                    None, // cargo_home: use $CARGO_HOME
-                    None, // cargo_version: auto-detect version
-                )
-                .context(error::RegistrySnafu)?
-            }
-            Some(RegistrySource::Named(registry_name)) => {
-                IndexUrl::for_registry_name(
-                    None, // config_root: search standard locations
-                    None, // cargo_home: use $CARGO_HOME
-                    registry_name,
-                )
-                .context(error::RegistrySnafu)?
-            }
-            Some(RegistrySource::IndexUrl(url)) => IndexUrl::from(url.as_str()),
-        };
-
-        // Get the index and query for the crate
-        let index_location = IndexLocation::new(index_url);
-        let sparse_index = SparseIndex::new(index_location).context(error::RegistrySnafu)?;
-        let remote_index = RemoteSparseIndex::new(sparse_index, reqwest::blocking::Client::new());
-
-        let lock = LockOptions::cargo_package_lock(None)
-            .context(error::RegistrySnafu)?
-            .lock(|_| None)
-            .context(error::RegistrySnafu)?;
-
-        let krate_name = KrateName::try_from(name).context(error::RegistrySnafu)?;
-
-        // In offline mode this should have failed earlier, but the index query itself
-        // respects offline mode via cached_krate
-        let krate = if self.config.offline {
-            remote_index
-                .cached_krate(krate_name, &lock)
-                .context(error::RegistrySnafu)?
-                .with_context(|| error::CrateNotFoundInRegistrySnafu {
+        let registry = RegistryClient::new(source, &self.http_client, &self.config.http)?;
+        let download_url = match registry.crate_download_url(name, version, self.config.offline)? {
+            DownloadUrlLookup::Url(download_url) => download_url,
+            DownloadUrlLookup::CrateNotFound => {
+                return error::CrateNotFoundInRegistrySnafu {
                     name: name.to_string(),
-                })?
-        } else {
-            remote_index
-                .krate(krate_name, true, &lock)
-                .context(error::RegistrySnafu)?
-                .with_context(|| error::CrateNotFoundInRegistrySnafu {
-                    name: name.to_string(),
-                })?
-        };
-
-        // Find the specific version we need
-        let index_version = krate
-            .versions
-            .iter()
-            .find(|v| Version::parse(&v.version).ok().is_some_and(|ver| &ver == version))
-            .with_context(|| error::NoMatchingVersionSnafu {
-                name: name.to_string(),
-                requirement: version.to_string(),
-            })?;
-
-        // Get the index config to construct download URL
-        let index_config = remote_index.index.index_config().context(error::RegistrySnafu)?;
-
-        // Get download URL for this version
-        let download_url = index_version.download_url(&index_config).with_context(|| {
-            error::DownloadUrlUnavailableSnafu {
-                name: name.to_string(),
-                version: version.to_string(),
+                }
+                .fail();
             }
-        })?;
+            DownloadUrlLookup::VersionNotFound => {
+                return error::NoMatchingVersionSnafu {
+                    name: name.to_string(),
+                    requirement: version.to_string(),
+                }
+                .fail();
+            }
+            DownloadUrlLookup::UrlUnavailable => {
+                return error::DownloadUrlUnavailableSnafu {
+                    name: name.to_string(),
+                    version: version.to_string(),
+                }
+                .fail();
+            }
+        };
 
         // Download the .crate file
-        let response = reqwest::blocking::get(&download_url).context(error::RegistryDownloadSnafu)?;
+        let response = self.http_client.get(&download_url)?;
 
         // The .crate file is a gzipped tarball, extract it to download_path
         //
@@ -406,7 +365,11 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter);
-        (DefaultCrateDownloader::new(cache, config, git_client), temp_dir)
+        let http_client = HttpClient::new(&config.http).unwrap();
+        (
+            DefaultCrateDownloader::new(cache, config, git_client, http_client),
+            temp_dir,
+        )
     }
 
     /// Create a test downloader with offline config and an isolated temp directory.
@@ -417,7 +380,11 @@ mod tests {
         let reporter = crate::messages::MessageReporter::null();
         let cache = Cache::new(config.clone(), reporter.clone());
         let git_client = GitClient::new(cache.clone(), reporter);
-        (DefaultCrateDownloader::new(cache, config, git_client), temp_dir)
+        let http_client = HttpClient::new(&config.http).unwrap();
+        (
+            DefaultCrateDownloader::new(cache, config, git_client, http_client),
+            temp_dir,
+        )
     }
 
     fn test_cargo_runner() -> impl CargoRunner {
@@ -542,7 +509,9 @@ mod tests {
             let reporter = crate::messages::MessageReporter::null();
             let cache = Cache::new(offline_config.clone(), reporter.clone());
             let git_client = GitClient::new(cache.clone(), reporter);
-            let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
+            let offline_downloader =
+                DefaultCrateDownloader::new(cache, offline_config, git_client, http_client);
 
             let offline_result = offline_downloader.download(resolved).unwrap();
             validate_downloaded_crate(&offline_result);
@@ -659,7 +628,9 @@ mod tests {
             let reporter = crate::messages::MessageReporter::null();
             let cache = Cache::new(offline_config.clone(), reporter.clone());
             let git_client = GitClient::new(cache.clone(), reporter);
-            let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
+            let offline_downloader =
+                DefaultCrateDownloader::new(cache, offline_config, git_client, http_client);
 
             let offline_downloaded_crate = offline_downloader.download(resolved).unwrap();
             validate_downloaded_crate(&offline_downloaded_crate);
@@ -770,7 +741,9 @@ mod tests {
             let reporter = crate::messages::MessageReporter::null();
             let cache = Cache::new(offline_config.clone(), reporter.clone());
             let git_client = GitClient::new(cache.clone(), reporter);
-            let offline_downloader = DefaultCrateDownloader::new(cache, offline_config, git_client);
+            let http_client = HttpClient::new(&offline_config.http).unwrap();
+            let offline_downloader =
+                DefaultCrateDownloader::new(cache, offline_config, git_client, http_client);
 
             let offline_result = offline_downloader.download(resolved).unwrap();
             validate_downloaded_crate(&offline_result);
