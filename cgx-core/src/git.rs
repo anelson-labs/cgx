@@ -15,9 +15,7 @@ use crate::{
     messages::{GitMessage, MessageReporter},
 };
 use backon::{BlockingRetryable, ExponentialBuilder};
-use gix::{
-    ObjectId, bstr::BString, config::tree::Key as _, protocol::transport::IsSpuriousError, remote::Direction,
-};
+use gix::{ObjectId, bstr::BString, protocol::transport::IsSpuriousError, remote::Direction};
 use serde::{Deserialize, Serialize};
 use snafu::{IntoError, ResultExt, prelude::*};
 use std::{
@@ -25,308 +23,6 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
 };
-
-mod linux_ca_bootstrap {
-    //! Linux-only trust bootstrap for `gix` over `curl + rustls`.
-    //!
-    //! `cgx` uses `gix`'s curl backend because the released reqwest backend is still marked
-    //! experimental upstream and does not support the shared HTTP options that `cgx` needs to
-    //! control consistently, including proxy, timeout, and user-agent behavior.
-    //!
-    //! That choice is normally fine, but there is a Linux-specific gap when the curl stack comes
-    //! from vendored `curl-sys` with the rustls TLS backend. In that configuration, `gix` can
-    //! reach vendored libcurl, vendored libcurl can reach rustls, and rustls can still fail before
-    //! a TLS handshake begins because no server certificate verifier was configured at all. The
-    //! user-visible error is:
-    //!
-    //! `failed to build client config: no server certificate verifier was configured on the client
-    //! config builder`
-    //!
-    //! We intentionally do not "solve" that by requiring callers to set `GIT_SSL_CAINFO`,
-    //! `CURL_CA_BUNDLE`, `SSL_CERT_FILE`, or any similar environment variable, because the product
-    //! requirement is that HTTPS git fetches should just work out of the box. We also intentionally
-    //! do not hard-code distro-specific CA bundle paths like `/etc/ssl/certs/ca-certificates.crt`,
-    //! because that only works accidentally on some Linux distributions and would still be the
-    //! wrong abstraction for a portable CLI.
-    //!
-    //! The supported hook that `gix` does expose today is `http.sslCAInfo`, which becomes
-    //! curl's CA file input. What `gix` does not currently expose for this stack is the runtime
-    //! switch needed to tell curl+rustls to use Linux platform trust directly. That leaves one
-    //! non-patched option inside the application: load the Linux trust roots ourselves, materialize
-    //! them as a PEM bundle, and point `gix` at that generated file.
-    //!
-    //! This module exists specifically to close that gap on Linux while preserving the rest of the
-    //! `gix` curl integration. It writes a generated PEM bundle under `cgx`'s cache directory and
-    //! replaces it atomically so that fetches never observe a partially written file.
-    //!
-    //! This logic is intentionally Linux-only. It is not an attempt to replace platform trust on
-    //! Windows or macOS, where `cgx` should continue to rely on the platform's existing behavior.
-    //! On non-Linux targets, the helper in this module is a no-op and returns `None`.
-    //!
-    //! If upstream `gix` grows a supported way to enable curl's platform/native trust for rustls
-    //! on Linux, or if vendored curl+rustls stops needing app-side help, this module should be
-    //! removed rather than expanded.
-
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use snafu::{ResultExt, Snafu};
-    use std::{
-        fs,
-        io::{self, Write},
-        path::{Path, PathBuf},
-    };
-    use tracing::{debug, trace, warn};
-
-    #[derive(Debug, Snafu)]
-    pub(crate) enum Error {
-        #[snafu(display(
-            "No Linux native CA certificates were loaded for HTTPS git transport (encountered {error_count} \
-             loader errors)"
-        ))]
-        NoNativeCaCertificates { error_count: usize },
-
-        #[snafu(display("Failed to create TLS cache directory at {}", path.display()))]
-        CreateDirectory { path: PathBuf, source: io::Error },
-
-        #[snafu(display("Failed to create temporary CA bundle in {}", path.display()))]
-        CreateTemporaryBundle { path: PathBuf, source: io::Error },
-
-        #[snafu(display("Failed to write Linux HTTPS CA bundle to {}", path.display()))]
-        WriteBundle { path: PathBuf, source: io::Error },
-
-        #[snafu(display("Failed to sync Linux HTTPS CA bundle at {}", path.display()))]
-        SyncBundle { path: PathBuf, source: io::Error },
-
-        #[snafu(display("Failed to persist Linux HTTPS CA bundle at {}", path.display()))]
-        PersistBundle {
-            path: PathBuf,
-            #[snafu(source(from(tempfile::PathPersistError, Box::new)))]
-            source: Box<tempfile::PathPersistError>,
-        },
-    }
-
-    pub(super) fn prepare_ssl_ca_info(
-        remote_url: &str,
-        bundle_path: &Path,
-    ) -> Result<Option<PathBuf>, Error> {
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = (remote_url, bundle_path);
-            Ok(None)
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            prepare_ssl_ca_info_with_loader(remote_url, bundle_path, rustls_native_certs::load_native_certs)
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn prepare_ssl_ca_info_with_loader<L>(
-        remote_url: &str,
-        bundle_path: &Path,
-        load_native_certs: L,
-    ) -> Result<Option<PathBuf>, Error>
-    where
-        L: FnOnce() -> rustls_native_certs::CertificateResult,
-    {
-        if !is_https_remote(remote_url) {
-            trace!(remote_url = %remote_url, "Skipping Linux HTTPS CA bootstrap for non-HTTPS git remote");
-            return Ok(None);
-        }
-
-        let cert_result = load_native_certs();
-        if cert_result.certs.is_empty() {
-            return NoNativeCaCertificatesSnafu {
-                error_count: cert_result.errors.len(),
-            }
-            .fail();
-        }
-
-        if !cert_result.errors.is_empty() {
-            warn!(
-                remote_url = %remote_url,
-                loaded_cert_count = cert_result.certs.len(),
-                skipped_error_count = cert_result.errors.len(),
-                "Loaded Linux native CA certificates with some skipped entries"
-            );
-        }
-
-        let pem_bundle = build_pem_bundle(cert_result.certs.iter());
-        write_pem_bundle(bundle_path, &pem_bundle)?;
-
-        debug!(
-            remote_url = %remote_url,
-            bundle_path = %bundle_path.display(),
-            loaded_cert_count = cert_result.certs.len(),
-            "Prepared Linux HTTPS CA bundle for gix curl+rustls"
-        );
-
-        Ok(Some(bundle_path.to_path_buf()))
-    }
-
-    #[cfg(target_os = "linux")]
-    fn is_https_remote(remote_url: &str) -> bool {
-        url::Url::parse(remote_url)
-            .ok()
-            .is_some_and(|url| url.scheme().eq_ignore_ascii_case("https"))
-    }
-
-    fn build_pem_bundle<I, C>(certs: I) -> String
-    where
-        I: IntoIterator<Item = C>,
-        C: AsRef<[u8]>,
-    {
-        let mut bundle = String::new();
-        for cert in certs {
-            let encoded = STANDARD.encode(cert.as_ref());
-            bundle.push_str("-----BEGIN CERTIFICATE-----\n");
-            for chunk in encoded.as_bytes().chunks(64) {
-                bundle.push_str(std::str::from_utf8(chunk).expect("base64 output is ASCII"));
-                bundle.push('\n');
-            }
-            bundle.push_str("-----END CERTIFICATE-----\n");
-        }
-        bundle
-    }
-
-    #[cfg(target_os = "linux")]
-    fn write_pem_bundle(bundle_path: &Path, pem_bundle: &str) -> Result<(), Error> {
-        let parent = bundle_path
-            .parent()
-            .expect("BUG: CA bundle path must have a parent directory");
-
-        fs::create_dir_all(parent).with_context(|_| CreateDirectorySnafu {
-            path: parent.to_path_buf(),
-        })?;
-
-        let mut temp_file =
-            tempfile::NamedTempFile::new_in(parent).with_context(|_| CreateTemporaryBundleSnafu {
-                path: parent.to_path_buf(),
-            })?;
-
-        temp_file
-            .write_all(pem_bundle.as_bytes())
-            .with_context(|_| WriteBundleSnafu {
-                path: bundle_path.to_path_buf(),
-            })?;
-        temp_file.flush().with_context(|_| WriteBundleSnafu {
-            path: bundle_path.to_path_buf(),
-        })?;
-        temp_file.as_file().sync_all().with_context(|_| SyncBundleSnafu {
-            path: bundle_path.to_path_buf(),
-        })?;
-        temp_file
-            .into_temp_path()
-            .persist(bundle_path)
-            .with_context(|_| PersistBundleSnafu {
-                path: bundle_path.to_path_buf(),
-            })?;
-
-        Ok(())
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use assert_matches::assert_matches;
-        use rustls_native_certs::{
-            CertificateResult, Error as NativeCertError, ErrorKind as NativeCertErrorKind,
-        };
-        use std::{cell::Cell, io, path::PathBuf};
-        use tempfile::TempDir;
-
-        #[test]
-        fn pem_bundle_uses_certificate_blocks_and_wraps_base64_lines() {
-            let bundle = build_pem_bundle([vec![0_u8; 49], vec![1_u8, 2, 3]]);
-            let lines: Vec<_> = bundle.lines().collect();
-
-            assert_eq!(lines[0], "-----BEGIN CERTIFICATE-----");
-            assert_eq!(lines[1].len(), 64);
-            assert_eq!(lines[2].len(), 4);
-            assert_eq!(lines[3], "-----END CERTIFICATE-----");
-            assert_eq!(lines[4], "-----BEGIN CERTIFICATE-----");
-            assert_eq!(lines[5], "AQID");
-            assert_eq!(lines[6], "-----END CERTIFICATE-----");
-            assert!(bundle.ends_with('\n'));
-        }
-
-        #[cfg(target_os = "linux")]
-        #[test]
-        fn non_https_remote_skips_bootstrap_without_loading_certs() {
-            let temp_dir = TempDir::new().unwrap();
-            let bundle_path = temp_dir.path().join("tls").join("bundle.pem");
-            let loader_called = Cell::new(false);
-
-            let result = prepare_ssl_ca_info_with_loader("http://example.com/repo.git", &bundle_path, || {
-                loader_called.set(true);
-                CertificateResult::default()
-            })
-            .unwrap();
-
-            assert_eq!(result, None);
-            assert!(!loader_called.get());
-            assert!(!bundle_path.exists());
-        }
-
-        #[cfg(target_os = "linux")]
-        #[test]
-        fn https_remote_writes_bundle_and_returns_path() {
-            let temp_dir = TempDir::new().unwrap();
-            let bundle_path = temp_dir.path().join("tls").join("bundle.pem");
-
-            let result =
-                prepare_ssl_ca_info_with_loader("https://example.com/repo.git", &bundle_path, || {
-                    let mut result = CertificateResult::default();
-                    result.certs.push(vec![1_u8, 2, 3].into());
-                    result
-                })
-                .unwrap();
-
-            assert_eq!(result, Some(bundle_path.clone()));
-            let contents = fs::read_to_string(&bundle_path).unwrap();
-            assert!(contents.contains("AQID"));
-        }
-
-        #[cfg(target_os = "linux")]
-        #[test]
-        fn https_remote_continues_when_some_native_certs_fail_to_load() {
-            let temp_dir = TempDir::new().unwrap();
-            let bundle_path = temp_dir.path().join("tls").join("bundle.pem");
-
-            let result =
-                prepare_ssl_ca_info_with_loader("https://example.com/repo.git", &bundle_path, || {
-                    let mut result = CertificateResult::default();
-                    result.certs.push(vec![1_u8, 2, 3].into());
-                    result.errors.push(NativeCertError {
-                        context: "failed to read PEM from file",
-                        kind: NativeCertErrorKind::Io {
-                            inner: io::Error::new(io::ErrorKind::InvalidData, "bad certificate"),
-                            path: PathBuf::from("/tmp/bad-cert.pem"),
-                        },
-                    });
-                    result
-                })
-                .unwrap();
-
-            assert_eq!(result, Some(bundle_path.clone()));
-            assert!(bundle_path.exists());
-        }
-
-        #[cfg(target_os = "linux")]
-        #[test]
-        fn https_remote_fails_when_no_native_certs_are_loaded() {
-            let temp_dir = TempDir::new().unwrap();
-            let bundle_path = temp_dir.path().join("tls").join("bundle.pem");
-
-            let err = prepare_ssl_ca_info_with_loader("https://example.com/repo.git", &bundle_path, || {
-                CertificateResult::default()
-            })
-            .unwrap_err();
-
-            assert_matches!(err, Error::NoNativeCaCertificates { error_count: 0 });
-        }
-    }
-}
 
 /// Errors specific to git operations
 #[derive(Debug, Snafu)]
@@ -363,20 +59,6 @@ pub(crate) enum Error {
     FetchRef {
         url: String,
         source: Box<dyn std::error::Error + Send + Sync>,
-    },
-
-    #[snafu(display("Failed to prepare Linux HTTPS trust bootstrap for '{url}'"))]
-    LinuxHttpsTrustBootstrap {
-        url: String,
-        #[snafu(source(from(linux_ca_bootstrap::Error, Box::new)))]
-        source: Box<linux_ca_bootstrap::Error>,
-    },
-
-    #[snafu(display("Failed to build git HTTP config override for {key}"))]
-    HttpConfigOverride {
-        key: &'static str,
-        #[snafu(source(from(gix::config::tree::key::validate_assignment::Error, Box::new)))]
-        source: Box<gix::config::tree::key::validate_assignment::Error>,
     },
 
     #[snafu(display("Failed to checkout from database to {}", path.display()))]
@@ -459,8 +141,7 @@ impl GitClient {
         } else {
             // Ref not present - need to fetch from network
             self.reporter.report(|| GitMessage::fetching_repo(url, &selector));
-            let ca_bundle_path = self.cache.git_http_ca_bundle_path();
-            fetch_ref(&db_path, url, &selector, &self.http_config, &ca_bundle_path)?;
+            fetch_ref(&db_path, url, &selector, &self.http_config)?;
             let oid = resolve_selector(&db_path, &selector)?;
             let commit_str = oid.to_string();
             self.reporter.report(|| GitMessage::resolved_ref(&commit_str));
@@ -535,20 +216,14 @@ fn init_bare_repo(path: &Path) -> Result<()> {
         .map(|_| ())
 }
 
-fn fetch_ref(
-    db_path: &Path,
-    url: &str,
-    selector: &GitSelector,
-    http_config: &HttpConfig,
-    ca_bundle_path: &Path,
-) -> Result<()> {
+fn fetch_ref(db_path: &Path, url: &str, selector: &GitSelector, http_config: &HttpConfig) -> Result<()> {
     let backoff = ExponentialBuilder::default()
         .with_min_delay(http_config.backoff_base)
         .with_max_delay(http_config.backoff_max)
         .with_max_times(http_config.retries)
         .with_jitter();
 
-    (|| fetch_ref_impl(db_path, url, selector, http_config, ca_bundle_path))
+    (|| fetch_ref_impl(db_path, url, selector, http_config))
         .retry(backoff)
         .when(is_retryable_error)
         .sleep(std::thread::sleep)
@@ -602,28 +277,49 @@ fn is_retryable_error(e: &Error) -> bool {
     false
 }
 
-fn build_http_config_overrides(
-    remote_url: &str,
-    http_config: &HttpConfig,
-    ca_bundle_path: &Path,
-) -> Result<Vec<BString>> {
-    build_http_config_overrides_with_bootstrap(
-        remote_url,
-        http_config,
-        ca_bundle_path,
-        linux_ca_bootstrap::prepare_ssl_ca_info,
+// Linux-only trust bootstrap for vendored curl + rustls. On Windows and macOS we
+// intentionally leave gix/curl trust behavior alone instead of forcing a CA file override.
+#[cfg(target_os = "linux")]
+fn linux_ssl_ca_info_override() -> Option<BString> {
+    linux_ssl_ca_info_override_from_probe_state(
+        std::env::var_os("GIT_SSL_CAINFO").is_some(),
+        openssl_probe::probe().cert_file.as_deref(),
     )
 }
 
-fn build_http_config_overrides_with_bootstrap<F>(
-    remote_url: &str,
+#[cfg(target_os = "linux")]
+fn linux_ssl_ca_info_override_from_probe_state(
+    git_ssl_cainfo_is_set: bool,
+    cert_file: Option<&Path>,
+) -> Option<BString> {
+    if git_ssl_cainfo_is_set {
+        return None;
+    }
+
+    cert_file.map(|ca_file| format!("http.sslCAInfo={}", ca_file.display()).into())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_ssl_ca_info_override() -> Option<BString> {
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_ssl_ca_info_override_from_probe_state(
+    _git_ssl_cainfo_is_set: bool,
+    _cert_file: Option<&Path>,
+) -> Option<BString> {
+    None
+}
+
+fn build_http_config_overrides(http_config: &HttpConfig) -> Vec<BString> {
+    build_http_config_overrides_with_ssl_ca_info_override(http_config, linux_ssl_ca_info_override())
+}
+
+fn build_http_config_overrides_with_ssl_ca_info_override(
     http_config: &HttpConfig,
-    ca_bundle_path: &Path,
-    prepare_ssl_ca_info: F,
-) -> Result<Vec<BString>>
-where
-    F: FnOnce(&str, &Path) -> std::result::Result<Option<PathBuf>, linux_ca_bootstrap::Error>,
-{
+    ssl_ca_info_override: Option<BString>,
+) -> Vec<BString> {
     let ua = crate::http::user_agent();
 
     // `connectTimeout` only covers the TCP handshake. To also abort on stalled transfers
@@ -654,49 +350,20 @@ where
         overrides.push(format!("http.proxy={proxy}").into());
     }
 
-    let ssl_ca_info = prepare_ssl_ca_info(remote_url, ca_bundle_path).map_err(|e| {
-        LinuxHttpsTrustBootstrapSnafu {
-            url: remote_url.to_string(),
-        }
-        .into_error(e)
-    })?;
-
-    if let Some(path) = ssl_ca_info {
-        let override_value = gix::config::tree::Http::SSL_CA_INFO
-            .validated_assignment_fmt(&path.to_string_lossy())
-            .map_err(|e| {
-                HttpConfigOverrideSnafu {
-                    key: "http.sslCAInfo",
-                }
-                .into_error(e)
-            })?;
-        overrides.push(override_value);
+    if let Some(ssl_ca_info_override) = ssl_ca_info_override {
+        overrides.push(ssl_ca_info_override);
     }
 
-    Ok(overrides)
+    overrides
 }
 
-fn build_http_open_options(
-    remote_url: &str,
-    http_config: &HttpConfig,
-    ca_bundle_path: &Path,
-) -> Result<gix::open::Options> {
-    let overrides = build_http_config_overrides(remote_url, http_config, ca_bundle_path)?;
-    Ok(gix::open::Options::default().config_overrides(overrides))
+fn build_http_open_options(http_config: &HttpConfig) -> gix::open::Options {
+    let overrides = build_http_config_overrides(http_config);
+    gix::open::Options::default().config_overrides(overrides)
 }
 
-fn fetch_ref_impl(
-    db_path: &Path,
-    url: &str,
-    selector: &GitSelector,
-    http_config: &HttpConfig,
-    ca_bundle_path: &Path,
-) -> Result<()> {
-    let repo = gix::open_opts(
-        db_path,
-        build_http_open_options(url, http_config, ca_bundle_path)?,
-    )
-    .map_err(|e| {
+fn fetch_ref_impl(db_path: &Path, url: &str, selector: &GitSelector, http_config: &HttpConfig) -> Result<()> {
+    let repo = gix::open_opts(db_path, build_http_open_options(http_config)).map_err(|e| {
         OpenRepoSnafu {
             path: db_path.to_path_buf(),
         }
@@ -917,45 +584,111 @@ mod tests {
         }
 
         #[test]
-        fn ssl_ca_info_override_is_added_when_bootstrap_returns_a_bundle_path() {
+        fn includes_user_agent_and_timeout_settings() {
             let (_temp_dir, config) = crate::config::create_test_env();
-            let injected_bundle_path = PathBuf::from("/tmp/cgx tests/linux ca bundle.pem");
+            let overrides = overrides_to_strings(build_http_config_overrides(&config.http));
 
-            let overrides = build_http_config_overrides_with_bootstrap(
-                "https://example.com/repo.git",
-                &config.http,
-                Path::new("/unused"),
-                |_remote_url, _bundle_path| Ok(Some(injected_bundle_path.clone())),
-            )
-            .unwrap();
-
-            let overrides = overrides_to_strings(overrides);
-            let ssl_ca_info = overrides
-                .iter()
-                .find(|override_value| override_value.starts_with("http.sslCAInfo="))
-                .expect("expected http.sslCAInfo override");
-
-            assert!(ssl_ca_info.contains("linux ca bundle.pem"));
+            assert!(overrides.iter().any(|o| o.starts_with("gitoxide.userAgent=")));
+            assert!(overrides.iter().any(|o| o.starts_with("http.userAgent=")));
+            assert!(
+                overrides
+                    .iter()
+                    .any(|o| o.starts_with("gitoxide.http.connectTimeout="))
+            );
+            assert!(overrides.iter().any(|o| o == "http.lowSpeedLimit=1"));
         }
 
         #[test]
-        fn ssl_ca_info_override_is_not_added_when_bootstrap_returns_none() {
-            let (_temp_dir, config) = crate::config::create_test_env();
+        fn includes_proxy_when_configured() {
+            let (_temp_dir, mut config) = crate::config::create_test_env();
+            config.http.proxy = Some("http://proxy.example:8080".to_string());
+            let overrides = overrides_to_strings(build_http_config_overrides(&config.http));
 
-            let overrides = build_http_config_overrides_with_bootstrap(
-                "http://example.com/repo.git",
-                &config.http,
-                Path::new("/unused"),
-                |_remote_url, _bundle_path| Ok(None),
-            )
-            .unwrap();
-
-            let overrides = overrides_to_strings(overrides);
             assert!(
-                !overrides
+                overrides
                     .iter()
-                    .any(|override_value| override_value.starts_with("http.sslCAInfo="))
+                    .any(|o| o == "http.proxy=http://proxy.example:8080")
             );
+        }
+
+        #[test]
+        fn omits_proxy_when_not_configured() {
+            let (_temp_dir, config) = crate::config::create_test_env();
+            let overrides = overrides_to_strings(build_http_config_overrides(&config.http));
+
+            assert!(!overrides.iter().any(|o| o.starts_with("http.proxy=")));
+        }
+
+        #[test]
+        fn includes_ssl_ca_info_override_when_supplied() {
+            let (_temp_dir, config) = crate::config::create_test_env();
+            let overrides = overrides_to_strings(build_http_config_overrides_with_ssl_ca_info_override(
+                &config.http,
+                Some("http.sslCAInfo=/tmp/cgx-test-ca.pem".into()),
+            ));
+
+            assert!(
+                overrides
+                    .iter()
+                    .any(|o| o == "http.sslCAInfo=/tmp/cgx-test-ca.pem")
+            );
+        }
+
+        #[test]
+        fn omits_ssl_ca_info_override_when_not_supplied() {
+            let (_temp_dir, config) = crate::config::create_test_env();
+            let overrides = overrides_to_strings(build_http_config_overrides_with_ssl_ca_info_override(
+                &config.http,
+                None,
+            ));
+
+            assert!(!overrides.iter().any(|o| o.starts_with("http.sslCAInfo=")));
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn linux_ca_override_is_added_when_probe_finds_cert_file() {
+            let override_value = linux_ssl_ca_info_override_from_probe_state(
+                false,
+                Some(Path::new("/etc/ssl/certs/ca-certificates.crt")),
+            );
+
+            assert_eq!(
+                override_value
+                    .as_ref()
+                    .map(|value| String::from_utf8_lossy(value.as_ref()).into_owned()),
+                Some("http.sslCAInfo=/etc/ssl/certs/ca-certificates.crt".to_string())
+            );
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn linux_ca_override_is_suppressed_when_git_ssl_cainfo_is_set() {
+            let override_value = linux_ssl_ca_info_override_from_probe_state(
+                true,
+                Some(Path::new("/etc/ssl/certs/ca-certificates.crt")),
+            );
+
+            assert_eq!(override_value, None);
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn linux_ca_override_is_omitted_when_probe_finds_no_cert_file() {
+            let override_value = linux_ssl_ca_info_override_from_probe_state(false, None);
+
+            assert_eq!(override_value, None);
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        #[test]
+        fn non_linux_ca_override_is_always_omitted() {
+            let override_value = linux_ssl_ca_info_override_from_probe_state(
+                false,
+                Some(Path::new("/tmp/non-linux-test-ca.pem")),
+            );
+
+            assert_eq!(override_value, None);
         }
     }
 
@@ -1219,14 +952,12 @@ mod tests {
             });
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = fast_retry_config();
             let result = fetch_ref(
                 &db_path,
                 &server.url("/repo.git"),
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
@@ -1241,14 +972,12 @@ mod tests {
             });
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = fast_retry_config();
             let result = fetch_ref(
                 &db_path,
                 &server.url("/repo.git"),
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
@@ -1263,14 +992,12 @@ mod tests {
             });
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = fast_retry_config();
             let result = fetch_ref(
                 &db_path,
                 &server.url("/repo.git"),
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
@@ -1285,14 +1012,12 @@ mod tests {
             });
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = fast_retry_config();
             let result = fetch_ref(
                 &db_path,
                 &server.url("/repo.git"),
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
@@ -1307,14 +1032,12 @@ mod tests {
             });
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = fast_retry_config();
             let result = fetch_ref(
                 &db_path,
                 &server.url("/repo.git"),
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
@@ -1329,7 +1052,6 @@ mod tests {
             });
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = HttpConfig {
                 retries: 2,
                 backoff_base: Duration::from_millis(1),
@@ -1342,7 +1064,6 @@ mod tests {
                 &server.url("/repo.git"),
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
@@ -1362,14 +1083,12 @@ mod tests {
             });
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = no_retry_config();
             let result = fetch_ref(
                 &db_path,
                 &server.url("/repo.git"),
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
@@ -1381,7 +1100,6 @@ mod tests {
             let (proxy_url, proxy_handle) = start_capture_proxy();
 
             let (_temp, db_path) = test_bare_repo();
-            let ca_bundle_path = _temp.path().join("tls").join("bundle.pem");
             let config = HttpConfig {
                 proxy: Some(proxy_url),
                 ..no_retry_config()
@@ -1392,7 +1110,6 @@ mod tests {
                 "http://example.invalid/repo.git",
                 &GitSelector::DefaultBranch,
                 &config,
-                &ca_bundle_path,
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));

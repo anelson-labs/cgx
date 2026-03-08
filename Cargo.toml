@@ -11,58 +11,56 @@ repository   = "https://github.com/anelson-labs/cgx"
 rust-version = "1.85.1"
 
 [workspace.dependencies]
-assert-json-diff    = "2.0.2"
-assert_cmd          = { version = "2.1.2", features = ["color-auto"] }
-assert_fs           = { version = "1.1.3", features = ["color-auto"] }
-assert_matches      = "1.5.0"
-backon              = { version = "1.6", default-features = false, features = ["std-blocking-sleep"] }
-base64              = "0.22.1"
-build-context       = "0.1.3"
-bytes               = "1"
-bzip2               = "0.6.1"
-cargo_metadata      = "0.20.0"
-cgx                 = { version = "0.0.8", path = "cgx" }
-cgx-core            = { version = "0.0.8", path = "cgx-core" }
-chrono              = { version = "0.4.43", features = ["serde"] }
-clap                = { version = "4.5.60", features = ["derive", "env", "string", "unicode"] }
-ctrlc               = "3.5"
-etcetera            = "0.10.0"
-figment             = { version = "0.10.19", features = ["toml", "env"] }
-flate2              = "1.1.9"
-gix                 = { version = "0.80", features = ["blocking-http-transport-curl-rustls", "max-performance-safe", "worktree-mutation"] }
-home                = "0.5.11"
-httpmock            = "0.8.2"
-humantime           = "2.1"
-humantime-serde     = "1.1.1"
-ignore              = "0.4.25"
-insta               = { version = "1.46.3", features = ["filters"] }
-predicates          = "3.1.3"
-rand                = "0.10.0"
-reqwest             = { version = "0.13", default-features = false, features = ["blocking", "rustls", "http2", "charset", "gzip", "system-proxy", "socks"] }
-rustls-native-certs = "0.8.3"
-sealed_test         = "1.1.0"
-semver              = { version = "1.0.27", features = ["serde"] }
-serde               = { version = "1.0.228", features = ["derive"] }
-serde-cyclonedx     = "0.10.0"
-serde_json          = "1.0.149"
-sha2                = "0.10.9"
-shellexpand         = "3.1.1"
-snafu               = "0.8.9"
-strum               = "0.28.0"
-tame-index          = { version = "0.26", features = ["sparse"] }
-tar                 = "0.4.44"
-tempfile            = "3.26.0"
-tokio               = { version = "1", features = ["rt", "rt-multi-thread"] }
-toml                = "1.0.3"
-tracing             = "0.1.41"
-tracing-subscriber  = { version = "0.3.22", features = ["env-filter"] }
-url                 = { version = "2.5.8", features = ["serde"] }
-uuid                = { version = "1.21.0", features = ["v4"] }
-vergen-gix          = { version = "1.0.9", default-features = false }
-which               = "8.0.0"
-xz2                 = "0.1.7"
-zip                 = "7.2.0"
-zstd                = "0.13.3"
+assert-json-diff   = "2.0.2"
+assert_cmd         = { version = "2.1.2", features = ["color-auto"] }
+assert_fs          = { version = "1.1.3", features = ["color-auto"] }
+assert_matches     = "1.5.0"
+backon             = { version = "1.6", default-features = false, features = ["std-blocking-sleep"] }
+build-context      = "0.1.3"
+bytes              = "1"
+bzip2              = "0.6.1"
+cargo_metadata     = "0.20.0"
+cgx                = { version = "0.0.8", path = "cgx" }
+cgx-core           = { version = "0.0.8", path = "cgx-core" }
+chrono             = { version = "0.4.43", features = ["serde"] }
+clap               = { version = "4.5.60", features = ["derive", "env", "string", "unicode"] }
+ctrlc              = "3.5"
+etcetera           = "0.10.0"
+figment            = { version = "0.10.19", features = ["toml", "env"] }
+flate2             = "1.1.9"
+gix                = { version = "0.80", features = ["blocking-http-transport-curl-rustls", "max-performance-safe", "worktree-mutation"] }
+home               = "0.5.11"
+httpmock           = "0.8.2"
+humantime          = "2.1"
+humantime-serde    = "1.1.1"
+ignore             = "0.4.25"
+insta              = { version = "1.46.3", features = ["filters"] }
+openssl-probe      = "0.2.1"
+predicates         = "3.1.3"
+rand               = "0.10.0"
+reqwest            = { version = "0.13", default-features = false, features = ["blocking", "rustls", "http2", "charset", "gzip", "system-proxy", "socks"] }
+sealed_test        = "1.1.0"
+semver             = { version = "1.0.27", features = ["serde"] }
+serde              = { version = "1.0.228", features = ["derive"] }
+serde-cyclonedx    = "0.10.0"
+serde_json         = "1.0.149"
+sha2               = "0.10.9"
+shellexpand        = "3.1.1"
+snafu              = "0.8.9"
+strum              = "0.28.0"
+tame-index         = { version = "0.26", features = ["sparse"] }
+tar                = "0.4.44"
+tempfile           = "3.26.0"
+toml               = "1.0.3"
+tracing            = "0.1.41"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+url                = { version = "2.5.8", features = ["serde"] }
+uuid               = { version = "1.21.0", features = ["v4"] }
+vergen-gix         = { version = "1.0.9", default-features = false }
+which              = "8.0.0"
+xz2                = "0.1.7"
+zip                = "7.2.0"
+zstd               = "0.13.3"
 
 # The profile that 'dist' will build with
 [profile.dist]
