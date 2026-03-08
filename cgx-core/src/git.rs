@@ -280,18 +280,7 @@ fn is_retryable_error(e: &Error) -> bool {
 // Linux-only trust bootstrap for vendored curl + rustls. On Windows and macOS we
 // intentionally leave gix/curl trust behavior alone instead of forcing a CA file override.
 #[cfg(target_os = "linux")]
-fn linux_ssl_ca_info_override() -> Option<BString> {
-    linux_ssl_ca_info_override_from_probe_state(
-        std::env::var_os("GIT_SSL_CAINFO").is_some(),
-        openssl_probe::probe().cert_file.as_deref(),
-    )
-}
-
-#[cfg(target_os = "linux")]
-fn linux_ssl_ca_info_override_from_probe_state(
-    git_ssl_cainfo_is_set: bool,
-    cert_file: Option<&Path>,
-) -> Option<BString> {
+fn cainfo_override(git_ssl_cainfo_is_set: bool, cert_file: Option<&Path>) -> Option<BString> {
     if git_ssl_cainfo_is_set {
         return None;
     }
@@ -299,27 +288,7 @@ fn linux_ssl_ca_info_override_from_probe_state(
     cert_file.map(|ca_file| format!("http.sslCAInfo={}", ca_file.display()).into())
 }
 
-#[cfg(not(target_os = "linux"))]
-fn linux_ssl_ca_info_override() -> Option<BString> {
-    None
-}
-
-#[cfg(not(target_os = "linux"))]
-fn linux_ssl_ca_info_override_from_probe_state(
-    _git_ssl_cainfo_is_set: bool,
-    _cert_file: Option<&Path>,
-) -> Option<BString> {
-    None
-}
-
-fn build_http_config_overrides(http_config: &HttpConfig) -> Vec<BString> {
-    build_http_config_overrides_with_ssl_ca_info_override(http_config, linux_ssl_ca_info_override())
-}
-
-fn build_http_config_overrides_with_ssl_ca_info_override(
-    http_config: &HttpConfig,
-    ssl_ca_info_override: Option<BString>,
-) -> Vec<BString> {
+fn http_config_overrides(http_config: &HttpConfig) -> Vec<BString> {
     let ua = crate::http::user_agent();
 
     // `connectTimeout` only covers the TCP handshake. To also abort on stalled transfers
@@ -350,20 +319,31 @@ fn build_http_config_overrides_with_ssl_ca_info_override(
         overrides.push(format!("http.proxy={proxy}").into());
     }
 
-    if let Some(ssl_ca_info_override) = ssl_ca_info_override {
-        overrides.push(ssl_ca_info_override);
+    #[cfg(target_os = "linux")]
+    {
+        let mut overrides = overrides;
+        if let Some(cainfo) = cainfo_override(
+            std::env::var_os("GIT_SSL_CAINFO").is_some(),
+            openssl_probe::probe().cert_file.as_deref(),
+        ) {
+            overrides.push(cainfo);
+        }
+        overrides
     }
 
-    overrides
+    #[cfg(not(target_os = "linux"))]
+    {
+        overrides
+    }
 }
 
-fn build_http_open_options(http_config: &HttpConfig) -> gix::open::Options {
-    let overrides = build_http_config_overrides(http_config);
+fn http_open_options(http_config: &HttpConfig) -> gix::open::Options {
+    let overrides = http_config_overrides(http_config);
     gix::open::Options::default().config_overrides(overrides)
 }
 
 fn fetch_ref_impl(db_path: &Path, url: &str, selector: &GitSelector, http_config: &HttpConfig) -> Result<()> {
-    let repo = gix::open_opts(db_path, build_http_open_options(http_config)).map_err(|e| {
+    let repo = gix::open_opts(db_path, http_open_options(http_config)).map_err(|e| {
         OpenRepoSnafu {
             path: db_path.to_path_buf(),
         }
@@ -586,7 +566,7 @@ mod tests {
         #[test]
         fn includes_user_agent_and_timeout_settings() {
             let (_temp_dir, config) = crate::config::create_test_env();
-            let overrides = overrides_to_strings(build_http_config_overrides(&config.http));
+            let overrides = overrides_to_strings(http_config_overrides(&config.http));
 
             assert!(overrides.iter().any(|o| o.starts_with("gitoxide.userAgent=")));
             assert!(overrides.iter().any(|o| o.starts_with("http.userAgent=")));
@@ -602,7 +582,7 @@ mod tests {
         fn includes_proxy_when_configured() {
             let (_temp_dir, mut config) = crate::config::create_test_env();
             config.http.proxy = Some("http://proxy.example:8080".to_string());
-            let overrides = overrides_to_strings(build_http_config_overrides(&config.http));
+            let overrides = overrides_to_strings(http_config_overrides(&config.http));
 
             assert!(
                 overrides
@@ -614,81 +594,42 @@ mod tests {
         #[test]
         fn omits_proxy_when_not_configured() {
             let (_temp_dir, config) = crate::config::create_test_env();
-            let overrides = overrides_to_strings(build_http_config_overrides(&config.http));
+            let overrides = overrides_to_strings(http_config_overrides(&config.http));
 
             assert!(!overrides.iter().any(|o| o.starts_with("http.proxy=")));
         }
 
-        #[test]
-        fn includes_ssl_ca_info_override_when_supplied() {
-            let (_temp_dir, config) = crate::config::create_test_env();
-            let overrides = overrides_to_strings(build_http_config_overrides_with_ssl_ca_info_override(
-                &config.http,
-                Some("http.sslCAInfo=/tmp/cgx-test-ca.pem".into()),
-            ));
-
-            assert!(
-                overrides
-                    .iter()
-                    .any(|o| o == "http.sslCAInfo=/tmp/cgx-test-ca.pem")
-            );
-        }
-
-        #[test]
-        fn omits_ssl_ca_info_override_when_not_supplied() {
-            let (_temp_dir, config) = crate::config::create_test_env();
-            let overrides = overrides_to_strings(build_http_config_overrides_with_ssl_ca_info_override(
-                &config.http,
-                None,
-            ));
-
-            assert!(!overrides.iter().any(|o| o.starts_with("http.sslCAInfo=")));
-        }
-
         #[cfg(target_os = "linux")]
-        #[test]
-        fn linux_ca_override_is_added_when_probe_finds_cert_file() {
-            let override_value = linux_ssl_ca_info_override_from_probe_state(
-                false,
-                Some(Path::new("/etc/ssl/certs/ca-certificates.crt")),
-            );
+        mod linux {
+            use super::*;
 
-            assert_eq!(
-                override_value
-                    .as_ref()
-                    .map(|value| String::from_utf8_lossy(value.as_ref()).into_owned()),
-                Some("http.sslCAInfo=/etc/ssl/certs/ca-certificates.crt".to_string())
-            );
-        }
+            #[test]
+            fn adds_cainfo_when_cert_file_exists() {
+                let override_value =
+                    cainfo_override(false, Some(Path::new("/etc/ssl/certs/ca-certificates.crt")));
 
-        #[cfg(target_os = "linux")]
-        #[test]
-        fn linux_ca_override_is_suppressed_when_git_ssl_cainfo_is_set() {
-            let override_value = linux_ssl_ca_info_override_from_probe_state(
-                true,
-                Some(Path::new("/etc/ssl/certs/ca-certificates.crt")),
-            );
+                assert_eq!(
+                    override_value
+                        .as_ref()
+                        .map(|value| String::from_utf8_lossy(value.as_ref()).into_owned()),
+                    Some("http.sslCAInfo=/etc/ssl/certs/ca-certificates.crt".to_string())
+                );
+            }
 
-            assert_eq!(override_value, None);
-        }
+            #[test]
+            fn skips_cainfo_when_git_ssl_cainfo_is_set() {
+                let override_value =
+                    cainfo_override(true, Some(Path::new("/etc/ssl/certs/ca-certificates.crt")));
 
-        #[cfg(target_os = "linux")]
-        #[test]
-        fn linux_ca_override_is_omitted_when_probe_finds_no_cert_file() {
-            let override_value = linux_ssl_ca_info_override_from_probe_state(false, None);
+                assert_eq!(override_value, None);
+            }
 
-            assert_eq!(override_value, None);
-        }
+            #[test]
+            fn omits_cainfo_when_cert_file_is_missing() {
+                let override_value = cainfo_override(false, None);
 
-        #[cfg(not(target_os = "linux"))]
-        #[test]
-        fn non_linux_ca_override_is_always_omitted() {
-            let override_value = linux_ssl_ca_info_override_from_probe_state(
-                false,
-                Some(Path::new("/tmp/non-linux-test-ca.pem")),
-            );
-
-            assert_eq!(override_value, None);
+                assert_eq!(override_value, None);
+            }
         }
     }
 
