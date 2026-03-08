@@ -593,6 +593,15 @@ impl Cache {
         self.inner.config.cache_dir.join("git-db").join(ident)
     }
 
+    /// Get the cache path for the generated CA bundle used by git-over-HTTPS on Linux.
+    pub(crate) fn git_http_ca_bundle_path(&self) -> PathBuf {
+        self.inner
+            .config
+            .cache_dir
+            .join("tls")
+            .join("gix-curl-rustls-ca-bundle.pem")
+    }
+
     /// Get the cache path for a git checkout at a specific commit.
     pub(crate) fn git_checkout_path(&self, url: &str, commit: &str) -> PathBuf {
         let ident = Self::compute_git_ident(url);
