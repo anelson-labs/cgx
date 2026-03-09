@@ -572,7 +572,6 @@ mod tests {
 
             assert!(!overrides.iter().any(|o| o.starts_with("http.proxy=")));
         }
-
     }
 
     mod checkout_ref {
