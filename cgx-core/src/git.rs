@@ -277,17 +277,6 @@ fn is_retryable_error(e: &Error) -> bool {
     false
 }
 
-// Linux-only trust bootstrap for vendored curl + rustls. On Windows and macOS we
-// intentionally leave gix/curl trust behavior alone instead of forcing a CA file override.
-#[cfg(target_os = "linux")]
-fn cainfo_override(git_ssl_cainfo_is_set: bool, cert_file: Option<&Path>) -> Option<BString> {
-    if git_ssl_cainfo_is_set {
-        return None;
-    }
-
-    cert_file.map(|ca_file| format!("http.sslCAInfo={}", ca_file.display()).into())
-}
-
 fn http_config_overrides(http_config: &HttpConfig) -> Vec<BString> {
     let ua = crate::http::user_agent();
 
@@ -319,22 +308,7 @@ fn http_config_overrides(http_config: &HttpConfig) -> Vec<BString> {
         overrides.push(format!("http.proxy={proxy}").into());
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        let mut overrides = overrides;
-        if let Some(cainfo) = cainfo_override(
-            std::env::var_os("GIT_SSL_CAINFO").is_some(),
-            openssl_probe::probe().cert_file.as_deref(),
-        ) {
-            overrides.push(cainfo);
-        }
-        overrides
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        overrides
-    }
+    overrides
 }
 
 fn http_open_options(http_config: &HttpConfig) -> gix::open::Options {
@@ -599,38 +573,6 @@ mod tests {
             assert!(!overrides.iter().any(|o| o.starts_with("http.proxy=")));
         }
 
-        #[cfg(target_os = "linux")]
-        mod linux {
-            use super::*;
-
-            #[test]
-            fn adds_cainfo_when_cert_file_exists() {
-                let override_value =
-                    cainfo_override(false, Some(Path::new("/etc/ssl/certs/ca-certificates.crt")));
-
-                assert_eq!(
-                    override_value
-                        .as_ref()
-                        .map(|value| String::from_utf8_lossy(value.as_ref()).into_owned()),
-                    Some("http.sslCAInfo=/etc/ssl/certs/ca-certificates.crt".to_string())
-                );
-            }
-
-            #[test]
-            fn skips_cainfo_when_git_ssl_cainfo_is_set() {
-                let override_value =
-                    cainfo_override(true, Some(Path::new("/etc/ssl/certs/ca-certificates.crt")));
-
-                assert_eq!(override_value, None);
-            }
-
-            #[test]
-            fn omits_cainfo_when_cert_file_is_missing() {
-                let override_value = cainfo_override(false, None);
-
-                assert_eq!(override_value, None);
-            }
-        }
     }
 
     mod checkout_ref {

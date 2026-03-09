@@ -33,7 +33,6 @@ home            = { workspace = true }
 humantime       = { workspace = true }
 humantime-serde = { workspace = true }
 ignore          = { workspace = true }
-openssl-probe   = { workspace = true }
 reqwest         = { workspace = true }
 semver          = { workspace = true }
 serde           = { workspace = true }

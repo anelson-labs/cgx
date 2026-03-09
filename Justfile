@@ -64,6 +64,7 @@ xmac-check:
         export PATH=/usr/local/cargo/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
         export XDG_CACHE_HOME=/root/.cache
         export CARGO_ZIGBUILD_CACHE_DIR=/root/.cache/cargo-zigbuild
+        export XMAC_OPENSSL_INCLUDE=/root/.cache/xmac-openssl/include
 
         cleanup() {
           rm -f /io/.intentionally-empty-file.o \
@@ -73,6 +74,13 @@ xmac-check:
 
         cleanup
         trap cleanup EXIT
+
+        rm -rf "$XMAC_OPENSSL_INCLUDE"
+        mkdir -p "$XMAC_OPENSSL_INCLUDE"
+        cp -a /usr/include/openssl "$XMAC_OPENSSL_INCLUDE"/
+        cp -a /usr/include/x86_64-linux-gnu/openssl/. "$XMAC_OPENSSL_INCLUDE"/openssl/
+        export X86_64_APPLE_DARWIN_OPENSSL_INCLUDE_DIR="$XMAC_OPENSSL_INCLUDE"
+        export X86_64_APPLE_DARWIN_OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 
         if ! rustup target list --installed | grep -qx x86_64-apple-darwin; then
           rustup target add x86_64-apple-darwin
