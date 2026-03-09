@@ -44,7 +44,7 @@ serde              = { version = "1.0.228", features = ["derive"] }
 serde-cyclonedx    = "0.10.0"
 serde_json         = "1.0.149"
 sha2               = "0.10.9"
-shellexpand        = "3.1.1"
+shellexpand        = "3.1.2"
 snafu              = "0.8.9"
 strum              = "0.28.0"
 tame-index         = { version = "0.26", features = ["sparse"] }
