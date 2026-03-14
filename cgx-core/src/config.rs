@@ -108,13 +108,20 @@ impl Default for PrebuiltBinariesConfig {
     }
 }
 
-/// HTTP client settings for registry queries, binary downloads, and API calls.
+/// HTTP client settings for registry queries, binary downloads, API calls, and git operations.
 ///
-/// Git operations use their own transport layer and are not affected by these settings.
+/// For git operations, proxy, user agent, and connect timeout are applied via gix config
+/// overrides (backed by the curl HTTP backend). Retry and backoff settings are applied by
+/// cgx's own retry wrapper around git fetches. The timeout setting is intentionally used for
+/// both connection timeout and stalled-transfer timeout detection for git-over-HTTP.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct HttpConfig {
-    /// Per-request timeout for HTTP operations.
+    /// Request timeout for HTTP operations.
+    ///
+    /// For git operations over HTTP/S this value is also used as both:
+    /// - connection timeout
+    /// - stalled-transfer timeout threshold
     #[serde(with = "humantime_serde")]
     pub timeout: Duration,
 

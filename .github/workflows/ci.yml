@@ -75,6 +75,21 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      - name: Verify runtime linkage (Linux)
+        run: |
+          LINKAGE_OUTPUT="$(ldd target/debug/cgx 2>&1 || true)"
+          echo "$LINKAGE_OUTPUT"
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not a dynamic executable"; then
+            echo "Static binary detected; shared-library runtime check skipped."
+            exit 0
+          fi
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not found"; then
+            echo "Missing runtime shared library dependency detected."
+            exit 1
+          fi
+
       - name: Run unit tests
         run: cargo test --workspace --lib
 
@@ -187,16 +202,30 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      - name: Verify runtime linkage (Linux)
+        run: |
+          LINKAGE_OUTPUT="$(ldd target/debug/cgx 2>&1 || true)"
+          echo "$LINKAGE_OUTPUT"
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not a dynamic executable"; then
+            echo "Static binary detected; shared-library runtime check skipped."
+            exit 0
+          fi
+
+          if echo "$LINKAGE_OUTPUT" | grep -q "not found"; then
+            echo "Missing runtime shared library dependency detected."
+            exit 1
+          fi
+
       - name: Run tests
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace
 
-  # Stage 3: Tier 1 Platforms (Windows amd64, Mac ARM64, Linux musl)
-  # Not to be confused with Rust "Tier 1" platforms, these are just the selection of platforms, after
-  # Linux amd64, that are most likely to catch paltform-specific breakage.
-  test-tier1-platforms:
-    name: Test (Tier 1 ${{ matrix.name }})
+  # Stage 3: Primary platforms (Windows amd64, Mac ARM64)
+  # After Linux amd64, these are the platforms most likely to catch platform-specific breakage.
+  test-platforms:
+    name: Test (${{ matrix.name }})
     needs: [detect-pr-type, test-linux-amd64]
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     strategy:
@@ -210,9 +239,6 @@ jobs:
             target: x86_64-pc-windows-gnu
           - os: macos-15
             name: Mac ARM64
-          - os: ubuntu-24.04
-            name: Linux musl
-            target: x86_64-unknown-linux-musl
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -223,12 +249,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: just
-
-      - name: Install musl tools
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
 
       - name: Add target
         if: matrix.target
@@ -254,13 +274,52 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace ${{ env.TARGET_FLAG }}
 
-  # Stage 4: Lesser Platforms (ARM + Intel Mac)
-  # These platforms are alternative architectures for the tier 1 targets, so in all likelihood work just as
-  # well as the primary arch, but we need to build and test them anyway in the interest of being thorough.
-  # There is no point wasting resources on these unless all of the tier 1 platforms have already passed.
-  test-tier2-platforms:
-    name: Test (Tier 2 ${{ matrix.name }})
-    needs: [detect-pr-type, test-linux-amd64, test-tier1-platforms]
+  # Stage 3b: Linux musl (Alpine container)
+  # Runs natively in Alpine rather than cross-compiling, because openssl-sys needs
+  # musl-compatible headers that aren't available on the glibc host.
+  test-musl:
+    name: Test (Linux musl)
+    needs: [detect-pr-type, test-linux-amd64]
+    if: needs.detect-pr-type.outputs.is-dependabot == 'false'
+    runs-on: ubuntu-24.04
+    container:
+      image: rust:1.85-alpine
+    steps:
+      - name: Install system dependencies
+        run: apk add --no-cache git openssl-dev openssl-libs-static perl make musl-dev
+
+      - uses: actions/checkout@v6
+
+      - name: Install Rust components
+        run: rustup component add clippy rustfmt
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: Linux musl
+
+      - name: Run vibecheck
+        run: just vibecheck
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Run tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: cargo test --workspace
+
+  # Stage 4: Extended platforms (ARM + Intel Mac)
+  # Alternative architectures that in all likelihood work just as well as the primary arch,
+  # but we build and test them anyway in the interest of being thorough.
+  # No point wasting resources on these unless the primary platforms have already passed.
+  test-platforms-extended:
+    name: Test (${{ matrix.name }})
+    needs: [detect-pr-type, test-linux-amd64, test-platforms]
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     strategy:
       fail-fast: false
@@ -312,8 +371,9 @@ jobs:
         dependabot-quick-check,
         dependabot-platform-check,
         test-linux-amd64,
-        test-tier1-platforms,
-        test-tier2-platforms,
+        test-platforms,
+        test-musl,
+        test-platforms-extended,
       ]
     runs-on: ubuntu-24.04
     if: always()
@@ -335,8 +395,9 @@ jobs:
             echo "Checking full CI for regular PR..."
             # For regular PRs, check all full CI jobs
             if [ "${{ needs.test-linux-amd64.result }}" != "success" ] || \
-               [ "${{ needs.test-tier1-platforms.result }}" != "success" ] || \
-               [ "${{ needs.test-tier2-platforms.result }}" != "success" ]; then
+               [ "${{ needs.test-platforms.result }}" != "success" ] || \
+               [ "${{ needs.test-musl.result }}" != "success" ] || \
+               [ "${{ needs.test-platforms-extended.result }}" != "success" ]; then
               echo "One or more test jobs failed"
               exit 1
             fi

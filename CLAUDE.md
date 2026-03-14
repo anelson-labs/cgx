@@ -152,6 +152,10 @@ You can assume that the `gh` CLI is available to you to interact with Github. Yo
 - Use `just vibecheck` in place of specific lints. NEVER attempt to invoke a specific linter on a specific file.
   Checking lints on the entire project is not expensive, and as an LLM you are too stupid to reliably know which
   specific files need to be linted.
+- When a change touches `#[cfg(...)]`, platform-specific logic, or any other conditional-compilation path, also run
+  `just xwin-check` and `just xmac-check` to make sure the code still compiles cleanly on non-Linux targets. These
+  recipes are expected to be warning-free. `xwin-check` will install `cargo-xwin` automatically if needed; `xmac-check`
+  requires Docker.
 - Use `just precommit` when you think you are done with a task and it is ready to commit (although you will never commit
   it yourself because you are prohibited from doing that unless you have been explicitly instructed to do so). This will
   run all compiler checks, lints, and tests, and if all of that passes it will also run the formatter.

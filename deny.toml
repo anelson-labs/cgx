@@ -77,6 +77,11 @@ skip = [
   # system-configuration (via hyper-util) uses core-foundation 0.9;
   # rustls-platform-verifier and security-framework use 0.10. macOS only.
   { name = "core-foundation", version = "0.9" },
+  # curl 0.4.49 still depends on openssl-probe 0.1.x for Unix `ssl` support,
+  # while reqwest's rustls verifier path pulls openssl-probe 0.2.x via
+  # rustls-native-certs. Unavoidable until upstreams converge or we change
+  # reqwest's TLS backend.
+  { name = "openssl-probe", version = "0.1.6" },
 ]
 skip-tree = [
   # vergen-gix (build dep) uses older gix 0.71

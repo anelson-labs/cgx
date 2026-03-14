@@ -25,6 +25,70 @@ test:
     cargo test --all-features --workspace
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+[unix]
+xwin-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{justfile_directory()}}"
+    if ! cargo xwin --version >/dev/null 2>&1; then
+        cargo install cargo-xwin --version 0.19.2 --locked
+    fi
+    RUSTFLAGS='-Dwarnings' cargo xwin check --workspace --all-targets --target x86_64-pc-windows-msvc
+
+[unix]
+xmac-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{justfile_directory()}}"
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "docker is required for xmac-check" >&2
+        exit 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        echo "docker daemon is not reachable for xmac-check" >&2
+        exit 1
+    fi
+    docker run --rm \
+      -v "{{justfile_directory()}}:/io" \
+      -v cgx-xmac-cargo-registry:/usr/local/cargo/registry \
+      -v cgx-xmac-cargo-git:/usr/local/cargo/git \
+      -v cgx-xmac-rustup:/usr/local/rustup \
+      -v cgx-xmac-cache:/root/.cache \
+      -v cgx-xmac-target:/io-target \
+      -w /io \
+      -e CARGO_TARGET_DIR=/io-target \
+      -e XDG_CACHE_HOME=/root/.cache \
+      -e CARGO_ZIGBUILD_CACHE_DIR=/root/.cache/cargo-zigbuild \
+      ghcr.io/rust-cross/cargo-zigbuild@sha256:dce4ea213244423439d97a2070031c6ea287fc32f01b0aaa38f8b4d46f52e68c \
+      bash -lc '
+        export PATH=/usr/local/cargo/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+        export XDG_CACHE_HOME=/root/.cache
+        export CARGO_ZIGBUILD_CACHE_DIR=/root/.cache/cargo-zigbuild
+        export XMAC_OPENSSL_INCLUDE=/root/.cache/xmac-openssl/include
+
+        cleanup() {
+          rm -f /io/.intentionally-empty-file.o \
+                /io/.intentionally-empty-file.c \
+                /io/.intentionally-empty-file.cpp
+        }
+
+        cleanup
+        trap cleanup EXIT
+
+        rm -rf "$XMAC_OPENSSL_INCLUDE"
+        mkdir -p "$XMAC_OPENSSL_INCLUDE"
+        cp -a /usr/include/openssl "$XMAC_OPENSSL_INCLUDE"/
+        cp -a /usr/include/x86_64-linux-gnu/openssl/. "$XMAC_OPENSSL_INCLUDE"/openssl/
+        export X86_64_APPLE_DARWIN_OPENSSL_INCLUDE_DIR="$XMAC_OPENSSL_INCLUDE"
+        export X86_64_APPLE_DARWIN_OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+
+        if ! rustup target list --installed | grep -qx x86_64-apple-darwin; then
+          rustup target add x86_64-apple-darwin
+        fi
+
+        RUSTFLAGS="-Dwarnings" cargo-zigbuild check --workspace --all-targets --target x86_64-apple-darwin
+      '
+
 # Format the entire project with beautifiers
 fmt:
     # (Ab)use nightly rustfmt features to correct some annoying rustfmt issues,
