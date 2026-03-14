@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.0.9] - 2026-03-14
+
+### 🚀 Features
+
+- Add ability to resolve pre-built binaries for crates  ([#93](https://github.com/anelson-labs/cgx/pull/93))
+- *(http)* Centralize HTTP client with retry, proxy, and timeout support ([#114](https://github.com/anelson-labs/cgx/pull/114))
+- *(git)* Align gix HTTP behavior with cgx HTTP config and document curl runtime deps ([#128](https://github.com/anelson-labs/cgx/pull/128))
+
+### 📚 Documentation
+
+- Fix typo causing messed-up Markdown rendering in README
+
+### ⚙️ Miscellaneous Tasks
+
+- Update Cargo.toml dependencies
 ## [0.0.8] - 2025-11-16
 
 ### 🚀 Features
