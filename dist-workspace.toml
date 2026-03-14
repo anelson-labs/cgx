@@ -6,6 +6,8 @@ members = ["cargo:cgx", "cargo:cargo-cgx"]
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
 cargo-dist-version = "0.30.2"
+# We inject our own rust-cache restore in CI instead of using cargo-dist's built-in build cache.
+cache-builds = false
 # Whether to embed dependency information using cargo-auditable
 cargo-auditable = false
 # CI backends to support
