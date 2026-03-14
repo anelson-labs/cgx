@@ -286,7 +286,7 @@ jobs:
       image: rust:1.85-alpine
     steps:
       - name: Install system dependencies
-        run: apk add --no-cache git openssl-dev perl make musl-dev
+        run: apk add --no-cache git openssl-dev openssl-libs-static perl make musl-dev
 
       - uses: actions/checkout@v6
 
