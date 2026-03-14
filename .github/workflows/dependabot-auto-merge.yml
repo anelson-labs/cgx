@@ -1,7 +1,11 @@
 name: Dependabot Auto-Merge
 
 on:
-  pull_request:
+  # Use pull_request_target (not pull_request) so that workflows triggered by
+  # Dependabot have access to repository secrets.  This is safe because we
+  # never check out or execute code from the PR branch.
+  # See: https://docs.github.com/en/code-security/dependabot/troubleshooting-dependabot/automating-dependabot-with-github-actions
+  pull_request_target:
     branches: [master]
 
 permissions:
@@ -23,5 +27,19 @@ jobs:
       - name: Enable auto-merge for Dependabot PRs
         run: gh pr merge --auto --squash "$PR_URL"
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}│
+
+          # Use a PAT instead of GITHUB_TOKEN so the merge push triggers
+          # downstream workflows (e.g. release-plz).  Merges performed with
+          # GITHUB_TOKEN silently skip workflow triggers as a GitHub Actions
+          # safeguard against recursive loops.
+          #
+          # Technically we're abusing the RELEAZE_PLZ_TOKEN a bit here, since it's not provisioend for
+          # dependabot auto-merge, but this is a workaround.
+          #
+          # References:
+          #   https://docs.github.com/en/code-security/dependabot/working-with-dependabot/automating-dependabot-with-github-actions
+          #   https://release-plz.dev/docs/github/token
+          #   https://github.com/peter-evans/enable-pull-request-automerge
+          #   https://github.com/dependabot/fetch-metadata/issues/111
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
