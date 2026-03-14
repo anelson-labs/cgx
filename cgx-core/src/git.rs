@@ -739,12 +739,10 @@ mod tests {
     mod integration {
         use super::*;
         use httpmock::prelude::*;
-        use std::{
-            io::{Read, Write},
-            net::TcpListener,
-            time::{Duration, Instant},
-        };
+        use std::time::Duration;
 
+        /// Returns an HTTP configuration with near-zero retry delays so retry behavior can be
+        /// exercised without slowing the test suite down.
         fn fast_retry_config() -> HttpConfig {
             HttpConfig {
                 retries: 2,
@@ -755,6 +753,8 @@ mod tests {
             }
         }
 
+        /// Returns an HTTP configuration that disables retries so one-shot request behavior can be
+        /// asserted deterministically.
         fn no_retry_config() -> HttpConfig {
             HttpConfig {
                 retries: 0,
@@ -765,59 +765,8 @@ mod tests {
             }
         }
 
-        fn start_capture_proxy() -> (String, std::thread::JoinHandle<Option<String>>) {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let addr = listener.local_addr().unwrap();
-            listener.set_nonblocking(true).unwrap();
-
-            let handle = std::thread::spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(10);
-                let mut stream = loop {
-                    match listener.accept() {
-                        Ok((stream, _)) => break stream,
-                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                            if Instant::now() >= deadline {
-                                return None;
-                            }
-                            std::thread::sleep(Duration::from_millis(10));
-                        }
-                        Err(err) => panic!("proxy accept failed: {err}"),
-                    }
-                };
-
-                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-
-                let mut req = Vec::new();
-                let mut buf = [0_u8; 4096];
-                loop {
-                    match stream.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            req.extend_from_slice(&buf[..n]);
-                            if req.windows(4).any(|w| w == b"\r\n\r\n") {
-                                break;
-                            }
-                        }
-                        Err(err)
-                            if err.kind() == std::io::ErrorKind::WouldBlock
-                                || err.kind() == std::io::ErrorKind::TimedOut =>
-                        {
-                            break;
-                        }
-                        Err(err) => panic!("proxy read failed: {err}"),
-                    }
-                }
-
-                // Return a hard failure quickly so fetch terminates.
-                let response = b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                stream.write_all(response).unwrap();
-
-                Some(String::from_utf8_lossy(&req).into_owned())
-            });
-
-            (format!("http://{addr}"), handle)
-        }
-
+        /// Creates an empty bare repository to use as the destination object database for fetch
+        /// integration tests.
         fn test_bare_repo() -> (TempDir, PathBuf) {
             let temp_dir = TempDir::new().unwrap();
             let repo_path = temp_dir.path().join("bare.git");
@@ -979,11 +928,20 @@ mod tests {
 
         #[test]
         fn proxy_setting_is_used_for_git_http_requests() {
-            let (proxy_url, proxy_handle) = start_capture_proxy();
+            let server = MockServer::start();
+            let expected_ua = crate::http::user_agent();
+            let mock = server.mock(|when, then| {
+                when.method(GET)
+                    .host("example.invalid")
+                    .path("/repo.git/info/refs")
+                    .query_param("service", "git-upload-pack")
+                    .header("User-Agent", expected_ua.as_str());
+                then.status(502);
+            });
 
             let (_temp, db_path) = test_bare_repo();
             let config = HttpConfig {
-                proxy: Some(proxy_url),
+                proxy: Some(server.base_url()),
                 ..no_retry_config()
             };
 
@@ -995,24 +953,7 @@ mod tests {
             );
 
             assert_matches!(result, Err(Error::FetchRef { .. }));
-
-            let captured = proxy_handle
-                .join()
-                .expect("proxy capture thread should not panic")
-                .expect("proxy did not receive any request");
-
-            assert!(
-                captured.contains("/repo.git/info/refs?service=git-upload-pack"),
-                "expected git info/refs request, got: {captured}"
-            );
-            assert!(
-                captured.contains("Host: example.invalid"),
-                "expected host header for target remote, got: {captured}"
-            );
-            assert!(
-                captured.contains(&format!("User-Agent: {}", crate::http::user_agent())),
-                "expected cgx user-agent header, got: {captured}"
-            );
+            mock.assert_calls(1);
         }
     }
 }
