@@ -13,6 +13,7 @@ cargo-auditable = false
 # CI backends to support
 ci = "github"
 # Extra GitHub Actions steps to run before cargo-dist invokes `dist build`.
+# cargo-dist resolves this path relative to `.github/workflows`.
 github-build-setup = "../dist-build-setup.yml"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
