@@ -1,0 +1,3 @@
+- name: Install Alpine musl build dependencies
+  if: ${{ matrix.container && matrix.container.image == 'rust:1.85-alpine' }}
+  run: apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev

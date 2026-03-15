@@ -10,6 +10,8 @@ cargo-dist-version = "0.30.2"
 cargo-auditable = false
 # CI backends to support
 ci = "github"
+# Extra GitHub Actions steps to run before cargo-dist invokes `dist build`.
+github-build-setup = "../dist-build-setup.yml"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
@@ -28,12 +30,30 @@ install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
 
+# Most of our build targets need some customization of the GHA runner.
+# "custom" here just means "not the dist default"; these are all various standard Github-hosted runners.
 [dist.github-custom-runners]
-aarch64-pc-windows-msvc    = "windows-11-arm"
-aarch64-unknown-linux-gnu  = "ubuntu-24.04-arm"
-aarch64-unknown-linux-musl = "ubuntu-24.04-arm"
+aarch64-pc-windows-msvc   = "windows-11-arm"
+aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
 
 # macOS runners: Now that the repo is public, standard GitHub-hosted macOS runners are free!
 # These replace the deprecated macos-13 runners.
 aarch64-apple-darwin = "macos-15"       # ARM64 (M1/M2), free for public repos
 x86_64-apple-darwin  = "macos-15-intel" # Intel x86_64, free for public repos (sunsets Fall 2027)
+
+# The Linux musl targets are more complicated, they need to be built inside
+# Alpine linux containers because it is too much of a hassle to get cross-compilation to musl
+# working now that we have an openssl dependency via gix.
+[dist.github-custom-runners.x86_64-unknown-linux-musl]
+runner = "ubuntu-24.04"
+
+[dist.github-custom-runners.x86_64-unknown-linux-musl.container]
+host  = "x86_64-unknown-linux-musl"
+image = "rust:1.85-alpine"
+
+[dist.github-custom-runners.aarch64-unknown-linux-musl]
+runner = "ubuntu-24.04-arm"
+
+[dist.github-custom-runners.aarch64-unknown-linux-musl.container]
+host  = "aarch64-unknown-linux-musl"
+image = "rust:1.85-alpine"
