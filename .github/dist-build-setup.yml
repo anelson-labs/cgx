@@ -1,9 +1,19 @@
 - name: Install Alpine musl build dependencies
-  if: ${{ matrix.container && matrix.container.image == 'rust:1.85-alpine' }}
+  if: ${{ matrix.container && matrix.container.image == 'rust:1.85.1-alpine' }}
   run: apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev
 
+- name: Verify Alpine Rust toolchain
+  if: ${{ matrix.container && matrix.container.image == 'rust:1.85.1-alpine' }}
+  run: |
+    rustc --version
+    cargo --version
+    test "$(rustc -vV | sed -n 's/^release: //p')" = "1.85.1"
+
 - name: Install Rust toolchain
-  if: ${{ !matrix.container || matrix.container.image != 'rust:1.85-alpine' }}
+  # In musl jobs the Rust toolchain is baked into the container image that we use, so
+  # we do not need to install the Rust toolchain separately on the host.
+  # So install the toolchain only if we're not running in the musl container.
+  if: ${{ !matrix.container || matrix.container.image != 'rust:1.85.1-alpine' }}
   uses: dtolnay/rust-toolchain@master
   with:
     toolchain: 1.85.1

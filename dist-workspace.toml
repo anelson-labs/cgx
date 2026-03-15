@@ -52,11 +52,11 @@ runner = "ubuntu-24.04"
 
 [dist.github-custom-runners.x86_64-unknown-linux-musl.container]
 host  = "x86_64-unknown-linux-musl"
-image = "rust:1.85-alpine"
+image = "rust:1.85.1-alpine"
 
 [dist.github-custom-runners.aarch64-unknown-linux-musl]
 runner = "ubuntu-24.04-arm"
 
 [dist.github-custom-runners.aarch64-unknown-linux-musl.container]
 host  = "aarch64-unknown-linux-musl"
-image = "rust:1.85-alpine"
+image = "rust:1.85.1-alpine"

@@ -286,14 +286,21 @@ jobs:
     if: needs.detect-pr-type.outputs.is-dependabot == 'false'
     runs-on: ubuntu-24.04
     container:
-      image: rust:1.85-alpine
+      image: rust:1.85.1-alpine
     steps:
       - name: Install system dependencies
-        run: apk add --no-cache git openssl-dev openssl-libs-static perl make musl-dev
+        run: apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev
 
       - uses: actions/checkout@v6
 
-      - *install-rust
+      # In musl jobs the Rust toolchain is baked into the container image that we use, so
+      # we do not need to install the Rust toolchain separately on the host
+      # We just check the toolchain version and log it for debugging purposes
+      - name: Verify Alpine Rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+          test "$(rustc -vV | sed -n 's/^release: //p')" = "1.85.1"
 
       - uses: Swatinem/rust-cache@v2
         with:
