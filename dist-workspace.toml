@@ -6,11 +6,14 @@ members = ["cargo:cgx", "cargo:cargo-cgx"]
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
 cargo-dist-version = "0.30.2"
+# We inject our own rust-cache restore in CI instead of using cargo-dist's built-in build cache.
+cache-builds = false
 # Whether to embed dependency information using cargo-auditable
 cargo-auditable = false
 # CI backends to support
 ci = "github"
 # Extra GitHub Actions steps to run before cargo-dist invokes `dist build`.
+# cargo-dist resolves this path relative to `.github/workflows`.
 github-build-setup = "../dist-build-setup.yml"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
@@ -49,11 +52,11 @@ runner = "ubuntu-24.04"
 
 [dist.github-custom-runners.x86_64-unknown-linux-musl.container]
 host  = "x86_64-unknown-linux-musl"
-image = "rust:1.85-alpine"
+image = "rust:1.85.1-alpine"
 
 [dist.github-custom-runners.aarch64-unknown-linux-musl]
 runner = "ubuntu-24.04-arm"
 
 [dist.github-custom-runners.aarch64-unknown-linux-musl.container]
 host  = "aarch64-unknown-linux-musl"
-image = "rust:1.85-alpine"
+image = "rust:1.85.1-alpine"

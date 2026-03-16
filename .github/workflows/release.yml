@@ -128,8 +128,46 @@ jobs:
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
       - name: "Install Alpine musl build dependencies"
-        if: "${{ matrix.container && matrix.container.image == 'rust:1.85-alpine' }}"
+        if: "${{ matrix.container && matrix.container.image == 'rust:1.85.1-alpine' }}"
         run: "apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev"
+      - name: "Verify Alpine Rust toolchain"
+        if: "${{ matrix.container && matrix.container.image == 'rust:1.85.1-alpine' }}"
+        run: |
+          rustc --version
+          cargo --version
+          test "$(rustc -vV | sed -n 's/^release: //p')" = "1.85.1"
+      - name: "Install Rust toolchain"
+        uses: "dtolnay/rust-toolchain@master"
+        if: "${{ !matrix.container || matrix.container.image != 'rust:1.85.1-alpine' }}"
+        with:
+          "toolchain": "1.85.1"
+      - name: "Compute rust-cache key"
+        run: |
+          case "${BUILD_MANIFEST_NAME}" in
+            target/distrib/global-dist-manifest.json)
+              echo "DIST_RUST_CACHE_KEY=global" >> "$GITHUB_ENV"
+              echo "DIST_RUST_CACHE_TARGETS=false" >> "$GITHUB_ENV"
+              ;;
+            target/distrib/*-dist-manifest.json)
+              key="${BUILD_MANIFEST_NAME#target/distrib/}"
+              key="${key%-dist-manifest.json}"
+              echo "DIST_RUST_CACHE_KEY=$key" >> "$GITHUB_ENV"
+              echo "DIST_RUST_CACHE_TARGETS=true" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unexpected BUILD_MANIFEST_NAME: ${BUILD_MANIFEST_NAME}" >&2
+              exit 1
+              ;;
+          esac
+        shell: "bash"
+      - name: "Restore Rust cache"
+        uses: "Swatinem/rust-cache@v2"
+        with:
+          "add-job-id-key": false
+          "add-rust-environment-hash-key": true
+          "cache-targets": "${{ env.DIST_RUST_CACHE_TARGETS }}"
+          "save-if": false
+          "shared-key": "${{ matrix.runner }}-${{ env.DIST_RUST_CACHE_KEY }}"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest
