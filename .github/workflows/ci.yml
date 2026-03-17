@@ -289,7 +289,9 @@ jobs:
       image: rust:1.85.1-alpine
     steps:
       - name: Install system dependencies
-        run: apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev
+        # rust-cache expects GNU tar; Alpine's default BusyBox tar does not support
+        # the flags used during cache save/restore.
+        run: apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev tar
 
       - uses: actions/checkout@v6
 
