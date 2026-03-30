@@ -34,7 +34,7 @@ httpmock           = "0.8.2"
 humantime          = "2.1"
 humantime-serde    = "1.1.1"
 ignore             = "0.4.25"
-insta              = { version = "1.46.3", features = ["filters"] }
+insta              = { version = "1.47.1", features = ["filters"] }
 predicates         = "3.1.3"
 rand               = "0.10.0"
 reqwest            = { version = "0.13", default-features = false, features = ["blocking", "rustls", "http2", "charset", "gzip", "system-proxy", "socks"] }
