@@ -706,7 +706,7 @@ mod tests {
                 url,
                 GitSelector::Branch("this-branch-does-not-exist-xyzzy".to_string()),
             );
-            assert_matches!(result, Err(Error::ResolveSelector { .. }));
+            assert_matches!(result, Err(Error::FetchRef { .. }));
         }
 
         #[test]
@@ -715,7 +715,7 @@ mod tests {
             let url = "https://github.com/rust-lang/rustlings.git";
 
             let result = git_client.checkout_ref(url, GitSelector::Tag("v999.999.999".to_string()));
-            assert_matches!(result, Err(Error::ResolveSelector { .. }));
+            assert_matches!(result, Err(Error::FetchRef { .. }));
         }
 
         #[test]
