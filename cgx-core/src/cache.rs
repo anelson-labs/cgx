@@ -515,7 +515,7 @@ impl Cache {
     fn compute_hash(data: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(data);
-        format!("{:x}", hasher.finalize())
+        crate::helpers::format_hex_lower(hasher.finalize())
     }
 
     /// Determine if an error should trigger fallback to stale cache.
