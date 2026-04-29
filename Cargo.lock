@@ -5099,13 +5099,12 @@ dependencies = [
 
 [[package]]
 name = "tame-index"
-version = "0.26.0"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "502c6b412fa8aa4d46f6fee23bba6cab4d260e459226c23a5f936c5f172039ec"
+checksum = "c51563c6639245219c077420e0a207e99b5e82e2e6bb78fd4898d42028ea7dde"
 dependencies = [
  "camino",
  "crossbeam-channel",
- "home",
  "http",
  "libc",
  "memchr",
@@ -5339,9 +5338,9 @@ dependencies = [
 
 [[package]]
 name = "toml-span"
-version = "0.6.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c6532e5b62b652073bff0e2050ef57e4697a853be118d6c57c32b59fffdeaab"
+checksum = "f22ba417d437b5fa5dcba6c27dbd6c14f38845315b724d89fed73b7a426451b7"
 dependencies = [
  "smallvec",
 ]
