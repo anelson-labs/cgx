@@ -215,7 +215,7 @@ impl DefaultBinaryResolver {
             }
         }
 
-        format!("{:x}", hasher.finalize())[..16].to_string()
+        crate::helpers::format_hex_lower(hasher.finalize())[..16].to_string()
     }
 }
 
