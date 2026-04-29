@@ -48,18 +48,11 @@ allow = [
   "0BSD",
   "Zlib",
   "MPL-2.0",
-  "OpenSSL",
   "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
 exceptions = []
 version = 2
-
-[[licenses.clarify]]
-expression    = "MIT AND ISC AND OpenSSL"
-license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
-name          = "ring"
-version       = "*"
 
 # Dependency bans and duplicate detection
 [bans]
@@ -82,6 +75,10 @@ skip = [
   # rustls-native-certs. Unavoidable until upstreams converge or we change
   # reqwest's TLS backend.
   { name = "openssl-probe", version = "0.1.6" },
+  # anstream/anstyle-query/anstyle-wincon, socket2, hyper-util, and tokio still
+  # pull windows-sys 0.60.x; ctrlc, gix-sec, and mio have moved to 0.61.x.
+  # Unavoidable until the laggards bump.
+  { name = "windows-sys", version = "0.60" },
 ]
 skip-tree = [
   # vergen-gix (build dep) uses older gix 0.71
