@@ -206,7 +206,7 @@ impl BinstallProvider {
 
         let mut hasher = Sha256::new();
         hasher.update(data);
-        let actual_hash = format!("{:x}", hasher.finalize());
+        let actual_hash = crate::helpers::format_hex_lower(hasher.finalize());
 
         if expected_hash != actual_hash {
             return error::ChecksumMismatchSnafu {
