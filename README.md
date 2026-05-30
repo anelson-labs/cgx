@@ -57,15 +57,13 @@ _Coming soon: Install via `curl https://cgx.sh/install.sh | sh` once the cgx.sh 
 
 ## Runtime Dependencies
 
-`cgx` uses `gix` for git operations, and for git-over-HTTP `gix` currently uses a curl-based HTTP transport backend.
+`cgx` uses `gix` for git operations, and for git-over-HTTP `gix` uses a curl/OpenSSL transport backend.
 
-Depending on your target and linkage mode, this can introduce runtime library dependencies for the `cgx` binary on
-some platforms (for example Linux dynamic builds often depend on `libcurl` and `libz`).
+The pre-built Linux musl artifacts are fully static: libcurl, OpenSSL, and zlib are linked into the binary, so they
+add no runtime library dependencies. Other Linux builds (glibc) dynamically link `libcurl`, OpenSSL, and `libz`.
 
-`cgx` is configured to use the rustls-backed curl transport for git-over-HTTP, so cgx itself does not require
-OpenSSL to be present as an application-level dependency.
-
-If you run `cgx` in minimal containers or stripped-down environments, make sure those runtime libraries are present.
+If you run a dynamically linked `cgx` in minimal containers or stripped-down environments, make sure those runtime
+libraries are present.
 
 ## Example usage
 

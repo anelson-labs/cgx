@@ -89,14 +89,6 @@ xmac-check:
         RUSTFLAGS="-Dwarnings" cargo-zigbuild check --workspace --all-targets --target x86_64-apple-darwin
       '
 
-# Publish the custom cargo-dist build container images to GHCR.
-[unix]
-publish-build-images:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd "{{justfile_directory()}}"
-    build-images/linux-musl/publish.sh
-
 # Regenerate cargo-dist release workflows, including the dry-run workflow.
 [unix]
 regen-dist-release:
