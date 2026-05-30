@@ -528,10 +528,13 @@ fn binstall_provider_resolves_binary() {
 
 /// Test that `--prebuilt-binary-sources github-releases` resolves via the GitHub provider only.
 ///
-/// eza publishes GitHub release assets for Linux targets and `x86_64-pc-windows-gnu` only
-/// (no macOS, no windows-msvc).
+/// eza version 0.23.1 published GitHub release assets for Linux GNU, x86_64 Linux musl, and
+/// `x86_64-pc-windows-gnu` only (no macOS, no windows-msvc, no aarch64 Linux musl).
 #[test]
-#[cfg(any(target_os = "linux", all(target_os = "windows", target_env = "gnu")))]
+#[cfg(any(
+    all(target_os = "linux", not(all(target_arch = "aarch64", target_env = "musl"))),
+    all(target_os = "windows", target_env = "gnu")
+))]
 fn github_provider_resolves_binary() {
     let mut cgx = Cgx::with_test_fs();
 
@@ -582,6 +585,70 @@ fn github_provider_resolves_binary() {
             .iter()
             .any(|m| matches!(m, Message::Build(BuildMessage::Started { .. }))),
         "Should not have BuildMessage::Started when using prebuilt binary"
+    );
+}
+
+/// Test that GitHub Releases correctly reports no eza binary for aarch64 Linux musl.
+#[test]
+#[cfg(all(target_arch = "aarch64", target_os = "linux", target_env = "musl"))]
+fn github_provider_reports_no_aarch64_musl_binary() {
+    let mut cgx = Cgx::with_test_fs();
+
+    let (assert, messages) = cgx
+        .cmd
+        .with_json_messages()
+        .arg("--prebuilt-binary")
+        .arg("always")
+        .arg("--prebuilt-binary-sources")
+        .arg("github-releases")
+        .arg("eza@=0.23.1")
+        .arg("--version")
+        .assert_with_messages();
+
+    assert.failure();
+
+    let providers: Vec<_> = messages
+        .iter()
+        .filter_map(|m| match m {
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::CheckingProvider { provider, .. }) => {
+                Some(*provider)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !providers.is_empty(),
+        "Expected at least one CheckingProvider message"
+    );
+    assert!(
+        providers.iter().all(|p| *p == BinaryProvider::GithubReleases),
+        "Expected only GithubReleases provider, got: {:?}",
+        providers
+    );
+
+    assert!(
+        messages.iter().any(|m| matches!(
+            m,
+            Message::PrebuiltBinary(PrebuiltBinaryMessage::ProviderHasNoBinary {
+                provider: BinaryProvider::GithubReleases,
+                ..
+            })
+        )),
+        "Expected ProviderHasNoBinary for GithubReleases"
+    );
+
+    assert!(
+        !messages
+            .iter()
+            .any(|m| matches!(m, Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { .. }))),
+        "Should not have Resolved for aarch64 Linux musl"
+    );
+
+    assert!(
+        !messages
+            .iter()
+            .any(|m| matches!(m, Message::Build(BuildMessage::Started { .. }))),
+        "Should not have BuildMessage::Started when prebuilt binaries are required"
     );
 }
 
@@ -838,10 +905,14 @@ fn default_resolves_via_binstall() {
 /// Test that the default provider order resolves eza via GitHub Releases. Binstall is tried
 /// first but fails (no binstall metadata), then GitHub Releases finds a matching release asset.
 ///
-/// eza publishes GitHub release assets for Linux targets and `x86_64-pc-windows-gnu` only
-/// (no macOS, no windows-msvc).
+/// eza 0.23.1 published GitHub release assets for Linux GNU, x86_64 Linux musl, and
+/// `x86_64-pc-windows-gnu` only (no macOS, no windows-msvc, no aarch64 Linux musl). On
+/// aarch64 Linux musl, default resolution falls through to Quickinstall.
 #[test]
-#[cfg(any(target_os = "linux", all(target_os = "windows", target_env = "gnu")))]
+#[cfg(any(
+    all(target_os = "linux", not(all(target_arch = "aarch64", target_env = "musl"))),
+    all(target_os = "windows", target_env = "gnu")
+))]
 fn default_resolves_via_github() {
     let mut cgx = Cgx::with_test_fs();
 
@@ -860,6 +931,37 @@ fn default_resolves_via_github() {
     });
     let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
     assert_eq!(binary.provider, BinaryProvider::GithubReleases);
+
+    assert!(
+        !messages
+            .iter()
+            .any(|m| matches!(m, Message::Build(BuildMessage::Started { .. }))),
+        "Should not have BuildMessage::Started when using prebuilt binary"
+    );
+}
+
+/// Test that the default provider order falls through to Quickinstall for eza on aarch64 Linux
+/// musl, where eza has no matching GitHub Releases asset.
+#[test]
+#[cfg(all(target_arch = "aarch64", target_os = "linux", target_env = "musl"))]
+fn default_resolves_via_quickinstall_on_aarch64_musl() {
+    let mut cgx = Cgx::with_test_fs();
+
+    let (assert, messages) = cgx
+        .cmd
+        .with_json_messages()
+        .arg("--no-exec")
+        .arg("eza@=0.23.1")
+        .assert_with_messages();
+
+    assert.success();
+
+    let resolved = messages.iter().find_map(|m| match m {
+        Message::PrebuiltBinary(PrebuiltBinaryMessage::Resolved { binary }) => Some(binary),
+        _ => None,
+    });
+    let binary = resolved.expect("Expected PrebuiltBinaryMessage::Resolved");
+    assert_eq!(binary.provider, BinaryProvider::Quickinstall);
 
     assert!(
         !messages
