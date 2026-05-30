@@ -220,11 +220,13 @@ This means that if your environment is already configured for `cargo` to work be
 `cgx` should work without any additional configuration.
 
 For git operations (`--git`, `--github`, `--gitlab`) over HTTP/S, cgx applies the same HTTP settings where possible:
+
 - `proxy`
 - `retries` and backoff settings
 - user agent
 - `timeout`
 
 For git-over-HTTP specifically, `timeout` is intentionally used both as:
+
 - a connection timeout
 - a stalled-transfer timeout threshold (via curl low-speed timeout settings)

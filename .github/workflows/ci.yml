@@ -326,32 +326,44 @@ jobs:
   # Runs natively in Alpine rather than cross-compiling, because openssl-sys needs
   # musl-compatible headers that aren't available on the glibc host.
   test-musl:
-    name: Test (Linux musl)
+    name: Test (Linux musl ${{ matrix.name }})
     needs: [detect-pr-type, test-linux-amd64]
     if: needs.detect-pr-type.outputs.is-dependabot == 'false' && needs.detect-pr-type.outputs.is-release-plz == 'false'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: amd64
+            cache_key: x86_64-unknown-linux-musl
+            expected_host: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            name: arm64
+            cache_key: aarch64-unknown-linux-musl
+            expected_host: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
     container:
-      image: rust:1.85.1-alpine
+      image: ghcr.io/anelson-labs/cgx-musl-build:1.85.1
     steps:
-      - name: Install system dependencies
-        # rust-cache expects GNU tar; Alpine's default BusyBox tar does not support
-        # the flags used during cache save/restore.
-        run: apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev tar
-
       - uses: actions/checkout@v6
 
-      # In musl jobs the Rust toolchain is baked into the container image that we use, so
-      # we do not need to install the Rust toolchain separately on the host
-      # We just check the toolchain version and log it for debugging purposes
-      - name: Verify Alpine Rust toolchain
+      # The Rust toolchain and native musl build dependencies are baked into the image.
+      - name: Verify musl build image
+        shell: bash
         run: |
+          set -euo pipefail
           rustc --version
           cargo --version
           test "$(rustc -vV | sed -n 's/^release: //p')" = "1.85.1"
+          test "$(rustc -vV | sed -n 's/^host: //p')" = "${{ matrix.expected_host }}"
+          tar --version | grep -q 'GNU tar'
+          git --version
+          xz --version >/dev/null
+          pkg-config --libs --static openssl >/dev/null
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: x86_64-unknown-linux-musl
+          shared-key: ${{ matrix.cache_key }}
           add-job-id-key: false
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
