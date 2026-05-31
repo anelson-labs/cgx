@@ -322,46 +322,51 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: cargo test --workspace ${{ env.TARGET_FLAG }}
 
-  # Stage 3b: Linux musl (Alpine container)
-  # Runs natively in Alpine rather than cross-compiling, because openssl-sys needs
-  # musl-compatible headers that aren't available on the glibc host.
+  # Stage 3b: Linux musl (static, vendored OpenSSL + libcurl)
+  # Builds each arch natively on its own runner and links statically against the musl target.
+  # The musl OpenSSL/libcurl come from the vendored static build configured in cgx-core/Cargo.toml,
   test-musl:
-    name: Test (Linux musl)
+    name: Test (Linux musl ${{ matrix.name }})
     needs: [detect-pr-type, test-linux-amd64]
     if: needs.detect-pr-type.outputs.is-dependabot == 'false' && needs.detect-pr-type.outputs.is-release-plz == 'false'
-    runs-on: ubuntu-24.04
-    container:
-      image: rust:1.85.1-alpine
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: amd64
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            name: arm64
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Install system dependencies
-        # rust-cache expects GNU tar; Alpine's default BusyBox tar does not support
-        # the flags used during cache save/restore.
-        run: apk add --no-cache bash curl git openssl-dev openssl-libs-static perl make musl-dev tar
-
       - uses: actions/checkout@v6
 
-      # In musl jobs the Rust toolchain is baked into the container image that we use, so
-      # we do not need to install the Rust toolchain separately on the host
-      # We just check the toolchain version and log it for debugging purposes
-      - name: Verify Alpine Rust toolchain
+      - *install-rust
+
+      - name: Add musl target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install musl build tools
+        # musl-gcc compiles the vendored OpenSSL/libcurl C sources for the musl target.
         run: |
-          rustc --version
-          cargo --version
-          test "$(rustc -vV | sed -n 's/^release: //p')" = "1.85.1"
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: x86_64-unknown-linux-musl
+          shared-key: ${{ matrix.target }}
           add-job-id-key: false
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Build test artifacts
-        run: cargo test --workspace --no-run
+        run: cargo test --workspace --target ${{ matrix.target }} --no-run
 
       - name: Run tests
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: cargo test --workspace
+        run: cargo test --workspace --target ${{ matrix.target }}
 
   # Stage 4: Extended platforms (ARM + Intel Mac)
   # Alternative architectures that in all likelihood work just as well as the primary arch,

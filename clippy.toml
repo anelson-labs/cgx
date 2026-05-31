@@ -1,1 +1,1 @@
-doc-valid-idents = ["NixOS", ".."]
+doc-valid-idents = ["NixOS", "x86_64", ".."]

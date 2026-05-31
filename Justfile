@@ -89,6 +89,22 @@ xmac-check:
         RUSTFLAGS="-Dwarnings" cargo-zigbuild check --workspace --all-targets --target x86_64-apple-darwin
       '
 
+# Regenerate cargo-dist release workflows, including the dry-run workflow.
+[unix]
+regen-dist-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{justfile_directory()}}"
+    .github/scripts/regen-dist-release.sh
+
+# Check that cargo-dist generated release workflows are up to date.
+[unix]
+check-dist-release-generated:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{justfile_directory()}}"
+    .github/scripts/check-dist-release-generated.sh
+
 # Format the entire project with beautifiers
 fmt:
     # (Ab)use nightly rustfmt features to correct some annoying rustfmt issues,
@@ -113,7 +129,8 @@ fmtcheck:
 # Do a Rust "vibe check" (*cringe*) on the codebase
 # This is helpful for humans but it's mainly intended to provide a deterministic way for coding agents
 # to get feedback on their almost certainly shitty changes before wasting a human's time with their garbage code.
-vibecheck:
+# Run the generated workflow check plus Rust compile, clippy, and docs checks.
+vibecheck: check-dist-release-generated
     cargo check --all-targets --workspace
     cargo check --all-targets --all-features --workspace
     cargo clippy --all-targets --all-features -- -D warnings

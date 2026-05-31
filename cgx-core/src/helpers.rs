@@ -1,12 +1,12 @@
 use crate::{Result, error};
 use snafu::ResultExt;
-use std::fmt::Write;
-use std::path::Path;
+use std::{fmt::Write, path::Path};
 
 /// Format a byte slice as a lowercase hex string.
 ///
-/// `sha2 0.11` returns digests as [`hybrid_array::Array`], which does not
-/// implement [`std::fmt::LowerHex`]. Callers feed `hasher.finalize()` directly.
+/// `sha2 0.11` returns digests as type that encapsulates a byte slice, which does not
+/// implement [`std::fmt::LowerHex`]. Callers feed the return value of `hasher.finalize()`
+/// directly to this function and get a lowercase hex repr back.
 pub(crate) fn format_hex_lower(bytes: impl AsRef<[u8]>) -> String {
     let bytes = bytes.as_ref();
     let mut s = String::with_capacity(bytes.len() * 2);

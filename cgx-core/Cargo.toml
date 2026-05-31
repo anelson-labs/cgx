@@ -15,6 +15,11 @@ version                = "0.0.10"
 ignored = [
   # This is used in a `#[serde(with = "...")]` attribute, cargo-machete seems unable to detect this
   "humantime-serde",
+  # These are declared only for the musl target to turn on static-vendoring features (via Cargo
+  # feature unification) on the openssl-sys/libcurl that gix's curl transport pulls in. They are
+  # never used directly from our code, so cargo-machete can't see why they're here.
+  "openssl-sys",
+  "curl",
 ]
 
 [dependencies]
@@ -56,6 +61,15 @@ zstd.workspace  = true
 
 [target.'cfg(windows)'.dependencies]
 ctrlc = { workspace = true }
+
+# vendor OpenSSL + libcurl statically for musl only.
+# Feature unification turns on `vendored` for the openssl-sys that curl-sys already
+# pulls, and static-curl/static-ssl build libcurl+OpenSSL from source.
+# This will hopefully allow us to successfully cross-compile for linux musl in the cargo-dist
+# builds.
+[target.'cfg(target_env = "musl")'.dependencies]
+curl        = { workspace = true, features = ["static-curl", "static-ssl"] }
+openssl-sys = { workspace = true, features = ["vendored"] }
 
 [dev-dependencies]
 assert-json-diff   = { workspace = true }
